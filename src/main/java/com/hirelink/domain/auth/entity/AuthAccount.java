@@ -48,4 +48,12 @@ public class AuthAccount {
 		this.providerUserId = providerUserId;
 		this.passwordHash = passwordHash;
 	}
+
+	public UserAccount getUserAccount() {
+		return userAccount;
+	}
+
+	public String getPasswordHash() {
+		return passwordHash;
+	}
 }

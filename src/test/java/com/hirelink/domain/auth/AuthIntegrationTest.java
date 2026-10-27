@@ -1,0 +1,498 @@
+package com.hirelink.domain.auth;
+
+import java.net.URI;
+import java.net.HttpCookie;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.time.Instant;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.context.annotation.Import;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
+import org.springframework.security.oauth2.jwt.JwsHeader;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+
+import com.hirelink.domain.auth.entity.AuthAccount;
+import com.hirelink.domain.auth.entity.RefreshToken;
+import com.hirelink.domain.auth.repository.AuthAccountRepository;
+import com.hirelink.domain.auth.repository.RefreshTokenRepository;
+import com.hirelink.domain.member.repository.UserAccountRepository;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+
+@Testcontainers
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(AuthIntegrationTest.TestAuthController.class)
+class AuthIntegrationTest {
+
+	private static final String TEST_JWT_SECRET = createTestSigningKey();
+
+	@Container
+	static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine");
+
+	@DynamicPropertySource
+	static void databaseProperties(DynamicPropertyRegistry registry) {
+		registry.add("spring.datasource.url", postgres::getJdbcUrl);
+		registry.add("spring.datasource.username", postgres::getUsername);
+		registry.add("spring.datasource.password", postgres::getPassword);
+		registry.add("jwt.secret", () -> TEST_JWT_SECRET);
+	}
+
+	@LocalServerPort
+	private int port;
+
+	@Autowired
+	private JdbcTemplate jdbcTemplate;
+
+	@Autowired
+	private ObjectMapper objectMapper;
+
+	@Autowired
+	private PasswordEncoder passwordEncoder;
+
+	@Autowired
+	private JwtEncoder jwtEncoder;
+
+	@MockitoSpyBean
+	private UserAccountRepository userAccountRepository;
+
+	@MockitoSpyBean
+	private AuthAccountRepository authAccountRepository;
+
+	@MockitoSpyBean
+	private RefreshTokenRepository refreshTokenRepository;
+
+	private final HttpClient httpClient = HttpClient.newBuilder()
+			.connectTimeout(Duration.ofSeconds(10)).build();
+
+	@BeforeEach
+	void clearTestDatabase() {
+		// DynamicPropertySource가 연결한 일회용 PostgreSQL 컨테이너만 초기화한다.
+		jdbcTemplate.execute("TRUNCATE TABLE refresh_token, auth_account, user_account RESTART IDENTITY");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"STUDENT", "EMPLOYER"})
+	void signupStoresBothAccountsAndReturnsOnlyPublicFields(String role) throws Exception {
+		HttpResponse<String> response = signup("  Member@Example.COM  ", "password123", role);
+		assertThat(response.statusCode()).isEqualTo(201);
+		JsonNode body = objectMapper.readTree(response.body());
+		assertThat(body.size()).isEqualTo(6);
+		assertThat(body.path("userId").asLong()).isPositive();
+		assertThat(body.path("email").asString()).isEqualTo("member@example.com");
+		assertThat(body.path("role").asString()).isEqualTo(role);
+		assertThat(response.headers().firstValue("Authorization")).isEmpty();
+		assertThat(body.has("refreshToken")).isFalse();
+		assertThat(body.path("tokenType").asString()).isEqualTo("Bearer");
+		assertThat(body.path("expiresIn").asLong()).isEqualTo(3600);
+		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+		assertTokenStorage(response);
+
+		Map<String, Object> user = jdbcTemplate.queryForMap("SELECT * FROM user_account");
+		assertThat(user.get("id")).isEqualTo(body.path("userId").asLong());
+		assertThat(user.get("email")).isEqualTo("member@example.com");
+		assertThat(user.get("role")).isEqualTo(role);
+		assertThat(user.get("preferred_language")).isEqualTo("KO");
+		assertThat(user.get("created_at")).isNotNull();
+		assertThat(user.get("updated_at")).isEqualTo(user.get("created_at"));
+		for (String nullableColumn : new String[]{"name", "email_verified_at", "phone_number",
+				"phone_verified_at", "acquisition_channel", "withdrawn_at"}) {
+			assertThat(user).containsEntry(nullableColumn, null);
+		}
+
+		Map<String, Object> auth = jdbcTemplate.queryForMap("SELECT * FROM auth_account");
+		assertThat(auth.get("user_id")).isEqualTo(user.get("id"));
+		assertThat(auth.get("provider")).isEqualTo("LOCAL");
+		assertThat(auth.get("provider_user_id")).isEqualTo("member@example.com");
+		String passwordHash = (String) auth.get("password_hash");
+		assertThat(passwordHash).startsWith("$2").isNotEqualTo("password123");
+		assertThat(passwordEncoder.matches("password123", passwordHash)).isTrue();
+	}
+
+	@ParameterizedTest
+	@MethodSource("invalidRequests")
+	void invalidInputReturns400WithoutCreatingAccounts(String json) throws Exception {
+		assertError(post(json), 400, "INVALID_INPUT");
+		assertAccountCounts(0, 0);
+	}
+
+	static Stream<String> invalidRequests() {
+		return Stream.of(
+				"{}",
+				"null",
+				"{",
+				"",
+				"{\"email\":\"invalid\",\"password\":\"password123\",\"role\":\"STUDENT\"}",
+				"{\"email\":\"  \",\"password\":\"password123\",\"role\":\"STUDENT\"}",
+				"{\"email\":\"member@example.com\",\"password\":\"abc1234\",\"role\":\"STUDENT\"}",
+				"{\"email\":\"member@example.com\",\"password\":\"abcdefgh\",\"role\":\"STUDENT\"}",
+				"{\"email\":\"member@example.com\",\"password\":\"12345678\",\"role\":\"STUDENT\"}",
+				"{\"email\":\"member@example.com\",\"password\":null,\"role\":\"STUDENT\"}",
+				"{\"email\":\"member@example.com\",\"password\":\"password123\",\"role\":\"ADMIN\"}",
+				"{\"email\":\"member@example.com\",\"password\":\"password123\",\"role\":\"student\"}",
+				"{\"email\":\"member@example.com\",\"password\":\"password123\",\"role\":null}",
+				"{\"email\":\"member@example.com\",\"password\":\"password123\",\"role\":0}"
+		);
+	}
+
+	@Test
+	void normalizedDuplicateEmailReturns409() throws Exception {
+		assertThat(signup("member@example.com", "password123", "STUDENT").statusCode()).isEqualTo(201);
+		HttpResponse<String> response = signup("  MEMBER@EXAMPLE.COM  ", "password456", "EMPLOYER");
+		assertError(response, 409, "DUPLICATE_EMAIL");
+		assertThat(objectMapper.readTree(response.body()).path("message").asString())
+				.isEqualTo("이미 사용 중인 이메일입니다.");
+		assertAccountCounts(1, 1);
+	}
+
+	@Test
+	void concurrentSignupReturnsOneSuccessAndOneConflict() throws Exception {
+		CyclicBarrier bothEmailsChecked = new CyclicBarrier(2);
+		doAnswer(invocation -> {
+			// 두 요청 모두 사전 중복 조회를 통과한 상황을 만들고 실제 DB UNIQUE 처리를 검증한다.
+			bothEmailsChecked.await(10, TimeUnit.SECONDS);
+			return false;
+		}).when(userAccountRepository).existsByEmail("race@example.com");
+
+		HttpRequest request = signupRequest(signupJson("race@example.com", "password123", "STUDENT"));
+		var first = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+		var second = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+		HttpResponse<String> firstResponse = first.get(20, TimeUnit.SECONDS);
+		HttpResponse<String> secondResponse = second.get(20, TimeUnit.SECONDS);
+		assertThat(new int[]{firstResponse.statusCode(), secondResponse.statusCode()})
+				.containsExactlyInAnyOrder(201, 409);
+		assertError(firstResponse.statusCode() == 409 ? firstResponse : secondResponse, 409, "DUPLICATE_EMAIL");
+		assertAccountCounts(1, 1);
+	}
+
+	@Test
+	void authAccountUniqueViolationRollsBackNewUserAccount() throws Exception {
+		jdbcTemplate.update("INSERT INTO user_account (email, role) VALUES (?, ?)", "existing@example.com", "STUDENT");
+		Long existingUserId = jdbcTemplate.queryForObject("SELECT id FROM user_account", Long.class);
+		jdbcTemplate.update("INSERT INTO auth_account (user_id, provider, provider_user_id) VALUES (?, ?, ?)",
+				existingUserId, "LOCAL", "conflict@example.com");
+
+		assertError(signup("conflict@example.com", "password123", "STUDENT"), 409, "DUPLICATE_EMAIL");
+		assertThat(userAccountRepository.existsByEmail("conflict@example.com")).isFalse();
+		assertAccountCounts(1, 1);
+	}
+
+	@Test
+	void unexpectedAuthSaveFailureRollsBackUserAndReturnsSafe500() throws Exception {
+		doThrow(new IllegalStateException("internal database detail"))
+				.when(authAccountRepository).saveAndFlush(any(AuthAccount.class));
+		HttpResponse<String> response = signup("rollback@example.com", "password123", "STUDENT");
+		assertError(response, 500, "INTERNAL_SERVER_ERROR");
+		assertThat(response.body()).doesNotContain("internal database detail", "password123", "Exception");
+		assertAccountCounts(0, 0);
+	}
+
+	@Test
+	void bcryptRejectedInputIsNotTruncatedOrStored() throws Exception {
+		assertError(signup("long@example.com", "a".repeat(72) + "1", "STUDENT"), 400, "INVALID_PASSWORD");
+		assertAccountCounts(0, 0);
+	}
+
+	@Test
+	void passwordIsNotTrimmed() throws Exception {
+		String password = " password123 ";
+		assertThat(signup("spaces@example.com", password, "STUDENT").statusCode()).isEqualTo(201);
+		String hash = jdbcTemplate.queryForObject("SELECT password_hash FROM auth_account", String.class);
+		assertThat(passwordEncoder.matches(password, hash)).isTrue();
+		assertThat(passwordEncoder.matches(password.trim(), hash)).isFalse();
+	}
+
+	@Test
+	void protectedPathRequiresAuthenticationWithoutRedirectingToLogin() throws Exception {
+		HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/not-existing"))
+				.timeout(Duration.ofSeconds(10)).GET().build();
+		HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+		assertError(response, 401, "UNAUTHORIZED");
+		assertThat(response.headers().firstValue("WWW-Authenticate")).contains("Bearer");
+		assertThat(response.headers().firstValue("Location")).isEmpty();
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"STUDENT", "EMPLOYER"})
+	void loginReturnsTokensAndAuthenticatesRequests(String role) throws Exception {
+		assertThat(signup("member@example.com", "password123", role).statusCode()).isEqualTo(201);
+		HttpResponse<String> response = login(" MEMBER@EXAMPLE.COM ", "password123");
+		assertThat(response.statusCode()).isEqualTo(200);
+		JsonNode body = objectMapper.readTree(response.body());
+		assertThat(body.size()).isEqualTo(5);
+		assertThat(body.path("role").asString()).isEqualTo(role);
+		assertThat(body.path("tokenType").asString()).isEqualTo("Bearer");
+		assertThat(body.path("expiresIn").asLong()).isEqualTo(3600);
+		assertThat(body.has("refreshToken")).isFalse();
+		assertThat(body.has("email")).isFalse();
+		assertTokenStorage(response);
+
+		HttpResponse<String> authenticated = authenticatedRequest(body.path("accessToken").asString(), "GET");
+		assertThat(authenticated.statusCode()).isEqualTo(200);
+		JsonNode currentUser = objectMapper.readTree(authenticated.body());
+		assertThat(currentUser.path("userId").asLong()).isEqualTo(body.path("userId").asLong());
+		assertThat(currentUser.path("role").asString()).isEqualTo(role);
+		assertThat(authenticatedRequest(body.path("accessToken").asString(), "POST").statusCode()).isEqualTo(200);
+	}
+
+	@Test
+	void loginDoesNotTrimPassword() throws Exception {
+		signup("spaces@example.com", " password123 ", "STUDENT");
+		assertThat(login("spaces@example.com", " password123 ").statusCode()).isEqualTo(200);
+		assertError(login("spaces@example.com", "password123"), 401, "INVALID_CREDENTIALS");
+	}
+
+	@Test
+	void incorrectAndUnknownCredentialsHaveSameResponse() throws Exception {
+		signup("member@example.com", "password123", "STUDENT");
+		HttpResponse<String> wrongPassword = login("member@example.com", "wrong123");
+		HttpResponse<String> unknownEmail = login("unknown@example.com", "password123");
+		assertError(wrongPassword, 401, "INVALID_CREDENTIALS");
+		assertError(unknownEmail, 401, "INVALID_CREDENTIALS");
+		assertThat(wrongPassword.body()).isEqualTo(unknownEmail.body());
+		assertThat(wrongPassword.headers().allValues("Set-Cookie")).isEmpty();
+		assertError(login("member@example.com", "a".repeat(72) + "1"), 401, "INVALID_CREDENTIALS");
+		assertThat(refreshTokenCount()).isEqualTo(1);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"{}", "{", "null", "{\"email\":\"invalid\",\"password\":\"password123\"}",
+			"{\"email\":\"member@example.com\",\"password\":\"\"}"})
+	void invalidLoginInputReturns400(String json) throws Exception {
+		assertError(postTo("/api/auth/login", json), 400, "INVALID_INPUT");
+		assertThat(refreshTokenCount()).isZero();
+	}
+
+	@Test
+	void withdrawnAccountCannotLogIn() throws Exception {
+		signup("withdrawn@example.com", "password123", "STUDENT");
+		jdbcTemplate.update("UPDATE user_account SET withdrawn_at = now() WHERE email = ?", "withdrawn@example.com");
+		assertError(login("withdrawn@example.com", "password123"), 403, "WITHDRAWN_ACCOUNT");
+		assertError(login("withdrawn@example.com", "wrong123"), 401, "INVALID_CREDENTIALS");
+		assertThat(refreshTokenCount()).isEqualTo(1);
+	}
+
+	@Test
+	void separateLoginsRemainValidAndDoNotExtendExistingExpiry() throws Exception {
+		HttpResponse<String> first = signup("member@example.com", "password123", "STUDENT");
+		Map<String, Object> existing = jdbcTemplate.queryForMap("SELECT * FROM refresh_token");
+		HttpResponse<String> second = login("member@example.com", "password123");
+		assertThat(second.statusCode()).isEqualTo(200);
+		assertThat(refreshCookieValue(first)).isNotEqualTo(refreshCookieValue(second));
+		assertThat(refreshTokenCount()).isEqualTo(2);
+		assertThat(jdbcTemplate.queryForMap("SELECT * FROM refresh_token WHERE id = ?", existing.get("id")))
+				.isEqualTo(existing);
+		for (HttpResponse<String> response : List.of(first, second)) {
+			String accessToken = objectMapper.readTree(response.body()).path("accessToken").asString();
+			assertThat(authenticatedRequest(accessToken, "GET").statusCode()).isEqualTo(200);
+		}
+	}
+
+	@Test
+	void refreshTokenCannotBeUsedAsAccessTokenOrCookieAuthentication() throws Exception {
+		HttpResponse<String> response = signup("member@example.com", "password123", "STUDENT");
+		String refreshToken = refreshCookieValue(response);
+		assertError(authenticatedRequest(refreshToken, "GET"), 401, "UNAUTHORIZED");
+		HttpRequest cookieRequest = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/test/auth/me"))
+				.timeout(Duration.ofSeconds(10)).header("Cookie", "refreshToken=" + refreshToken).GET().build();
+		assertError(httpClient.send(cookieRequest, HttpResponse.BodyHandlers.ofString()), 401, "UNAUTHORIZED");
+	}
+
+	@Test
+	void malformedAndTamperedTokensAreRejected() throws Exception {
+		HttpResponse<String> response = signup("member@example.com", "password123", "STUDENT");
+		String token = objectMapper.readTree(response.body()).path("accessToken").asString();
+		int signatureStart = token.lastIndexOf('.') + 1;
+		char replacement = token.charAt(signatureStart) == 'A' ? 'B' : 'A';
+		String tampered = token.substring(0, signatureStart) + replacement + token.substring(signatureStart + 1);
+		assertError(authenticatedRequest(tampered, "GET"), 401, "UNAUTHORIZED");
+		assertError(authenticatedRequest("not-a-token", "GET"), 401, "UNAUTHORIZED");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"expired", "future", "wrongIssuer", "wrongRole", "wrongSubject", "missingExpiry", "missingType"})
+	void signedTokenWithInvalidClaimsIsRejected(String scenario) throws Exception {
+		Instant now = Instant.now();
+		JwtClaimsSet.Builder claims = JwtClaimsSet.builder().issuer("hirelink").subject("1")
+				.claim("role", "STUDENT").claim("token_type", "access")
+				.issuedAt(now.minusSeconds(7200)).notBefore(now.minusSeconds(7200));
+		if (!scenario.equals("missingExpiry")) {
+			claims.expiresAt(scenario.equals("expired") ? now.minusSeconds(1) : now.plusSeconds(3600));
+		}
+		switch (scenario) {
+			case "future" -> claims.notBefore(now.plusSeconds(300));
+			case "wrongIssuer" -> claims.issuer("other-service");
+			case "wrongRole" -> claims.claim("role", "ADMIN");
+			case "wrongSubject" -> claims.subject("not-a-user-id");
+			case "missingType" -> claims.claims(values -> values.remove("token_type"));
+			default -> { }
+		}
+		String token = jwtEncoder.encode(JwtEncoderParameters.from(
+				JwsHeader.with(MacAlgorithm.HS256).build(), claims.build())).getTokenValue();
+		assertError(authenticatedRequest(token, "GET"), 401, "UNAUTHORIZED");
+	}
+
+	@Test
+	void tokenSaveFailureRollsBackSignupAndDoesNotReturnCookie() throws Exception {
+		doThrow(new IllegalStateException("token storage unavailable"))
+				.when(refreshTokenRepository).saveAndFlush(any(RefreshToken.class));
+		HttpResponse<String> response = signup("rollback@example.com", "password123", "STUDENT");
+		assertError(response, 500, "INTERNAL_SERVER_ERROR");
+		assertThat(response.headers().allValues("Set-Cookie")).isEmpty();
+		assertAccountCounts(0, 0);
+		assertThat(refreshTokenCount()).isZero();
+	}
+
+	@Test
+	void tokenSaveFailureDuringLoginKeepsExistingSessions() throws Exception {
+		signup("member@example.com", "password123", "STUDENT");
+		doThrow(new IllegalStateException("token storage unavailable"))
+				.when(refreshTokenRepository).saveAndFlush(any(RefreshToken.class));
+		HttpResponse<String> response = login("member@example.com", "password123");
+		assertError(response, 500, "INTERNAL_SERVER_ERROR");
+		assertThat(response.headers().allValues("Set-Cookie")).isEmpty();
+		assertThat(refreshTokenCount()).isEqualTo(1);
+	}
+
+	private void assertTokenStorage(HttpResponse<String> response) throws Exception {
+		String cookie = response.headers().firstValue("Set-Cookie").orElseThrow();
+		assertThat(cookie).contains("HttpOnly", "Secure", "SameSite=Lax", "Path=/api/auth", "Max-Age=1209600");
+		String refreshToken = refreshCookieValue(response);
+		String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+				.digest(refreshToken.getBytes(StandardCharsets.UTF_8)));
+		Map<String, Object> stored = jdbcTemplate.queryForMap("SELECT * FROM refresh_token WHERE token_hash = ?", hash);
+		JsonNode accessClaims = tokenClaims(objectMapper.readTree(response.body()).path("accessToken").asString());
+		JsonNode refreshClaims = tokenClaims(refreshToken);
+		assertThat(accessClaims.path("token_type").asString()).isEqualTo("access");
+		assertThat(refreshClaims.path("token_type").asString()).isEqualTo("refresh");
+		assertThat(accessClaims.has("email")).isFalse();
+		assertThat(refreshClaims.has("email")).isFalse();
+		assertThat(accessClaims.path("exp").asLong() - accessClaims.path("iat").asLong()).isEqualTo(3600);
+		assertThat(refreshClaims.path("exp").asLong() - refreshClaims.path("iat").asLong()).isEqualTo(1209600);
+		assertThat(((java.sql.Timestamp) stored.get("expires_at")).toInstant().getEpochSecond())
+				.isEqualTo(refreshClaims.path("exp").asLong());
+		assertThat(((java.sql.Timestamp) stored.get("created_at")).toInstant().getEpochSecond())
+				.isEqualTo(refreshClaims.path("iat").asLong());
+		assertThat(stored.get("user_id").toString()).isEqualTo(refreshClaims.path("sub").asString());
+	}
+
+	private JsonNode tokenClaims(String token) {
+		return objectMapper.readTree(Base64.getUrlDecoder().decode(token.split("\\.")[1]));
+	}
+
+	private String refreshCookieValue(HttpResponse<String> response) {
+		return HttpCookie.parse(response.headers().firstValue("Set-Cookie").orElseThrow()).get(0).getValue();
+	}
+
+	private HttpResponse<String> login(String email, String password) throws Exception {
+		return postTo("/api/auth/login", objectMapper.writeValueAsString(Map.of("email", email, "password", password)));
+	}
+
+	private HttpResponse<String> postTo(String path, String json) throws Exception {
+		HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+				.timeout(Duration.ofSeconds(20)).header("Content-Type", "application/json")
+				.POST(HttpRequest.BodyPublishers.ofString(json)).build();
+		return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+	}
+
+	private HttpResponse<String> authenticatedRequest(String token, String method) throws Exception {
+		HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/test/auth/me"))
+				.timeout(Duration.ofSeconds(10)).header("Authorization", "Bearer " + token)
+				.method(method, HttpRequest.BodyPublishers.noBody()).build();
+		return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+	}
+
+	private int refreshTokenCount() {
+		return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM refresh_token", Integer.class);
+	}
+
+	private static String createTestSigningKey() {
+		byte[] key = new byte[32];
+		new SecureRandom().nextBytes(key);
+		return Base64.getEncoder().encodeToString(key);
+	}
+
+	@RestController
+	static class TestAuthController {
+		@GetMapping("/test/auth/me")
+		Map<String, Object> currentUser(@AuthenticationPrincipal Jwt jwt) {
+			return Map.of("userId", Long.parseLong(jwt.getSubject()), "role", jwt.getClaimAsString("role"));
+		}
+
+		@PostMapping("/test/auth/me")
+		Map<String, Object> authenticatedPost(@AuthenticationPrincipal Jwt jwt) {
+			return currentUser(jwt);
+		}
+	}
+
+	private HttpResponse<String> signup(String email, String password, String role) throws Exception {
+		return post(signupJson(email, password, role));
+	}
+
+	private String signupJson(String email, String password, String role) {
+		return objectMapper.writeValueAsString(Map.of("email", email, "password", password, "role", role));
+	}
+
+	private HttpResponse<String> post(String json) throws Exception {
+		return httpClient.send(signupRequest(json), HttpResponse.BodyHandlers.ofString());
+	}
+
+	private HttpRequest signupRequest(String json) {
+		return HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/signup"))
+				.timeout(Duration.ofSeconds(20))
+				.header("Content-Type", "application/json")
+				.POST(HttpRequest.BodyPublishers.ofString(json)).build();
+	}
+
+	private void assertError(HttpResponse<String> response, int status, String code) {
+		assertThat(response.statusCode()).isEqualTo(status);
+		JsonNode body = objectMapper.readTree(response.body());
+		assertThat(body.size()).isEqualTo(2);
+		assertThat(body.path("code").asString()).isEqualTo(code);
+		assertThat(body.path("message").asString()).isNotBlank();
+	}
+
+	private void assertAccountCounts(int users, int authAccounts) {
+		assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM user_account", Integer.class)).isEqualTo(users);
+		assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM auth_account", Integer.class)).isEqualTo(authAccounts);
+	}
+}
