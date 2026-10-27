@@ -90,4 +90,8 @@ public class UserAccount {
 	public MemberRole getRole() {
 		return role;
 	}
+
+	public boolean isWithdrawn() {
+		return withdrawnAt != null;
+	}
 }

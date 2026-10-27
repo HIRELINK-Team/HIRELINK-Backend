@@ -11,3 +11,11 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
+
+jwt:
+  secret: ${JWT_SECRET}
+  issuer: hirelink
+
+auth:
+  cookie:
+    secure: ${AUTH_COOKIE_SECURE:true}

@@ -17,6 +17,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(InvalidCredentialsException.class)
+	public ResponseEntity<ErrorResponse> handleInvalidCredentials(InvalidCredentialsException exception) {
+		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+				.body(new ErrorResponse("INVALID_CREDENTIALS", exception.getMessage()));
+	}
+
+	@ExceptionHandler(WithdrawnAccountException.class)
+	public ResponseEntity<ErrorResponse> handleWithdrawnAccount(WithdrawnAccountException exception) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN)
+				.body(new ErrorResponse("WITHDRAWN_ACCOUNT", exception.getMessage()));
+	}
+
 	@ExceptionHandler(DuplicateEmailException.class)
 	public ResponseEntity<ErrorResponse> handleDuplicateEmail(DuplicateEmailException exception) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)
