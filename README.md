@@ -103,6 +103,67 @@ HTTPS 환경에서는 `AUTH_COOKIE_SECURE`의 기본값인 `true`를 사용합�
 자격 증명이 일치하더라도 `withdrawn_at`에 값이 있으면 `403 WITHDRAWN_ACCOUNT`를 반환합니다.
 요청 형식 오류는 `400 INVALID_INPUT`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
 
+## 액세스 토큰 재발급
+
+`POST /api/auth/refresh`
+
+요청 본문 없이 `refreshToken` 쿠키로 인증합니다. Access Token이 없어도 호출할 수 있습니다.
+재발급 전에 `GET /api/auth/csrf`로 CSRF 보안 확인값을 받습니다.
+
+```json
+{
+  "headerName": "X-XSRF-TOKEN",
+  "token": "<CSRF 보안 확인값>"
+}
+```
+
+이 응답은 `XSRF-TOKEN` 쿠키도 설정합니다. 쿠키는 `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/api/auth` 속성을 사용하며,
+로컬 HTTP에서는 기존 `AUTH_COOKIE_SECURE=false` 설정을 따릅니다. 프론트는 쿠키를 직접 읽지 않고 응답 본문의 `token`을 헤더에 넣습니다.
+
+```javascript
+const csrf = await fetch("/api/auth/csrf", {
+  credentials: "include"
+}).then(response => response.json());
+
+const response = await fetch("/api/auth/refresh", {
+  method: "POST",
+  credentials: "include",
+  headers: { [csrf.headerName]: csrf.token }
+});
+```
+
+페이지를 새로 열었거나 CSRF 쿠키가 사라진 경우 보안 확인값을 다시 받습니다.
+두 API는 `Authorization` 헤더를 사용하지 않으므로 만료된 Access Token 헤더가 있어도 재발급 흐름을 진행할 수 있습니다.
+
+성공 응답: `200 OK`
+
+```json
+{
+  "accessToken": "<새 Access Token>",
+  "tokenType": "Bearer",
+  "expiresIn": 3600
+}
+```
+
+요청 처리 순서:
+
+1. Spring Security가 CSRF 쿠키와 요청 헤더의 보안 확인값을 검증합니다.
+2. `TokenService`가 Refresh Token의 서명·발급자·만료·토큰 용도와 필수 식별 정보를 검증합니다.
+3. 토큰의 SHA-256 해시로 DB 기록을 조회하고 만료 시각, 회원 ID 일치 여부, 탈퇴 여부를 확인합니다.
+4. 현재 DB의 회원 ID와 역할로 1시간 동안 유효한 Access Token을 발급합니다.
+
+Refresh Token과 쿠키는 재발급하지 않으며, 최초 로그인부터 14일인 만료 시각과 다른 로그인 기록도 유지합니다.
+CSRF 응답과 재발급 응답에는 `Cache-Control: no-store`를 설정합니다.
+
+| HTTP 상태 | code | 의미 |
+| --- | --- | --- |
+| 401 | `INVALID_REFRESH_TOKEN` | Refresh Token 누락·변조·만료·잘못된 용도 또는 유효한 DB 기록 없음 |
+| 403 | `INVALID_CSRF_TOKEN` | CSRF 쿠키 또는 보안 확인 헤더 누락·불일치 |
+| 403 | `WITHDRAWN_ACCOUNT` | 탈퇴 계정 |
+| 500 | `INTERNAL_SERVER_ERROR` | 예상하지 못한 서버 오류 |
+
+CSRF 검사가 먼저 실행되므로, 보안 확인값이 없거나 잘못된 요청은 Refresh Token 검사 전에 `403`을 반환합니다.
+
 ## 토큰과 인증
 
 - Access Token은 응답 본문으로 전달하며 유효기간은 1시간입니다.
@@ -114,7 +175,7 @@ HTTPS 환경에서는 `AUTH_COOKIE_SECURE`의 기본값인 `true`를 사용합�
 - JWT는 HS256으로 서명합니다. 회원 ID는 `sub`, 역할은 `role`에 저장하고 발급자·발급/만료 시각·고유 ID·토큰 용도를 함께 검증에 사용합니다. 이메일·이름·전화번호는 넣지 않습니다.
 - Refresh Token은 API 접근용 Access Token으로 사용할 수 없습니다.
 
-회원가입·로그인 POST 외의 요청은 다음 헤더로 인증합니다.
+회원가입·로그인·재발급 POST와 CSRF 확인값 조회 GET 외의 요청은 다음 헤더로 인증합니다.
 
 ```text
 Authorization: Bearer <Access Token>
@@ -129,10 +190,11 @@ String role = jwt.getClaimAsString("role");
 ```
 
 기본 폼 로그인·HTTP Basic·로그아웃은 비활성화하고 서버 세션은 사용하지 않습니다.
-현재 API 인증은 Bearer 헤더만 사용하므로 CSRF 검사를 비활성화했습니다. Refresh Token 쿠키를 읽는 재발급·로그아웃 API를 추가할 때 CSRF 방어를 함께 구성해야 합니다.
+쿠키로 인증하는 재발급 POST에는 Spring Security의 CSRF 검사를 적용합니다. Bearer 헤더로만 인증하는 API에는 CSRF 확인값이 필요하지 않습니다.
+로그아웃 등 쿠키로 인증하는 API를 추가할 때에도 CSRF 보호 대상을 함께 확장해야 합니다.
 CORS 허용 주소와 브라우저 배포 환경에 맞는 쿠키 정책은 프론트 연동 시 확정합니다.
 
-현재 구현에는 토큰 재발급·로그아웃 API와 휴대전화 인증 API가 포함되지 않습니다.
+로그아웃 API와 휴대전화 인증 API는 후속 작업으로 진행합니다.
 
 ## 검증
 
@@ -146,3 +208,4 @@ Java 17과 실행 중인 Docker가 필요합니다.
 테스트용 DB 접속값을 별도로 주입하므로 개발 DB를 사용하지 않습니다.
 테스트용 JWT 서명 키도 실행 시 별도로 생성합니다.
 회원가입과 로그인, 입력 검증, 동시 중복 가입, 트랜잭션 롤백, 쿠키 속성, 다중 로그인, 토큰 서명·만료·용도 검증을 확인합니다.
+재발급은 실제 CSRF 쿠키·헤더를 사용해 검증하며, DB 기록 유지·만료·삭제, 탈퇴 계정, 만료된 Access Token과 CSRF 검증 우회 방지도 확인합니다.

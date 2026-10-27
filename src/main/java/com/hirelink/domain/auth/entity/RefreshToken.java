@@ -47,4 +47,12 @@ public class RefreshToken {
 		this.expiresAt = expiresAt;
 		this.createdAt = createdAt;
 	}
+
+	public UserAccount getUserAccount() {
+		return userAccount;
+	}
+
+	public Instant getExpiresAt() {
+		return expiresAt;
+	}
 }
