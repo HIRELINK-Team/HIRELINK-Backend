@@ -22,6 +22,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -56,6 +57,7 @@ import com.hirelink.domain.member.repository.UserAccountRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 
@@ -349,7 +351,7 @@ class AuthIntegrationTest {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = {"expired", "future", "wrongIssuer", "wrongRole", "wrongSubject", "missingExpiry", "missingType"})
+	@ValueSource(strings = {"expired", "future", "wrongIssuer", "wrongRole", "wrongSubject", "missingExpiry", "missingIssuedAt", "missingType"})
 	void signedTokenWithInvalidClaimsIsRejected(String scenario) throws Exception {
 		Instant now = Instant.now();
 		JwtClaimsSet.Builder claims = JwtClaimsSet.builder().issuer("hirelink").subject("1")
@@ -363,6 +365,7 @@ class AuthIntegrationTest {
 			case "wrongIssuer" -> claims.issuer("other-service");
 			case "wrongRole" -> claims.claim("role", "ADMIN");
 			case "wrongSubject" -> claims.subject("not-a-user-id");
+			case "missingIssuedAt" -> claims.claims(values -> values.remove("iat"));
 			case "missingType" -> claims.claims(values -> values.remove("token_type"));
 			default -> { }
 		}
@@ -393,12 +396,202 @@ class AuthIntegrationTest {
 		assertThat(refreshTokenCount()).isEqualTo(1);
 	}
 
+	@ParameterizedTest
+	@ValueSource(strings = {"STUDENT", "EMPLOYER"})
+	void refreshUsesCurrentRoleAndPreservesExistingLoginRecords(String initialRole) throws Exception {
+		HttpResponse<String> first = signup("member@example.com", "password123", initialRole);
+		HttpResponse<String> second = login("member@example.com", "password123");
+		List<Map<String, Object>> existing = jdbcTemplate.queryForList("SELECT * FROM refresh_token ORDER BY id");
+		String currentRole = initialRole.equals("STUDENT") ? "EMPLOYER" : "STUDENT";
+		jdbcTemplate.update("UPDATE user_account SET role = ? WHERE email = ?", currentRole, "member@example.com");
+
+		for (HttpResponse<String> loginResponse : List.of(first, second)) {
+			HttpResponse<String> refreshed = refresh(refreshCookieValue(loginResponse));
+			assertThat(refreshed.statusCode()).isEqualTo(200);
+			assertThat(refreshed.headers().firstValue("Cache-Control")).contains("no-store");
+			assertThat(refreshed.headers().allValues("Set-Cookie")).isEmpty();
+			JsonNode body = objectMapper.readTree(refreshed.body());
+			assertThat(body.size()).isEqualTo(3);
+			assertThat(body.path("tokenType").asString()).isEqualTo("Bearer");
+			assertThat(body.path("expiresIn").asLong()).isEqualTo(3600);
+			String accessToken = body.path("accessToken").asString();
+			assertThat(accessToken)
+					.isNotEqualTo(objectMapper.readTree(loginResponse.body()).path("accessToken").asString());
+			JsonNode claims = tokenClaims(accessToken);
+			assertThat(claims.path("exp").asLong() - claims.path("iat").asLong()).isEqualTo(3600);
+			HttpResponse<String> authenticated = authenticatedRequest(accessToken, "GET");
+			assertThat(authenticated.statusCode()).isEqualTo(200);
+			JsonNode currentUser = objectMapper.readTree(authenticated.body());
+			assertThat(currentUser.path("role").asString()).isEqualTo(currentRole);
+			assertThat(currentUser.path("userId").asLong())
+					.isEqualTo(objectMapper.readTree(loginResponse.body()).path("userId").asLong());
+		}
+		assertThat(jdbcTemplate.queryForList("SELECT * FROM refresh_token ORDER BY id")).isEqualTo(existing);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"deleted", "expired", "differentUser"})
+	void refreshRejectsInvalidDatabaseRecords(String scenario) throws Exception {
+		String token = refreshCookieValue(signup("member@example.com", "password123", "STUDENT"));
+		switch (scenario) {
+			case "deleted" -> jdbcTemplate.update("DELETE FROM refresh_token");
+			case "expired" -> jdbcTemplate.update("UPDATE refresh_token SET expires_at = now() - interval '1 second'");
+			case "differentUser" -> {
+				jdbcTemplate.update("INSERT INTO user_account (email, role) VALUES (?, ?)", "other@example.com", "STUDENT");
+				jdbcTemplate.update("UPDATE refresh_token SET user_id = (SELECT id FROM user_account WHERE email = ?)",
+						"other@example.com");
+			}
+			default -> throw new IllegalArgumentException(scenario);
+		}
+		assertError(refresh(token), 401, "INVALID_REFRESH_TOKEN");
+	}
+
+	@Test
+	void withdrawnAccountCannotRefreshTokens() throws Exception {
+		String token = refreshCookieValue(signup("withdrawn@example.com", "password123", "STUDENT"));
+		jdbcTemplate.update("UPDATE user_account SET withdrawn_at = now() WHERE email = ?", "withdrawn@example.com");
+		assertError(refresh(token), 403, "WITHDRAWN_ACCOUNT");
+		assertThat(refreshTokenCount()).isEqualTo(1);
+	}
+
+	@Test
+	void csrfEndpointProvidesHeaderTokenAndCookieWithoutCreatingSession() throws Exception {
+		HttpResponse<String> response = csrf();
+		assertThat(response.statusCode()).isEqualTo(200);
+		JsonNode body = objectMapper.readTree(response.body());
+		assertThat(body.size()).isEqualTo(2);
+		assertThat(body.path("headerName").asString()).isEqualTo("X-XSRF-TOKEN");
+		assertThat(body.path("token").asString()).isNotBlank();
+		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+		assertThat(response.headers().allValues("Set-Cookie")).hasSize(1);
+		assertThat(response.headers().firstValue("Set-Cookie").orElseThrow())
+				.contains("XSRF-TOKEN=", "HttpOnly", "Secure", "SameSite=Lax", "Path=/api/auth")
+				.doesNotContain("JSESSIONID", "refreshToken");
+		assertThat(refreshTokenCount()).isZero();
+	}
+
+	@ParameterizedTest
+	@NullAndEmptySource
+	@ValueSource(strings = {"not-a-token"})
+	void missingOrMalformedRefreshTokenReturns401(String token) throws Exception {
+		assertError(refresh(token), 401, "INVALID_REFRESH_TOKEN");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"expired", "future", "wrongIssuer", "wrongRole", "wrongSubject",
+			"missingExpiry", "missingIssuedAt", "missingType", "accessToken"})
+	void refreshRejectsInvalidJwtEvenWhenItsHashIsStored(String scenario) throws Exception {
+		signup("member@example.com", "password123", "STUDENT");
+		Instant now = Instant.now();
+		JwtClaimsSet.Builder claims = JwtClaimsSet.builder().issuer("hirelink").subject("1")
+				.claim("role", "STUDENT").claim("token_type", "refresh")
+				.issuedAt(now.minusSeconds(7200)).notBefore(now.minusSeconds(7200));
+		if (!scenario.equals("missingExpiry")) {
+			claims.expiresAt(scenario.equals("expired") ? now.minusSeconds(1) : now.plusSeconds(3600));
+		}
+		switch (scenario) {
+			case "future" -> claims.notBefore(now.plusSeconds(300));
+			case "wrongIssuer" -> claims.issuer("other-service");
+			case "wrongRole" -> claims.claim("role", "ADMIN");
+			case "wrongSubject" -> claims.subject("not-a-user-id");
+			case "missingIssuedAt" -> claims.claims(values -> values.remove("iat"));
+			case "missingType" -> claims.claims(values -> values.remove("token_type"));
+			case "accessToken" -> claims.claim("token_type", "access");
+			default -> { }
+		}
+		String token = jwtEncoder.encode(JwtEncoderParameters.from(
+				JwsHeader.with(MacAlgorithm.HS256).build(), claims.build())).getTokenValue();
+		jdbcTemplate.update("UPDATE refresh_token SET token_hash = ?", tokenHash(token));
+		assertError(refresh(token), 401, "INVALID_REFRESH_TOKEN");
+	}
+
+	@Test
+	void refreshRejectsTamperedSignatureEvenWhenItsHashIsStored() throws Exception {
+		String token = refreshCookieValue(signup("member@example.com", "password123", "STUDENT"));
+		int signatureStart = token.lastIndexOf('.') + 1;
+		char replacement = token.charAt(signatureStart) == 'A' ? 'B' : 'A';
+		String tampered = token.substring(0, signatureStart) + replacement + token.substring(signatureStart + 1);
+		jdbcTemplate.update("UPDATE refresh_token SET token_hash = ?", tokenHash(tampered));
+		assertError(refresh(tampered), 401, "INVALID_REFRESH_TOKEN");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"missingCookie", "missingHeader", "wrongHeader", "otherBrowser", "bearerWithoutCsrf"})
+	void refreshRequiresMatchingCsrfCookieAndHeader(String scenario) throws Exception {
+		HttpResponse<String> signedUp = signup("member@example.com", "password123", "STUDENT");
+		HttpResponse<String> csrfResponse = csrf();
+		String cookies = "refreshToken=" + refreshCookieValue(signedUp);
+		if (!scenario.equals("missingCookie") && !scenario.equals("bearerWithoutCsrf")) {
+			cookies += "; XSRF-TOKEN=" + cookieValue(csrfResponse, "XSRF-TOKEN");
+		}
+		HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/refresh"))
+				.timeout(Duration.ofSeconds(20)).header("Cookie", cookies).POST(HttpRequest.BodyPublishers.noBody());
+		if (!scenario.equals("missingHeader") && !scenario.equals("bearerWithoutCsrf")) {
+			String header = switch (scenario) {
+				case "wrongHeader" -> "invalid-csrf-token";
+				case "otherBrowser" -> objectMapper.readTree(csrf().body()).path("token").asString();
+				default -> objectMapper.readTree(csrfResponse.body()).path("token").asString();
+			};
+			request.header("X-XSRF-TOKEN", header);
+		}
+		if (scenario.equals("bearerWithoutCsrf")) {
+			request.header("Authorization", "Bearer " + objectMapper.readTree(signedUp.body()).path("accessToken").asString());
+		}
+		assertError(httpClient.send(request.build(), HttpResponse.BodyHandlers.ofString()), 403, "INVALID_CSRF_TOKEN");
+		assertThat(refreshTokenCount()).isEqualTo(1);
+	}
+
+	@Test
+	void expiredAccessHeaderDoesNotPreventCsrfAndRefreshRequests() throws Exception {
+		String refreshToken = refreshCookieValue(signup("member@example.com", "password123", "STUDENT"));
+		Instant now = Instant.now();
+		JwtClaimsSet claims = JwtClaimsSet.builder().issuer("hirelink").subject("1")
+				.claim("role", "STUDENT").claim("token_type", "access")
+				.issuedAt(now.minusSeconds(7200)).expiresAt(now.minusSeconds(1)).build();
+		String expired = jwtEncoder.encode(JwtEncoderParameters.from(
+				JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
+		assertError(authenticatedRequest(expired, "GET"), 401, "UNAUTHORIZED");
+		HttpRequest csrfRequest = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/csrf"))
+				.timeout(Duration.ofSeconds(10)).header("Authorization", "Bearer " + expired).GET().build();
+		HttpResponse<String> csrfResponse = httpClient.send(csrfRequest, HttpResponse.BodyHandlers.ofString());
+		assertThat(csrfResponse.statusCode()).isEqualTo(200);
+		HttpRequest request = refreshRequest(refreshToken, csrfResponse).header("Authorization", "Bearer " + expired).build();
+		HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+		assertThat(response.statusCode()).isEqualTo(200);
+		String newToken = objectMapper.readTree(response.body()).path("accessToken").asString();
+		assertThat(authenticatedRequest(newToken, "GET").statusCode()).isEqualTo(200);
+	}
+
+	@Test
+	void refreshRequiresCookieInsteadOfRequestBodyOrBearerHeader() throws Exception {
+		HttpResponse<String> signedUp = signup("member@example.com", "password123", "STUDENT");
+		HttpRequest request = refreshRequest(null, csrf())
+				.header("Authorization", "Bearer " + objectMapper.readTree(signedUp.body()).path("accessToken").asString())
+				.header("Content-Type", "application/json")
+				.POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(
+						Map.of("refreshToken", refreshCookieValue(signedUp)))))
+				.build();
+		assertError(httpClient.send(request, HttpResponse.BodyHandlers.ofString()), 401, "INVALID_REFRESH_TOKEN");
+	}
+
+	@Test
+	void refreshDatabaseFailureReturnsSafe500WithoutChangingLoginRecords() throws Exception {
+		String token = refreshCookieValue(signup("member@example.com", "password123", "STUDENT"));
+		List<Map<String, Object>> existing = jdbcTemplate.queryForList("SELECT * FROM refresh_token");
+		doThrow(new IllegalStateException("token storage unavailable"))
+				.when(refreshTokenRepository).findByTokenHash(anyString());
+		HttpResponse<String> response = refresh(token);
+		assertError(response, 500, "INTERNAL_SERVER_ERROR");
+		assertThat(response.body()).doesNotContain("token storage unavailable", token, "Exception");
+		assertThat(response.headers().allValues("Set-Cookie")).isEmpty();
+		assertThat(jdbcTemplate.queryForList("SELECT * FROM refresh_token")).isEqualTo(existing);
+	}
+
 	private void assertTokenStorage(HttpResponse<String> response) throws Exception {
 		String cookie = response.headers().firstValue("Set-Cookie").orElseThrow();
 		assertThat(cookie).contains("HttpOnly", "Secure", "SameSite=Lax", "Path=/api/auth", "Max-Age=1209600");
 		String refreshToken = refreshCookieValue(response);
-		String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-				.digest(refreshToken.getBytes(StandardCharsets.UTF_8)));
+		String hash = tokenHash(refreshToken);
 		Map<String, Object> stored = jdbcTemplate.queryForMap("SELECT * FROM refresh_token WHERE token_hash = ?", hash);
 		JsonNode accessClaims = tokenClaims(objectMapper.readTree(response.body()).path("accessToken").asString());
 		JsonNode refreshClaims = tokenClaims(refreshToken);
@@ -420,7 +613,40 @@ class AuthIntegrationTest {
 	}
 
 	private String refreshCookieValue(HttpResponse<String> response) {
-		return HttpCookie.parse(response.headers().firstValue("Set-Cookie").orElseThrow()).get(0).getValue();
+		return cookieValue(response, "refreshToken");
+	}
+
+	private String cookieValue(HttpResponse<String> response, String name) {
+		return response.headers().allValues("Set-Cookie").stream()
+				.flatMap(header -> HttpCookie.parse(header).stream())
+				.filter(cookie -> cookie.getName().equals(name))
+				.findFirst().orElseThrow().getValue();
+	}
+
+	private String tokenHash(String token) throws Exception {
+		return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+				.digest(token.getBytes(StandardCharsets.UTF_8)));
+	}
+
+	private HttpResponse<String> csrf() throws Exception {
+		HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/csrf"))
+				.timeout(Duration.ofSeconds(10)).GET().build();
+		return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+	}
+
+	private HttpRequest.Builder refreshRequest(String refreshToken, HttpResponse<String> csrfResponse) throws Exception {
+		String cookies = "XSRF-TOKEN=" + cookieValue(csrfResponse, "XSRF-TOKEN");
+		if (refreshToken != null) {
+			cookies += "; refreshToken=" + refreshToken;
+		}
+		return HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/refresh"))
+				.timeout(Duration.ofSeconds(20)).header("Cookie", cookies)
+				.header("X-XSRF-TOKEN", objectMapper.readTree(csrfResponse.body()).path("token").asString())
+				.POST(HttpRequest.BodyPublishers.noBody());
+	}
+
+	private HttpResponse<String> refresh(String token) throws Exception {
+		return httpClient.send(refreshRequest(token, csrf()).build(), HttpResponse.BodyHandlers.ofString());
 	}
 
 	private HttpResponse<String> login(String email, String password) throws Exception {

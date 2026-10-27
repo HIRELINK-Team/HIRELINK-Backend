@@ -10,6 +10,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.csrf.CsrfException;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
@@ -34,6 +35,10 @@ public class SecurityErrorHandler implements AuthenticationEntryPoint, AccessDen
 	@Override
 	public void handle(HttpServletRequest request, HttpServletResponse response,
 			AccessDeniedException exception) throws IOException {
+		if (exception instanceof CsrfException) {
+			writeError(response, 403, "INVALID_CSRF_TOKEN", "CSRF 보안 확인값이 없거나 올바르지 않습니다.");
+			return;
+		}
 		writeError(response, 403, "FORBIDDEN", "접근 권한이 없습니다.");
 	}
 
