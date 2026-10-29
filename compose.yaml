@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: hirelink-postgres
+    environment:
+      POSTGRES_DB: hirelink
+      POSTGRES_USER: hirelink
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - hirelink-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hirelink -d hirelink"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  hirelink-postgres-data:
