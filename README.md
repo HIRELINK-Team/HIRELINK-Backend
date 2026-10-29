@@ -175,7 +175,15 @@ $env:AUTH_COOKIE_SECURE = "false"
 
 ### 데이터베이스 실행
 
-이 저장소에는 Docker Compose 또는 데이터베이스 실행 스크립트가 없습니다. 로컬 PostgreSQL 또는 별도로 준비한 PostgreSQL 인스턴스에 빈 데이터베이스와 접속 계정을 만든 뒤 위 환경변수를 설정해야 합니다.
+Docker Compose를 이용해 로컬 PostgreSQL 개발 환경을 실행할 수 있습니다.
+
+프로젝트 루트의 `.env.example`을 참고하여 `.env` 파일을 생성하고, DB 비밀번호 등 필요한 환경변수를 설정합니다.
+
+```bash
+docker compose up -d db
+```
+
+PostgreSQL은 로컬 `5433` 포트로 연결되며, Docker Volume을 통해 데이터가 유지됩니다.
 
 애플리케이션 실행 시 Flyway가 `src/main/resources/db/migration`의 SQL을 적용하고, JPA의 `ddl-auto: validate`가 Entity와 데이터베이스 스키마의 호환성을 검증합니다.
 
