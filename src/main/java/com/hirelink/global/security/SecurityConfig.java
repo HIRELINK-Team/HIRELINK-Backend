@@ -17,6 +17,7 @@ import org.springframework.security.oauth2.server.resource.web.DefaultBearerToke
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 
@@ -34,6 +35,9 @@ public class SecurityConfig {
 			@Value("${auth.cookie.secure}") boolean secureCookie) throws Exception {
 		PathPatternRequestMatcher refreshRequest = PathPatternRequestMatcher.withDefaults()
 				.matcher(HttpMethod.POST, "/api/auth/refresh");
+		PathPatternRequestMatcher logoutRequest = PathPatternRequestMatcher.withDefaults()
+				.matcher(HttpMethod.POST, "/api/auth/logout");
+		OrRequestMatcher cookieAuthenticatedRequests = new OrRequestMatcher(refreshRequest, logoutRequest);
 		PathPatternRequestMatcher csrfRequest = PathPatternRequestMatcher.withDefaults()
 				.matcher(HttpMethod.GET, "/api/auth/csrf");
 		CookieCsrfTokenRepository csrfTokenRepository = new CookieCsrfTokenRepository();
@@ -50,16 +54,16 @@ public class SecurityConfig {
 				.authorizeHttpRequests(authorize -> authorize
 						.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/auth/signup", "/api/auth/login").permitAll()
-						.requestMatchers(refreshRequest, csrfRequest).permitAll()
+						.requestMatchers(cookieAuthenticatedRequests, csrfRequest).permitAll()
 						.anyRequest().authenticated())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.requestCache(AbstractHttpConfigurer::disable)
 				.csrf(csrf -> csrf
 						.csrfTokenRepository(csrfTokenRepository)
-						.requireCsrfProtectionMatcher(refreshRequest))
+						.requireCsrfProtectionMatcher(cookieAuthenticatedRequests))
 				.oauth2ResourceServer(resourceServer -> resourceServer
-						// 재발급은 쿠키로 인증한다. Bearer 헤더가 CSRF 검사를 생략하게 해서는 안 된다.
-						.bearerTokenResolver(request -> refreshRequest.matches(request) || csrfRequest.matches(request)
+						// 쿠키로 인증하는 요청은 Bearer 헤더가 있어도 CSRF 검사를 수행한다.
+						.bearerTokenResolver(request -> cookieAuthenticatedRequests.matches(request) || csrfRequest.matches(request)
 								? null : bearerTokenResolver.resolve(request))
 						.jwt(jwt -> jwt.decoder(jwtDecoder).jwtAuthenticationConverter(authenticationConverter))
 						.authenticationEntryPoint(errorHandler)

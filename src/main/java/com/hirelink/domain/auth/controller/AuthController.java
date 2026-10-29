@@ -1,5 +1,7 @@
 package com.hirelink.domain.auth.controller;
 
+import java.time.Duration;
+
 import jakarta.validation.Valid;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -22,6 +24,7 @@ import com.hirelink.domain.auth.dto.AuthResult;
 import com.hirelink.domain.auth.dto.CsrfResponse;
 import com.hirelink.domain.auth.dto.LoginRequest;
 import com.hirelink.domain.auth.dto.LoginResponse;
+import com.hirelink.domain.auth.dto.LogoutResponse;
 import com.hirelink.domain.auth.dto.RefreshResponse;
 import com.hirelink.domain.auth.service.AuthService;
 import com.hirelink.domain.auth.service.TokenService;
@@ -47,7 +50,7 @@ public class AuthController {
 		SignupResponse response = new SignupResponse(result.userId(), result.email(), result.role(),
 				result.accessToken(), "Bearer", TokenService.ACCESS_TOKEN_TTL.toSeconds());
 		return ResponseEntity.status(HttpStatus.CREATED)
-				.header(HttpHeaders.SET_COOKIE, refreshCookie(result.refreshToken()).toString())
+				.header(HttpHeaders.SET_COOKIE, refreshCookie(result.refreshToken(), TokenService.REFRESH_TOKEN_TTL).toString())
 				.header(HttpHeaders.CACHE_CONTROL, "no-store")
 				.body(response);
 	}
@@ -58,7 +61,7 @@ public class AuthController {
 		LoginResponse response = new LoginResponse(result.userId(), result.role(), result.accessToken(),
 				"Bearer", TokenService.ACCESS_TOKEN_TTL.toSeconds());
 		return ResponseEntity.ok()
-				.header(HttpHeaders.SET_COOKIE, refreshCookie(result.refreshToken()).toString())
+				.header(HttpHeaders.SET_COOKIE, refreshCookie(result.refreshToken(), TokenService.REFRESH_TOKEN_TTL).toString())
 				.header(HttpHeaders.CACHE_CONTROL, "no-store")
 				.body(response);
 	}
@@ -78,13 +81,23 @@ public class AuthController {
 				.body(tokenService.refreshAccessToken(refreshToken));
 	}
 
-	private ResponseCookie refreshCookie(String token) {
+	@PostMapping("/logout")
+	public ResponseEntity<LogoutResponse> logout(
+			@CookieValue(name = "refreshToken", required = false) String refreshToken) {
+		tokenService.logout(refreshToken);
+		return ResponseEntity.ok()
+				.header(HttpHeaders.SET_COOKIE, refreshCookie("", Duration.ZERO).toString())
+				.header(HttpHeaders.CACHE_CONTROL, "no-store")
+				.body(new LogoutResponse("로그아웃되었습니다."));
+	}
+
+	private ResponseCookie refreshCookie(String token, Duration maxAge) {
 		return ResponseCookie.from("refreshToken", token)
 				.httpOnly(true)
 				.secure(secureCookie)
 				.sameSite("Lax")
 				.path("/api/auth")
-				.maxAge(TokenService.REFRESH_TOKEN_TTL)
+				.maxAge(maxAge)
 				.build();
 	}
 }

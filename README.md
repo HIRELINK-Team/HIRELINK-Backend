@@ -10,8 +10,9 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - BCrypt 비밀번호 해싱
 - JWT Access Token 발급 및 Bearer 인증
 - HttpOnly 쿠키 기반 Refresh Token 저장과 Access Token 재발급
+- 현재 로그인 기록과 Refresh Token 쿠키를 제거하는 로그아웃
 - Refresh Token 원문 대신 SHA-256 해시 저장
-- 재발급 API의 CSRF 보호
+- 재발급·로그아웃 API의 CSRF 보호
 - 회원·인증 정보와 Refresh Token의 PostgreSQL 영속화
 - Flyway 마이그레이션과 JPA 스키마 검증
 - Testcontainers PostgreSQL을 사용한 인증 통합 테스트
@@ -24,8 +25,9 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 | --- | --- | --- | --- |
 | `POST` | `/api/auth/signup` | LOCAL 이메일 회원가입 | 불필요 |
 | `POST` | `/api/auth/login` | LOCAL 이메일 로그인 | 불필요 |
-| `GET` | `/api/auth/csrf` | 재발급용 CSRF 보안 확인값 조회 | 불필요 |
+| `GET` | `/api/auth/csrf` | 쿠키 인증 요청용 CSRF 보안 확인값 조회 | 불필요 |
 | `POST` | `/api/auth/refresh` | Access Token 재발급 | Refresh Token 쿠키 및 CSRF 확인값 |
+| `POST` | `/api/auth/logout` | 현재 로그인 종료 | CSRF 확인값 필수, Refresh Token 쿠키 선택 |
 
 - 이메일은 앞뒤 공백 제거 후 소문자로 정규화합니다.
 - 가입 역할은 `STUDENT`, `EMPLOYER`만 허용합니다.
@@ -42,7 +44,29 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 Authorization: Bearer <Access Token>
 ```
 
-폼 로그인, HTTP Basic, 서버 세션, Spring Security 기본 로그아웃은 사용하지 않습니다. 로그아웃 API와 휴대전화 인증 API는 현재 소스에서 확인되지 않습니다.
+폼 로그인, HTTP Basic, 서버 세션, Spring Security 기본 로그아웃은 사용하지 않습니다. 휴대전화 인증 API는 후속 구현 범위입니다.
+
+### 로그아웃 API
+
+`POST /api/auth/logout`은 요청 본문 없이 현재 브라우저의 `refreshToken` 쿠키를 사용합니다.
+재발급과 동일하게 `GET /api/auth/csrf`에서 받은 확인값을 `X-XSRF-TOKEN` 헤더에 넣고, 해당 응답의 `XSRF-TOKEN` 쿠키도 함께 전송합니다.
+브라우저의 `fetch` 요청에는 `credentials: "include"`를 사용합니다.
+
+성공 응답은 `200 OK`입니다.
+
+```json
+{
+  "message": "로그아웃되었습니다."
+}
+```
+
+- 전달된 Refresh Token의 해시와 일치하는 DB 기록만 삭제합니다. 다른 기기의 로그인은 유지합니다.
+- 응답에서 Refresh Token 쿠키를 같은 경로·보안 속성으로 만료 처리합니다.
+- 쿠키가 없거나, 토큰이 이미 삭제되었거나 만료된 상태에서도 `200`을 반환합니다. 동시에 같은 토큰으로 요청해도 정상 처리합니다.
+- Access Token은 검증하지 않으므로 만료된 Bearer 헤더가 있어도 로그아웃할 수 있습니다.
+- CSRF 확인값 누락·불일치는 `403 INVALID_CSRF_TOKEN`, 서버 처리 실패는 `500 INTERNAL_SERVER_ERROR`입니다.
+- 프론트는 성공 응답을 받은 뒤 보관 중인 Access Token을 삭제하고 로그인 화면으로 이동합니다.
+- 서버의 Access Token 블랙리스트는 사용하지 않습니다. 이미 발급한 Access Token은 만료 시각까지 유효하지만, 삭제된 Refresh Token으로는 재발급할 수 없습니다.
 
 ## 팀원
 
@@ -221,7 +245,7 @@ Windows PowerShell:
 .\gradlew.bat test
 ```
 
-`AuthIntegrationTest`는 Testcontainers가 생성한 일회용 PostgreSQL을 대상으로 실제 HTTP 요청을 보내 회원가입, 로그인, 입력 검증, 중복 가입, 트랜잭션 롤백, 쿠키 속성, 다중 로그인, 토큰과 CSRF 검증을 확인합니다. 개발 데이터베이스 접속값은 사용하지 않으며 테스트용 JWT 키도 실행 시 별도로 생성합니다.
+`AuthIntegrationTest`는 Testcontainers가 생성한 일회용 PostgreSQL을 대상으로 실제 HTTP 요청을 보내 회원가입, 로그인, 입력 검증, 중복 가입, 트랜잭션 롤백, 쿠키 속성, 다중 로그인, 토큰과 CSRF 검증을 확인합니다. 로그아웃의 반복·동시 요청, 현재 로그인만 무효화되는지, 오류 발생 시 기존 기록이 유지되는지도 검증합니다. 개발 데이터베이스 접속값은 사용하지 않으며 테스트용 JWT 키도 실행 시 별도로 생성합니다.
 
 전체 빌드 검증이 필요하면 `./gradlew build` 또는 `.\gradlew.bat build`를 사용합니다.
 
