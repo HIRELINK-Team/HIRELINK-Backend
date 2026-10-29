@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.hirelink.domain.auth.dto.PhoneVerificationRequest;
 import com.hirelink.domain.auth.dto.PhoneVerificationRequestResponse;
+import com.hirelink.domain.auth.dto.PhoneVerificationConfirmRequest;
+import com.hirelink.domain.auth.dto.PhoneVerificationConfirmResponse;
 import com.hirelink.domain.auth.service.PhoneVerificationService;
 
 @RestController
@@ -33,5 +35,13 @@ public class PhoneVerificationController {
 		return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store")
 				.body(new PhoneVerificationRequestResponse(PhoneVerificationService.CODE_TTL.toSeconds(),
 						"인증번호가 전송되었습니다."));
+	}
+
+	@PostMapping(value = "/verify", consumes = MediaType.APPLICATION_JSON_VALUE)
+	public ResponseEntity<PhoneVerificationConfirmResponse> confirmCode(@AuthenticationPrincipal Jwt jwt,
+			@Valid @RequestBody PhoneVerificationConfirmRequest request) {
+		PhoneVerificationConfirmResponse response = phoneVerificationService.confirmCode(
+				Long.valueOf(jwt.getSubject()), request.normalizedPhoneNumber(), request.code());
+		return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store").body(response);
 	}
 }

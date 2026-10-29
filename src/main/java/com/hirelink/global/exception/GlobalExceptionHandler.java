@@ -18,6 +18,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(InvalidPhoneVerificationCodeException.class)
+	public ResponseEntity<ErrorResponse> handleInvalidPhoneVerificationCode(InvalidPhoneVerificationCodeException exception) {
+		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_VERIFICATION_CODE", exception.getMessage()));
+	}
+
+	@ExceptionHandler(DuplicatePhoneNumberException.class)
+	public ResponseEntity<ErrorResponse> handleDuplicatePhoneNumber(DuplicatePhoneNumberException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ErrorResponse("DUPLICATE_PHONE_NUMBER", exception.getMessage()));
+	}
+
 	@ExceptionHandler(AuthenticationCredentialsNotFoundException.class)
 	public ResponseEntity<ErrorResponse> handleMissingAccount(AuthenticationCredentialsNotFoundException exception) {
 		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)

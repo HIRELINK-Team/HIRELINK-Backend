@@ -46,6 +46,18 @@ public class PhoneVerification {
 		return expiresAt.isAfter(now);
 	}
 
+	public String getPhoneNumber() {
+		return phoneNumber;
+	}
+
+	public String getCodeHash() {
+		return codeHash;
+	}
+
+	public void recordFailure() {
+		failedAttempts++;
+	}
+
 	public boolean isBlocked(Instant now) {
 		return isActive(now) && failedAttempts >= 5;
 	}
