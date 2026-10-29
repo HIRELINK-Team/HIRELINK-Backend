@@ -6,6 +6,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -16,6 +17,24 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+	@ExceptionHandler(AuthenticationCredentialsNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleMissingAccount(AuthenticationCredentialsNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+				.body(new ErrorResponse("UNAUTHORIZED", "로그인이 필요합니다."));
+	}
+
+	@ExceptionHandler(PhoneVerificationRateLimitException.class)
+	public ResponseEntity<ErrorResponse> handlePhoneVerificationRateLimit(PhoneVerificationRateLimitException exception) {
+		return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+				.body(new ErrorResponse("PHONE_VERIFICATION_RATE_LIMIT", exception.getMessage()));
+	}
+
+	@ExceptionHandler(SmsDeliveryException.class)
+	public ResponseEntity<ErrorResponse> handleSmsDelivery(SmsDeliveryException exception) {
+		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+				.body(new ErrorResponse("SMS_DELIVERY_FAILED", exception.getMessage()));
+	}
 
 	@ExceptionHandler(InvalidRefreshTokenException.class)
 	public ResponseEntity<ErrorResponse> handleInvalidRefreshToken(InvalidRefreshTokenException exception) {
