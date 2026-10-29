@@ -94,4 +94,9 @@ public class UserAccount {
 	public boolean isWithdrawn() {
 		return withdrawnAt != null;
 	}
+
+	public void verifyPhoneNumber(String phoneNumber, Instant verifiedAt) {
+		this.phoneNumber = phoneNumber;
+		this.phoneVerifiedAt = verifiedAt;
+	}
 }

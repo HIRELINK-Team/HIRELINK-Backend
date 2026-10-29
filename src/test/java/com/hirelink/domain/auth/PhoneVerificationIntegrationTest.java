@@ -39,11 +39,15 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.ObjectMapper;
 
 import com.hirelink.domain.auth.service.SmsSender;
+import com.hirelink.domain.member.repository.UserAccountRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -77,6 +81,8 @@ class PhoneVerificationIntegrationTest {
 	private PasswordEncoder passwordEncoder;
 	@MockitoSpyBean
 	private SmsSender smsSender;
+	@MockitoSpyBean
+	private UserAccountRepository userAccountRepository;
 	private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
 	@BeforeEach
@@ -214,6 +220,168 @@ class PhoneVerificationIntegrationTest {
 		assertThat(List.of(one.get(15, TimeUnit.SECONDS).statusCode(), two.get(15, TimeUnit.SECONDS).statusCode()))
 				.containsExactlyInAnyOrder(200, 429);
 		verify(smsSender).sendVerificationCode(anyString(), anyString());
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"STUDENT", "EMPLOYER"})
+	void confirmationStoresPhoneAndConsumesCodeWithoutResettingSendLimit(String role) throws Exception {
+		String token = createUser(role);
+		String code = requestAndGetCode(token, PHONE);
+		HttpResponse<String> response = confirm(token, "010-0000-0000", code);
+		assertThat(response.statusCode()).isEqualTo(200);
+		assertThat(mapper.readTree(response.body()).size()).isEqualTo(3);
+		assertThat(mapper.readTree(response.body()).path("phoneNumber").asString()).isEqualTo("010-0000-0000");
+		assertThat(mapper.readTree(response.body()).path("message").asString()).isEqualTo("휴대전화 인증이 완료되었습니다.");
+		Instant verifiedAt = Instant.parse(mapper.readTree(response.body()).path("verifiedAt").asString());
+		assertThat(jdbc.queryForObject("select phone_number from user_account", String.class)).isEqualTo(PHONE);
+		Instant storedAt = jdbc.queryForObject("select phone_verified_at from user_account", java.sql.Timestamp.class).toInstant();
+		assertThat(Duration.between(verifiedAt, storedAt).abs()).isLessThan(Duration.ofMillis(1));
+		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+		assertThat(jdbc.queryForObject("select count(*) from phone_verification", Integer.class)).isZero();
+		assertError(confirm(token, PHONE, code), 400, "INVALID_VERIFICATION_CODE");
+		assertError(request(token, PHONE), 429, "PHONE_VERIFICATION_RATE_LIMIT");
+	}
+
+	@ParameterizedTest
+	@NullAndEmptySource
+	@ValueSource(strings = {"12345", "1234567", "abcdef", "１２３４５６", " 12345"})
+	void confirmationRejectsMalformedCode(String code) throws Exception {
+		assertError(confirm(createUser("STUDENT"), PHONE, code), 400, "INVALID_INPUT");
+	}
+
+	@Test
+	void confirmationRequiresValidPhoneAndAuthentication() throws Exception {
+		assertError(confirm(null, PHONE, "000000"), 401, "UNAUTHORIZED");
+		assertError(confirm("invalid", PHONE, "000000"), 401, "UNAUTHORIZED");
+		String token = createUser("STUDENT");
+		assertError(confirm(token, "01100000000", "000000"), 400, "INVALID_INPUT");
+		jdbc.update("update user_account set withdrawn_at = now()");
+		assertError(confirm(token, PHONE, "000000"), 403, "WITHDRAWN_ACCOUNT");
+	}
+
+	@Test
+	void confirmationRejectsMissingExpiredAndOtherAccountsCode() throws Exception {
+		String token = createUser("STUDENT");
+		assertError(confirm(token, PHONE, "000000"), 400, "INVALID_VERIFICATION_CODE");
+		String code = requestAndGetCode(token, PHONE);
+		assertError(confirm(createUser("EMPLOYER"), PHONE, code), 400, "INVALID_VERIFICATION_CODE");
+		assertError(confirm(token, "01000000001", code), 400, "INVALID_VERIFICATION_CODE");
+		assertThat(jdbc.queryForObject("select failed_attempts from phone_verification", Integer.class)).isZero();
+		jdbc.update("update phone_verification set expires_at = now() - interval '1 second'");
+		assertError(confirm(token, PHONE, code), 400, "INVALID_VERIFICATION_CODE");
+		assertThat(jdbc.queryForObject("select count(*) from user_account where phone_number is not null", Integer.class)).isZero();
+	}
+
+	@Test
+	void fiveWrongCodesPersistAndBlockCorrectCodeAndResend() throws Exception {
+		String token = createUser("STUDENT");
+		String code = requestAndGetCode(token, PHONE);
+		String wrongCode = code.equals("000000") ? "000001" : "000000";
+		for (int i = 1; i <= 5; i++) {
+			assertError(confirm(token, PHONE, wrongCode), i < 5 ? 400 : 429,
+					i < 5 ? "INVALID_VERIFICATION_CODE" : "PHONE_VERIFICATION_RATE_LIMIT");
+			assertThat(jdbc.queryForObject("select failed_attempts from phone_verification", Integer.class)).isEqualTo(i);
+		}
+		assertError(confirm(token, PHONE, code), 429, "PHONE_VERIFICATION_RATE_LIMIT");
+		ageRequests(61);
+		assertError(request(token, PHONE), 429, "PHONE_VERIFICATION_RATE_LIMIT");
+		jdbc.update("update phone_verification set expires_at = now() - interval '1 second'");
+		String newCode = requestAndGetCode(token, PHONE);
+		assertThat(confirm(token, PHONE, newCode).statusCode()).isEqualTo(200);
+	}
+
+	@Test
+	void leadingZeroCodeIsKeptAsString() throws Exception {
+		String token = createUser("STUDENT");
+		requestAndGetCode(token, PHONE);
+		jdbc.update("update phone_verification set code_hash = ?", passwordEncoder.encode("000123"));
+		assertThat(confirm(token, PHONE, "000123").statusCode()).isEqualTo(200);
+	}
+
+	@Test
+	void resendInvalidatesOldCode() throws Exception {
+		String token = createUser("STUDENT");
+		String oldCode = requestAndGetCode(token, PHONE);
+		ageRequests(61);
+		String newCode = requestAndGetCode(token, PHONE);
+		assertThat(newCode).isNotEqualTo(oldCode);
+		assertError(confirm(token, PHONE, oldCode), 400, "INVALID_VERIFICATION_CODE");
+		assertThat(confirm(token, PHONE, newCode).statusCode()).isEqualTo(200);
+	}
+
+	@Test
+	void duplicatePhoneReturnsConflictAndPreservesChallenge() throws Exception {
+		createUser("EMPLOYER");
+		jdbc.update("update user_account set phone_number = ?, phone_verified_at = now()", PHONE);
+		String token = createUser("STUDENT");
+		String code = requestAndGetCode(token, PHONE);
+		assertError(confirm(token, PHONE, code), 409, "DUPLICATE_PHONE_NUMBER");
+		assertThat(jdbc.queryForObject("select count(*) from user_account where phone_number = ?", Integer.class, PHONE)).isEqualTo(1);
+		assertThat(jdbc.queryForObject("select count(*) from phone_verification", Integer.class)).isEqualTo(1);
+		assertThat(jdbc.queryForObject("select phone_verified_at from user_account where id = 2", java.sql.Timestamp.class)).isNull();
+	}
+
+	@Test
+	void storageFailureRollsBackPhoneAndKeepsChallenge() throws Exception {
+		String token = createUser("STUDENT");
+		String code = requestAndGetCode(token, PHONE);
+		doThrow(new IllegalStateException("Storage unavailable")).when(userAccountRepository).saveAndFlush(any());
+		assertError(confirm(token, PHONE, code), 500, "INTERNAL_SERVER_ERROR");
+		assertThat(jdbc.queryForObject("select phone_number from user_account", String.class)).isNull();
+		assertThat(jdbc.queryForObject("select phone_verified_at from user_account", java.sql.Timestamp.class)).isNull();
+		assertThat(jdbc.queryForObject("select count(*) from phone_verification", Integer.class)).isEqualTo(1);
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = {true, false})
+	void simultaneousConfirmationsPreventReuseAndDuplicatePhone(boolean sameAccount) throws Exception {
+		String first = createUser("STUDENT");
+		String firstCode = requestAndGetCode(first, PHONE);
+		ageRequests(61);
+		String second = sameAccount ? first : createUser("EMPLOYER");
+		String secondCode = sameAccount ? firstCode : requestAndGetCode(second, PHONE);
+		CompletableFuture<HttpResponse<String>> one = client.sendAsync(confirmRequest(first, PHONE, firstCode), HttpResponse.BodyHandlers.ofString());
+		CompletableFuture<HttpResponse<String>> two = client.sendAsync(confirmRequest(second, PHONE, secondCode), HttpResponse.BodyHandlers.ofString());
+		assertThat(List.of(one.get(15, TimeUnit.SECONDS).statusCode(), two.get(15, TimeUnit.SECONDS).statusCode()))
+				.containsExactlyInAnyOrder(200, sameAccount ? 400 : 409);
+		assertThat(jdbc.queryForObject("select count(*) from user_account where phone_number = ?", Integer.class, PHONE)).isEqualTo(1);
+	}
+
+	@Test
+	void simultaneousWrongCodesDoNotLoseFailureCounts() throws Exception {
+		String token = createUser("STUDENT");
+		String code = requestAndGetCode(token, PHONE);
+		String wrongCode = code.equals("000000") ? "000001" : "000000";
+		HttpRequest request = confirmRequest(token, PHONE, wrongCode);
+		CompletableFuture<HttpResponse<String>> one = client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+		CompletableFuture<HttpResponse<String>> two = client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+		assertThat(one.get(15, TimeUnit.SECONDS).statusCode()).isEqualTo(400);
+		assertThat(two.get(15, TimeUnit.SECONDS).statusCode()).isEqualTo(400);
+		assertThat(jdbc.queryForObject("select failed_attempts from phone_verification", Integer.class)).isEqualTo(2);
+	}
+
+	private String requestAndGetCode(String token, String phone) throws Exception {
+		assertThat(request(token, phone).statusCode()).isEqualTo(200);
+		ArgumentCaptor<String> codes = ArgumentCaptor.forClass(String.class);
+		verify(smsSender, atLeastOnce()).sendVerificationCode(anyString(), codes.capture());
+		return codes.getValue();
+	}
+
+	private HttpResponse<String> confirm(String token, String phone, String code) throws Exception {
+		return client.send(confirmRequest(token, phone, code), HttpResponse.BodyHandlers.ofString());
+	}
+
+	private HttpRequest confirmRequest(String token, String phone, String code) {
+		Map<String, Object> body = new java.util.HashMap<>();
+		body.put("phoneNumber", phone);
+		body.put("code", code);
+		HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/phone-verifications/verify"))
+				.timeout(Duration.ofSeconds(15)).header("Content-Type", "application/json")
+				.POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)));
+		if (token != null) {
+			builder.header("Authorization", "Bearer " + token);
+		}
+		return builder.build();
 	}
 
 	private String createUser(String role) {
