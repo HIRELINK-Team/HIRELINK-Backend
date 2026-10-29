@@ -517,7 +517,7 @@ class AuthIntegrationTest {
 
 	@ParameterizedTest
 	@ValueSource(strings = {"missingCookie", "missingHeader", "wrongHeader", "otherBrowser", "bearerWithoutCsrf"})
-	void refreshRequiresMatchingCsrfCookieAndHeader(String scenario) throws Exception {
+	void cookieAuthenticatedRequestsRequireMatchingCsrfCookieAndHeader(String scenario) throws Exception {
 		HttpResponse<String> signedUp = signup("member@example.com", "password123", "STUDENT");
 		HttpResponse<String> csrfResponse = csrf();
 		String cookies = "refreshToken=" + refreshCookieValue(signedUp);
@@ -537,12 +537,15 @@ class AuthIntegrationTest {
 		if (scenario.equals("bearerWithoutCsrf")) {
 			request.header("Authorization", "Bearer " + objectMapper.readTree(signedUp.body()).path("accessToken").asString());
 		}
-		assertError(httpClient.send(request.build(), HttpResponse.BodyHandlers.ofString()), 403, "INVALID_CSRF_TOKEN");
+		for (String path : List.of("/api/auth/refresh", "/api/auth/logout")) {
+			HttpRequest protectedRequest = request.uri(URI.create("http://localhost:" + port + path)).build();
+			assertError(httpClient.send(protectedRequest, HttpResponse.BodyHandlers.ofString()), 403, "INVALID_CSRF_TOKEN");
+		}
 		assertThat(refreshTokenCount()).isEqualTo(1);
 	}
 
 	@Test
-	void expiredAccessHeaderDoesNotPreventCsrfAndRefreshRequests() throws Exception {
+	void expiredAccessHeaderDoesNotPreventCookieAuthenticatedRequests() throws Exception {
 		String refreshToken = refreshCookieValue(signup("member@example.com", "password123", "STUDENT"));
 		Instant now = Instant.now();
 		JwtClaimsSet claims = JwtClaimsSet.builder().issuer("hirelink").subject("1")
@@ -560,6 +563,9 @@ class AuthIntegrationTest {
 		assertThat(response.statusCode()).isEqualTo(200);
 		String newToken = objectMapper.readTree(response.body()).path("accessToken").asString();
 		assertThat(authenticatedRequest(newToken, "GET").statusCode()).isEqualTo(200);
+		HttpRequest logoutRequest = cookieRequest("/api/auth/logout", refreshToken, csrfResponse)
+				.header("Authorization", "Bearer " + expired).build();
+		assertLogoutSuccess(httpClient.send(logoutRequest, HttpResponse.BodyHandlers.ofString()));
 	}
 
 	@Test
@@ -585,6 +591,89 @@ class AuthIntegrationTest {
 		assertThat(response.body()).doesNotContain("token storage unavailable", token, "Exception");
 		assertThat(response.headers().allValues("Set-Cookie")).isEmpty();
 		assertThat(jdbcTemplate.queryForList("SELECT * FROM refresh_token")).isEqualTo(existing);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"STUDENT", "EMPLOYER"})
+	void logoutRevokesOnlyCurrentLoginAndExpiresCookie(String role) throws Exception {
+		HttpResponse<String> first = signup("member@example.com", "password123", role);
+		HttpResponse<String> second = login("member@example.com", "password123");
+		String firstToken = refreshCookieValue(first);
+		String secondToken = refreshCookieValue(second);
+		Map<String, Object> otherLogin = jdbcTemplate.queryForMap(
+				"SELECT * FROM refresh_token WHERE token_hash = ?", tokenHash(secondToken));
+
+		assertLogoutSuccess(logout(firstToken));
+		assertThat(refreshTokenCount()).isEqualTo(1);
+		assertThat(jdbcTemplate.queryForMap("SELECT * FROM refresh_token")).isEqualTo(otherLogin);
+		assertError(refresh(firstToken), 401, "INVALID_REFRESH_TOKEN");
+		assertThat(refresh(secondToken).statusCode()).isEqualTo(200);
+		assertLogoutSuccess(logout(firstToken));
+		assertThat(refreshTokenCount()).isEqualTo(1);
+		String existingAccessToken = objectMapper.readTree(first.body()).path("accessToken").asString();
+		assertThat(authenticatedRequest(existingAccessToken, "GET").statusCode()).isEqualTo(200);
+		assertAccountCounts(1, 1);
+	}
+
+	@ParameterizedTest
+	@NullAndEmptySource
+	@ValueSource(strings = {"not-a-token"})
+	void logoutWithoutStoredTokenStillSucceeds(String token) throws Exception {
+		signup("member@example.com", "password123", "STUDENT");
+		Map<String, Object> existing = jdbcTemplate.queryForMap("SELECT * FROM refresh_token");
+		assertLogoutSuccess(logout(token));
+		assertThat(jdbcTemplate.queryForMap("SELECT * FROM refresh_token")).isEqualTo(existing);
+	}
+
+	@Test
+	void logoutRemovesExpiredRefreshToken() throws Exception {
+		signup("member@example.com", "password123", "STUDENT");
+		Instant now = Instant.now();
+		JwtClaimsSet claims = JwtClaimsSet.builder().issuer("hirelink").subject("1")
+				.claim("role", "STUDENT").claim("token_type", "refresh")
+				.issuedAt(now.minusSeconds(7200)).expiresAt(now.minusSeconds(1)).build();
+		String expired = jwtEncoder.encode(JwtEncoderParameters.from(
+				JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
+		jdbcTemplate.update("UPDATE refresh_token SET token_hash = ?, expires_at = now() - interval '1 second'",
+				tokenHash(expired));
+		assertLogoutSuccess(logout(expired));
+		assertThat(refreshTokenCount()).isZero();
+	}
+
+	@Test
+	void simultaneousLogoutRequestsBothSucceed() throws Exception {
+		String token = refreshCookieValue(signup("member@example.com", "password123", "STUDENT"));
+		HttpRequest request = cookieRequest("/api/auth/logout", token, csrf()).build();
+		var first = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+		var second = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+		assertLogoutSuccess(first.get(20, TimeUnit.SECONDS));
+		assertLogoutSuccess(second.get(20, TimeUnit.SECONDS));
+		assertThat(refreshTokenCount()).isZero();
+	}
+
+	@Test
+	void logoutDatabaseFailureKeepsCookieAndLoginRecord() throws Exception {
+		String token = refreshCookieValue(signup("member@example.com", "password123", "STUDENT"));
+		Map<String, Object> existing = jdbcTemplate.queryForMap("SELECT * FROM refresh_token");
+		doThrow(new IllegalStateException("token storage unavailable"))
+				.when(refreshTokenRepository).deleteByTokenHash(anyString());
+		HttpResponse<String> response = logout(token);
+		assertError(response, 500, "INTERNAL_SERVER_ERROR");
+		assertThat(response.headers().allValues("Set-Cookie")).isEmpty();
+		assertThat(response.body()).doesNotContain("token storage unavailable", token, "Exception");
+		assertThat(jdbcTemplate.queryForMap("SELECT * FROM refresh_token")).isEqualTo(existing);
+	}
+
+	private void assertLogoutSuccess(HttpResponse<String> response) throws Exception {
+		assertThat(response.statusCode()).isEqualTo(200);
+		JsonNode body = objectMapper.readTree(response.body());
+		assertThat(body.size()).isEqualTo(1);
+		assertThat(body.path("message").asString()).isEqualTo("로그아웃되었습니다.");
+		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+		assertThat(response.headers().allValues("Set-Cookie")).hasSize(1);
+		String cookie = response.headers().firstValue("Set-Cookie").orElseThrow();
+		assertThat(cookie).contains("refreshToken=", "Max-Age=0", "Path=/api/auth", "HttpOnly", "Secure", "SameSite=Lax");
+		assertThat(cookieValue(response, "refreshToken")).isEmpty();
 	}
 
 	private void assertTokenStorage(HttpResponse<String> response) throws Exception {
@@ -635,11 +724,15 @@ class AuthIntegrationTest {
 	}
 
 	private HttpRequest.Builder refreshRequest(String refreshToken, HttpResponse<String> csrfResponse) throws Exception {
+		return cookieRequest("/api/auth/refresh", refreshToken, csrfResponse);
+	}
+
+	private HttpRequest.Builder cookieRequest(String path, String refreshToken, HttpResponse<String> csrfResponse) throws Exception {
 		String cookies = "XSRF-TOKEN=" + cookieValue(csrfResponse, "XSRF-TOKEN");
 		if (refreshToken != null) {
 			cookies += "; refreshToken=" + refreshToken;
 		}
-		return HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/refresh"))
+		return HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
 				.timeout(Duration.ofSeconds(20)).header("Cookie", cookies)
 				.header("X-XSRF-TOKEN", objectMapper.readTree(csrfResponse.body()).path("token").asString())
 				.POST(HttpRequest.BodyPublishers.noBody());
@@ -647,6 +740,10 @@ class AuthIntegrationTest {
 
 	private HttpResponse<String> refresh(String token) throws Exception {
 		return httpClient.send(refreshRequest(token, csrf()).build(), HttpResponse.BodyHandlers.ofString());
+	}
+
+	private HttpResponse<String> logout(String token) throws Exception {
+		return httpClient.send(cookieRequest("/api/auth/logout", token, csrf()).build(), HttpResponse.BodyHandlers.ofString());
 	}
 
 	private HttpResponse<String> login(String email, String password) throws Exception {

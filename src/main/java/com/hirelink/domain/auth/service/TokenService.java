@@ -90,6 +90,13 @@ public class TokenService {
 		return new RefreshResponse(accessToken, "Bearer", ACCESS_TOKEN_TTL.toSeconds());
 	}
 
+	@Transactional
+	public void logout(String token) {
+		if (token != null && !token.isBlank()) {
+			refreshTokenRepository.deleteByTokenHash(hashToken(token));
+		}
+	}
+
 	private String createToken(UserAccount userAccount, String tokenType, Instant issuedAt, Instant expiresAt) {
 		JwtClaimsSet claims = JwtClaimsSet.builder()
 				.issuer(issuer)
