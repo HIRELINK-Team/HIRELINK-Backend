@@ -46,14 +46,10 @@ Authorization: Bearer <Access Token>
 
 ## 팀원
 
-현재 로컬 Git 이력으로 확인 가능한 작성자만 기재했습니다. 역할이나 계정 연결을 확인할 수 없는 항목은 추정하지 않았습니다.
-
 | 이름 | 역할 | GitHub |
 | --- | --- | --- |
-| 박서은 | 매칭·추천·지원·채용 프로세스 | [@1PSE](https://github.com/1PSE) |
-| 박준서 | 인증·회원·프로필·사업장·채용공고 관리 | [@doondowob](https://github.com/doondowob) |
-
-> 전체 팀 구성과 `doondowob` 작성자의 GitHub 계정 링크는 팀 확인 후 갱신이 필요합니다.
+| 박서은 | 조건·우선순위 기반 일자리 추천, 지원 및 채용 제안·수락, 최종 매칭 프로세스 구현 | [@1PSE](https://github.com/1PSE) |
+| 박준서 | 인증·인가, 회원 및 유학생 프로필 관리, 사업주·사업장 및 채용공고 관리 | [@doondowob](https://github.com/doondowob) |
 
 ## 기술 스택
 
