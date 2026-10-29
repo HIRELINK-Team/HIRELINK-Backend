@@ -50,8 +50,8 @@ Authorization: Bearer <Access Token>
 
 | 이름 | 역할 | GitHub |
 | --- | --- | --- |
-| 박서은 | TODO | [@1PSE](https://github.com/1PSE) |
-| doondowob (Git 작성자명) | Backend 기여 | TODO |
+| 박서은 | 매칭·추천·지원·채용 프로세스 | [@1PSE](https://github.com/1PSE) |
+| 박준서 | 인증·회원·프로필·사업장·채용공고 관리 | [@doondowob](https://github.com/doondowob) |
 
 > 전체 팀 구성과 `doondowob` 작성자의 GitHub 계정 링크는 팀 확인 후 갱신이 필요합니다.
 
