@@ -16,6 +16,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - 회원·인증 정보와 Refresh Token의 PostgreSQL 영속화
 - Flyway 마이그레이션과 JPA 스키마 검증
 - Testcontainers PostgreSQL을 사용한 인증 통합 테스트
+- 로그인한 회원의 약관별 동의 상태 저장
 
 구인 공고, 지원, 사업주 검토, 면접, 채용 및 매칭 기능은 이 README 작성 시점의 소스에서 확인되지 않아 후속 구현 범위로 남겨 둡니다.
 
@@ -110,6 +111,40 @@ Authorization: Bearer <Access Token>
 - 프론트는 성공 응답을 받은 뒤 보관 중인 Access Token을 삭제하고 로그인 화면으로 이동합니다.
 - 서버의 Access Token 블랙리스트는 사용하지 않습니다. 이미 발급한 Access Token은 만료 시각까지 유효하지만, 삭제된 Refresh Token으로는 재발급할 수 없습니다.
 
+### 약관 동의 저장 API
+
+`PUT /api/users/me/term-agreements`는 Access Token으로 식별한 회원의 동의 상태를 저장합니다.
+`userId`는 요청 본문으로 받지 않으며, `STUDENT`와 `EMPLOYER`가 같은 API를 사용합니다.
+
+현재 등록된 약관 종류는 다음과 같습니다.
+
+| termTypeId | 약관 이름 |
+| --- | --- |
+| 1 | 이용약관 |
+| 2 | 개인정보처리방침 |
+| 3 | 광고성 정보 수신 |
+
+```json
+{
+  "agreements": [
+    { "termTypeId": 1, "isAgreed": true },
+    { "termTypeId": 2, "isAgreed": true },
+    { "termTypeId": 3, "isAgreed": false }
+  ]
+}
+```
+
+성공 시 `200 OK`와 `agreements` 배열을 반환합니다. 각 항목에는 `termTypeId`, `isAgreed`, `agreedAt`이 포함됩니다.
+
+- 새로 동의하거나 미동의에서 동의로 바꾸면 현재 시각을 저장합니다. 같은 동의를 반복하면 기존 시각을 유지합니다.
+- 미동의(`false`)는 `agreedAt: null`로 저장합니다.
+- 요청에 포함한 약관만 갱신하고 같은 순서로 반환합니다. 생략한 약관은 유지하며 빈 배열은 변경 없이 빈 배열을 반환합니다.
+- 한 요청의 모든 항목을 하나의 트랜잭션으로 저장합니다. 오류가 발생하면 전체 변경을 취소합니다.
+- 필수값 누락·잘못된 형식·중복된 약관 ID는 `400 INVALID_INPUT`, 없는 약관 ID는 `404 TERM_TYPE_NOT_FOUND`입니다.
+- 로그인 필요 `401`, 탈퇴 계정 `403`, 예상하지 못한 서버 오류 `500`은 기존 공통 오류 형식을 사용합니다.
+- 이번 범위는 동의 상태 저장입니다. 필수 동의 검사, 역할별 약관 제한, 약관 내용·버전 관리는 포함하지 않습니다. 화면의 전체 동의 선택 여부는 별도로 저장하지 않습니다.
+- 약관 종류가 추가되면 기존 ID를 유지하고 새 Flyway 파일로 데이터를 추가합니다.
+
 ## 팀원
 
 | 이름 | 역할 | GitHub |
@@ -179,8 +214,11 @@ HIRELINK-Backend/
 │   │   │   │   │   ├── repository/
 │   │   │   │   │   └── service/
 │   │   │   │   └── member/
+│   │   │   │       ├── controller/
+│   │   │   │       ├── dto/
 │   │   │   │       ├── entity/
-│   │   │   │       └── repository/
+│   │   │   │       ├── repository/
+│   │   │   │       └── service/
 │   │   │   ├── global/
 │   │   │   │   ├── exception/
 │   │   │   │   └── security/
@@ -188,7 +226,9 @@ HIRELINK-Backend/
 │   │   └── resources/
 │   │       ├── db/migration/
 │   │       └── application.yml
-│   └── test/java/com/hirelink/domain/auth/
+│   └── test/java/com/hirelink/domain/
+│       ├── auth/
+│       └── member/
 ├── build.gradle
 ├── gradlew
 ├── gradlew.bat
@@ -288,6 +328,8 @@ Windows PowerShell:
 ```
 
 `AuthIntegrationTest`는 Testcontainers가 생성한 일회용 PostgreSQL을 대상으로 실제 HTTP 요청을 보내 회원가입, 로그인, 입력 검증, 중복 가입, 트랜잭션 롤백, 쿠키 속성, 다중 로그인, 토큰과 CSRF 검증을 확인합니다. 로그아웃의 반복·동시 요청, 현재 로그인만 무효화되는지, 오류 발생 시 기존 기록이 유지되는지도 검증합니다. 개발 데이터베이스 접속값은 사용하지 않으며 테스트용 JWT 키도 실행 시 별도로 생성합니다.
+
+`TermAgreementIntegrationTest`는 약관 초기 데이터, 동의 상태 변경과 시각 유지, 사용자 구분, 입력 오류, 없는 약관, 저장 실패 시 전체 롤백과 동시 요청을 확인합니다.
 
 전체 빌드 검증이 필요하면 `./gradlew build` 또는 `.\gradlew.bat build`를 사용합니다.
 
