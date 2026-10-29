@@ -18,6 +18,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(TermTypeNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleTermTypeNotFound(TermTypeNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("TERM_TYPE_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(DuplicateTermTypeException.class)
+	public ResponseEntity<ErrorResponse> handleDuplicateTermType(DuplicateTermTypeException exception) {
+		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));
+	}
+
 	@ExceptionHandler(InvalidPhoneVerificationCodeException.class)
 	public ResponseEntity<ErrorResponse> handleInvalidPhoneVerificationCode(InvalidPhoneVerificationCodeException exception) {
 		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_VERIFICATION_CODE", exception.getMessage()));
