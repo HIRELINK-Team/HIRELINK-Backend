@@ -19,3 +19,9 @@ jwt:
 auth:
   cookie:
     secure: ${AUTH_COOKIE_SECURE:true}
+
+storage:
+  supabase:
+    url: ${SUPABASE_URL:}
+    secret-key: ${SUPABASE_SECRET_KEY:}
+    bucket: ${SUPABASE_STORAGE_BUCKET:profile-images}

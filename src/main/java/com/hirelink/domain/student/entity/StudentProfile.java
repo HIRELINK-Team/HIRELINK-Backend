@@ -112,4 +112,48 @@ public class StudentProfile {
 	public KoreanLevel getKoreanLevel() {
 		return koreanLevel;
 	}
+
+	public String getVisaCode() {
+		return visaCode;
+	}
+
+	public String getUniversityName() {
+		return universityName;
+	}
+
+	public LocalDate getEnrollmentStartDate() {
+		return enrollmentStartDate;
+	}
+
+	public Long getStudyProgramId() {
+		return studyProgramId;
+	}
+
+	public Short getGradeLevel() {
+		return gradeLevel;
+	}
+
+	public String getAcademicState() {
+		return academicState;
+	}
+
+	public Short getTopikLevel() {
+		return topikLevel;
+	}
+
+	public LocalDate getStayStartDate() {
+		return stayStartDate;
+	}
+
+	public LocalDate getStayExpirationDate() {
+		return stayExpirationDate;
+	}
+
+	public String getProfileImageKey() {
+		return profileImageKey;
+	}
+
+	public Instant getHirelinkBadgeIssuedAt() {
+		return hirelinkBadgeIssuedAt;
+	}
 }
