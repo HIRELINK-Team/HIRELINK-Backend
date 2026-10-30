@@ -38,6 +38,14 @@ public class StudentCareer {
 	protected StudentCareer() {
 	}
 
+	public StudentCareer(Long userId, String careerName, String startMonth, String endMonth, String description) {
+		this.userId = userId;
+		this.careerName = careerName;
+		this.startMonth = startMonth;
+		this.endMonth = endMonth;
+		this.description = description;
+	}
+
 	public Long getId() {
 		return id;
 	}

@@ -20,6 +20,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - 휴대전화 인증을 완료한 유학생의 기본 프로필 등록
 - 유학생 본인의 프로필·경력 조회 및 비공개 프로필 사진의 임시 URL 발급
 - 유학생 프로필 부분 수정 및 비자별 학업 상태 검증
+- 유학생 본인의 근무 경력 추가
 
 구인 공고, 지원, 사업주 검토, 면접, 채용 및 매칭 기능은 이 README 작성 시점의 소스에서 확인되지 않아 후속 구현 범위로 남겨 둡니다.
 
@@ -188,6 +189,29 @@ Authorization: Bearer <Access Token>
 - 본인의 프로필 자체가 없으면 `404 STUDENT_PROFILE_NOT_FOUND`입니다. 온보딩 미완료나 빈 경력 목록은 `404`가 아닙니다.
 - 사진 경로가 있는데 설정 누락·파일 없음·통신 오류 등으로 임시 URL 발급에 실패하면 `500 INTERNAL_SERVER_ERROR`를 반환합니다. 예상하지 못한 서버 오류도 같은 코드를 사용합니다.
 - 사진 업로드·변경 API는 별도 작업입니다. 이번 API는 저장된 사진의 조회 주소만 발급합니다.
+
+### 경력 추가 API
+
+`POST /api/students/me/careers`는 프로필이 등록된 유학생 본인의 근무 경력을 추가합니다. 사용자 ID는 Access Token에서 가져오며 Request에 포함하지 않습니다.
+
+```json
+{
+  "careerName": "카페 아르바이트",
+  "startMonth": "2023-03",
+  "endMonth": "2023-09",
+  "description": "음료 제조, 고객 응대"
+}
+```
+
+- `careerName`은 필수이며 공백만 입력할 수 없고 최대 150자입니다.
+- `startMonth`, `endMonth`는 모두 필수이며 JSON 문자열 `YYYY-MM` 형식으로 전달합니다. 종료월은 시작월과 같거나 뒤여야 합니다.
+- 두 날짜 모두 한국 날짜(`Asia/Seoul`) 기준 현재 월까지만 허용합니다. 다음 달 이후의 시작월·종료월은 `400 INVALID_INPUT`입니다.
+- `description`은 선택 입력이며 생략하거나 `null`을 보내면 `NULL`로 저장합니다.
+- 필수값 누락, 잘못된 자료형·월 형식·근무기간, 허용되지 않은 요청 항목은 `400 INVALID_INPUT`입니다.
+- 성공 응답은 `201 Created`이며 `careerId`, `careerName`, `startMonth`, `endMonth`, `description`을 반환합니다. 응답에는 `Cache-Control: no-store`를 설정합니다.
+- 한 회원은 여러 경력을 등록할 수 있습니다. 저장된 경력은 기존 `GET /api/students/me/profile` 응답의 `careers`에 포함됩니다.
+- 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`, 본인 프로필 미등록은 `404 STUDENT_PROFILE_NOT_FOUND`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
+- 기존 V6의 `student_career` 테이블을 사용하며 이번 기능을 위한 새 마이그레이션은 없습니다. 실제 Supabase DB에 V6가 적용되어 있어야 하며, Redis·Storage 설정은 추가로 필요하지 않습니다.
 
 ### 내 유학생 프로필 수정 API
 
@@ -443,6 +467,8 @@ Windows PowerShell:
 `StudentProfileReadIntegrationTest`는 본인 정보만 조회하는지, 미입력 값과 빈 경력 목록, 경력 정렬, 권한·미등록 오류와 이미지 주소 발급 실패를 확인합니다. `SupabaseStorageClientTest`는 테스트용 HTTP 서버로 900초 발급 요청, URL 인코딩, 외부 오류 처리와 리다이렉트 차단을 검증합니다.
 
 `StudentProfileUpdateIntegrationTest`는 비자 초기 데이터, 미전송 필드 보존, TOPIK 삭제, 비자·학업 상태 조합, 입력·권한 오류, 동시 부분 수정 및 저장 실패 시 롤백을 검증합니다. 사진 서비스 장애가 프로필 수정을 막지 않는지도 확인합니다.
+
+`StudentCareerCreateIntegrationTest`는 경력 저장과 프로필 조회 연동, 선택 입력, 월 형식·현재 월 경계·기간 순서, 입력·권한 오류 및 DB 저장 실패 처리를 검증합니다.
 
 전체 빌드 검증이 필요하면 `./gradlew build` 또는 `.\gradlew.bat build`를 사용합니다.
 
