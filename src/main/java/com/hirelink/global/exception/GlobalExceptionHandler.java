@@ -19,6 +19,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(StudentCareerNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleStudentCareerNotFound(StudentCareerNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("STUDENT_CAREER_NOT_FOUND", exception.getMessage()));
+	}
+
 	@ExceptionHandler(InvalidStudentCareerException.class)
 	public ResponseEntity<ErrorResponse> handleInvalidStudentCareer(InvalidStudentCareerException exception) {
 		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));

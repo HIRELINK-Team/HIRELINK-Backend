@@ -50,6 +50,17 @@ public class StudentCareer {
 		return id;
 	}
 
+	public Long getUserId() {
+		return userId;
+	}
+
+	public void updateInformation(String careerName, String startMonth, String endMonth, String description) {
+		this.careerName = careerName;
+		this.startMonth = startMonth;
+		this.endMonth = endMonth;
+		this.description = description;
+	}
+
 	public String getCareerName() {
 		return careerName;
 	}
