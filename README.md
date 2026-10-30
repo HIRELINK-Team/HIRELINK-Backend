@@ -19,6 +19,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - 로그인한 회원의 약관별 동의 상태 저장
 - 휴대전화 인증을 완료한 유학생의 기본 프로필 등록
 - 휴대전화 인증을 완료한 사업주의 프로필 등록
+- 사업주 본인의 프로필 조회
 - 유학생 본인의 프로필·경력 조회 및 비공개 프로필 사진의 임시 URL 발급
 - 유학생 프로필 부분 수정 및 비자별 학업 상태 검증
 - 유학생 본인의 근무 경력 추가·수정·삭제
@@ -181,6 +182,17 @@ Authorization: Bearer <Access Token>
 - 회원 정보 저장과 프로필 생성은 하나의 트랜잭션으로 처리합니다. 같은 회원의 동시 등록도 한 번만 성공하며, 실패한 요청은 기존 정보를 변경하지 않습니다.
 - V12 마이그레이션은 `employer_profile` 테이블만 추가합니다. 사업장·채용공고 정보는 이 API에서 저장하지 않습니다.
 - 실제 Supabase에는 해당 환경에서 Flyway 마이그레이션을 적용해야 합니다. 실제 SMS 연동 전에는 신규 회원의 휴대전화 인증 흐름이 아직 연결되지 않습니다.
+
+### 내 사업주 프로필 조회 API
+
+`GET /api/employers/me/profile`은 Access Token으로 식별한 사업주 본인의 회원 정보와 프로필을 반환합니다. 요청 본문과 Query / Path Parameter는 사용하지 않습니다.
+
+- 성공 응답은 `200 OK`이며 `employerId`, `name`, `email`, `phoneNumber`, `position`을 포함합니다. `employerId`는 회원 ID와 같습니다.
+- 이름·이메일·전화번호는 `user_account`, 직책은 `employer_profile`에서 조회합니다. 전화번호는 `010-0000-0000` 형식이며, 직책 미등록 시 `position`은 `null`입니다.
+- 유입 경로(`acquisitionChannel`)와 사업장 정보는 응답에 포함하지 않습니다. 사업장 조회는 별도 API의 범위입니다.
+- 인증 정보가 없거나 유효하지 않으면 `401 UNAUTHORIZED`, 현재 회원이 사업주가 아니면 `403 FORBIDDEN`, 탈퇴 계정이면 `403 WITHDRAWN_ACCOUNT`입니다.
+- 본인의 프로필이 없으면 `404 EMPLOYER_PROFILE_NOT_FOUND`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식을 사용합니다.
+- 조회는 기존 데이터를 생성하거나 수정하지 않으며, 응답에는 `Cache-Control: no-store`를 설정합니다. 기존 테이블을 사용하므로 새 마이그레이션은 없습니다.
 
 ### 유학생 프로필 등록 API
 
@@ -602,6 +614,8 @@ Windows PowerShell:
 `StudentProfileIntegrationTest`는 프로필 등록 응답과 저장, 만 18세 경계, 입력 검증, 유학생·휴대전화 인증 조건, 중복·동시 등록 및 저장 실패 시 롤백을 확인합니다.
 
 `EmployerProfileCreateIntegrationTest`는 사업주 프로필 등록 응답과 저장, 입력 검증, 현재 회원의 역할·휴대전화 인증 조건, 중복·동시 등록 및 저장 실패 시 회원 정보와 프로필의 전체 롤백을 검증합니다. 일회용 PostgreSQL을 사용하며 실제 Supabase 데이터는 변경하지 않습니다.
+
+`EmployerProfileReadIntegrationTest`는 본인 정보만 반환하는지, 직책의 NULL 응답, 조회 전후 데이터 보존, 인증·권한·미등록 오류와 DB 조회 실패 시 안전한 오류 응답을 검증합니다.
 
 `StudentProfileReadIntegrationTest`는 본인 정보만 조회하는지, 미입력 값과 빈 경력 목록, 경력 정렬, 권한·미등록 오류와 이미지 주소 발급 실패를 확인합니다. `SupabaseStorageClientTest`는 테스트용 HTTP 서버로 900초 발급 요청, URL 인코딩, 외부 오류 처리와 리다이렉트 차단을 검증합니다.
 

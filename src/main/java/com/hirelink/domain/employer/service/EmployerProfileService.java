@@ -7,12 +7,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.hirelink.domain.employer.dto.EmployerProfileCreateRequest;
 import com.hirelink.domain.employer.dto.EmployerProfileCreateResponse;
+import com.hirelink.domain.employer.dto.EmployerProfileResponse;
 import com.hirelink.domain.employer.entity.EmployerProfile;
 import com.hirelink.domain.employer.repository.EmployerProfileRepository;
 import com.hirelink.domain.member.entity.MemberRole;
 import com.hirelink.domain.member.entity.UserAccount;
 import com.hirelink.domain.member.repository.UserAccountRepository;
 import com.hirelink.global.exception.DuplicateEmployerProfileException;
+import com.hirelink.global.exception.EmployerProfileNotFoundException;
 import com.hirelink.global.exception.PhoneNotVerifiedException;
 import com.hirelink.global.exception.WithdrawnAccountException;
 
@@ -26,6 +28,22 @@ public class EmployerProfileService {
 			EmployerProfileRepository employerProfileRepository) {
 		this.userAccountRepository = userAccountRepository;
 		this.employerProfileRepository = employerProfileRepository;
+	}
+
+	@Transactional(readOnly = true)
+	public EmployerProfileResponse getProfile(Long userId) {
+		UserAccount user = userAccountRepository.findById(userId)
+				.orElseThrow(() -> new AuthenticationCredentialsNotFoundException("로그인이 필요합니다."));
+		if (user.isWithdrawn()) {
+			throw new WithdrawnAccountException();
+		}
+		if (user.getRole() != MemberRole.EMPLOYER) {
+			throw new AccessDeniedException("사업주 계정만 프로필을 조회할 수 있습니다.");
+		}
+		EmployerProfile profile = employerProfileRepository.findById(userId)
+				.orElseThrow(EmployerProfileNotFoundException::new);
+		return new EmployerProfileResponse(profile.getId(), user.getName(), user.getEmail(),
+				formatPhoneNumber(user.getPhoneNumber()), profile.getPosition());
 	}
 
 	@Transactional
