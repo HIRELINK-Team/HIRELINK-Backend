@@ -133,6 +133,11 @@ public class JobPosting {
 		this.updatedAt = Instant.now();
 	}
 
+	public void closeRecruitment() {
+		status = JobPostingStatus.CLOSED;
+		closedAt = Instant.now();
+	}
+
 	@PreUpdate
 	void updateTimestamp() {
 		updatedAt = Instant.now();

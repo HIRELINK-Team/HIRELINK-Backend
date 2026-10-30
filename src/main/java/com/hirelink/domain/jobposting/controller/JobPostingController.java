@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.hirelink.domain.jobposting.dto.JobPostingCloseResponse;
 import com.hirelink.domain.jobposting.dto.JobPostingCreateRequest;
 import com.hirelink.domain.jobposting.dto.JobPostingCreateResponse;
 import com.hirelink.domain.jobposting.dto.JobPostingDetailResponse;
@@ -51,6 +52,13 @@ public class JobPostingController {
 	public ResponseEntity<JobPostingUpdateResponse> updateJobPosting(@AuthenticationPrincipal Jwt jwt,
 			@PathVariable Long jobPostingId, @Valid @RequestBody JobPostingUpdateRequest request) {
 		JobPostingUpdateResponse response = jobPostingService.updateJobPosting(Long.valueOf(jwt.getSubject()), jobPostingId, request);
+		return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store").body(response);
+	}
+
+	@PatchMapping("/api/job-postings/{jobPostingId}/close")
+	public ResponseEntity<JobPostingCloseResponse> closeJobPosting(@AuthenticationPrincipal Jwt jwt,
+			@PathVariable Long jobPostingId) {
+		JobPostingCloseResponse response = jobPostingService.closeJobPosting(Long.valueOf(jwt.getSubject()), jobPostingId);
 		return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store").body(response);
 	}
 
