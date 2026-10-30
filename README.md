@@ -19,7 +19,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - 로그인한 회원의 약관별 동의 상태 저장
 - 휴대전화 인증을 완료한 유학생의 기본 프로필 등록
 - 휴대전화 인증을 완료한 사업주의 프로필 등록
-- 사업주 본인의 프로필 조회
+- 사업주 본인의 프로필 조회·수정
 - 유학생 본인의 프로필·경력 조회 및 비공개 프로필 사진의 임시 URL 발급
 - 유학생 프로필 부분 수정 및 비자별 학업 상태 검증
 - 유학생 본인의 근무 경력 추가·수정·삭제
@@ -193,6 +193,28 @@ Authorization: Bearer <Access Token>
 - 인증 정보가 없거나 유효하지 않으면 `401 UNAUTHORIZED`, 현재 회원이 사업주가 아니면 `403 FORBIDDEN`, 탈퇴 계정이면 `403 WITHDRAWN_ACCOUNT`입니다.
 - 본인의 프로필이 없으면 `404 EMPLOYER_PROFILE_NOT_FOUND`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식을 사용합니다.
 - 조회는 기존 데이터를 생성하거나 수정하지 않으며, 응답에는 `Cache-Control: no-store`를 설정합니다. 기존 테이블을 사용하므로 새 마이그레이션은 없습니다.
+
+### 내 사업주 프로필 수정 API
+
+`PATCH /api/employers/me/profile`은 Access Token으로 식별한 사업주 본인의 이름과 직책을 부분 수정합니다.
+
+```json
+{
+  "name": "수정 이름",
+  "position": null
+}
+```
+
+- 보내지 않은 항목은 기존 값을 유지합니다. 위 예시는 이름을 수정하고 기존 직책을 삭제합니다.
+- 이름을 보내면 문자열·최대 100자이며 `null`, 빈 문자열, 공백만 입력할 수 없습니다.
+- 직책을 보내면 문자열·최대 50자이며 빈 문자열과 공백만 입력할 수 없습니다. `position: null`은 직책 삭제를 뜻합니다.
+- 이름은 `user_account.name`, 직책은 `employer_profile.position`에 하나의 트랜잭션으로 저장합니다. 같은 회원의 수정 요청은 순서대로 처리하며, 저장에 실패하면 요청의 변경을 모두 취소합니다.
+- 빈 요청(`{}`), 잘못된 타입·길이·값, 수정 대상이 아닌 항목은 `400 INVALID_INPUT`입니다. `userId`, `email`, `phoneNumber`, `acquisitionChannel`, `preferredLanguage`는 수정 요청에 포함하지 않습니다.
+- 이메일과 유입 경로는 이 API에서 변경하지 않습니다. 전화번호 변경은 기존 휴대전화 인증 API에서 처리합니다.
+- 성공하면 `200 OK`와 조회 API와 같은 `employerId`, `name`, `email`, `phoneNumber`, `position`을 반환합니다. 전화번호는 `010-0000-0000` 형식이며 응답에는 `Cache-Control: no-store`를 설정합니다.
+- 인증 정보가 없거나 유효하지 않으면 `401 UNAUTHORIZED`, 현재 회원이 사업주가 아니면 `403 FORBIDDEN`, 탈퇴 계정이면 `403 WITHDRAWN_ACCOUNT`입니다.
+- 본인의 프로필이 없으면 `404 EMPLOYER_PROFILE_NOT_FOUND`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식을 사용합니다.
+- 기존 테이블과 조회 응답 DTO를 재사용하며 새 마이그레이션은 없습니다. 사업장 정보 수정은 별도 API의 범위입니다.
 
 ### 유학생 프로필 등록 API
 
@@ -616,6 +638,8 @@ Windows PowerShell:
 `EmployerProfileCreateIntegrationTest`는 사업주 프로필 등록 응답과 저장, 입력 검증, 현재 회원의 역할·휴대전화 인증 조건, 중복·동시 등록 및 저장 실패 시 회원 정보와 프로필의 전체 롤백을 검증합니다. 일회용 PostgreSQL을 사용하며 실제 Supabase 데이터는 변경하지 않습니다.
 
 `EmployerProfileReadIntegrationTest`는 본인 정보만 반환하는지, 직책의 NULL 응답, 조회 전후 데이터 보존, 인증·권한·미등록 오류와 DB 조회 실패 시 안전한 오류 응답을 검증합니다.
+
+`EmployerProfileUpdateIntegrationTest`는 부분 수정과 조회 연동, 직책 삭제, 입력·권한·미등록 오류, 다른 회원과 수정 대상이 아닌 정보의 보존, 저장 실패 시 전체 롤백과 동시 부분 수정을 검증합니다.
 
 `StudentProfileReadIntegrationTest`는 본인 정보만 조회하는지, 미입력 값과 빈 경력 목록, 경력 정렬, 권한·미등록 오류와 이미지 주소 발급 실패를 확인합니다. `SupabaseStorageClientTest`는 테스트용 HTTP 서버로 900초 발급 요청, URL 인코딩, 외부 오류 처리와 리다이렉트 차단을 검증합니다.
 

@@ -40,4 +40,8 @@ public class EmployerProfile {
 	public String getPosition() {
 		return position;
 	}
+
+	public void updatePosition(String position) {
+		this.position = position;
+	}
 }

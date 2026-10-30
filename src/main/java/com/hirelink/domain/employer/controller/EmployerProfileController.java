@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hirelink.domain.employer.dto.EmployerProfileCreateRequest;
 import com.hirelink.domain.employer.dto.EmployerProfileCreateResponse;
 import com.hirelink.domain.employer.dto.EmployerProfileResponse;
+import com.hirelink.domain.employer.dto.EmployerProfileUpdateRequest;
 import com.hirelink.domain.employer.service.EmployerProfileService;
 
 @RestController
@@ -40,5 +42,12 @@ public class EmployerProfileController {
 			@Valid @RequestBody EmployerProfileCreateRequest request) {
 		EmployerProfileCreateResponse response = employerProfileService.createProfile(Long.valueOf(jwt.getSubject()), request);
 		return ResponseEntity.status(HttpStatus.CREATED).header(HttpHeaders.CACHE_CONTROL, "no-store").body(response);
+	}
+
+	@PatchMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+	public ResponseEntity<EmployerProfileResponse> updateProfile(@AuthenticationPrincipal Jwt jwt,
+			@Valid @RequestBody EmployerProfileUpdateRequest request) {
+		EmployerProfileResponse response = employerProfileService.updateProfile(Long.valueOf(jwt.getSubject()), request);
+		return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store").body(response);
 	}
 }

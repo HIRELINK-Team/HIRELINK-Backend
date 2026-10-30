@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.hirelink.domain.employer.dto.EmployerProfileCreateRequest;
 import com.hirelink.domain.employer.dto.EmployerProfileCreateResponse;
 import com.hirelink.domain.employer.dto.EmployerProfileResponse;
+import com.hirelink.domain.employer.dto.EmployerProfileUpdateRequest;
 import com.hirelink.domain.employer.entity.EmployerProfile;
 import com.hirelink.domain.employer.repository.EmployerProfileRepository;
 import com.hirelink.domain.member.entity.MemberRole;
@@ -15,6 +16,7 @@ import com.hirelink.domain.member.entity.UserAccount;
 import com.hirelink.domain.member.repository.UserAccountRepository;
 import com.hirelink.global.exception.DuplicateEmployerProfileException;
 import com.hirelink.global.exception.EmployerProfileNotFoundException;
+import com.hirelink.global.exception.InvalidEmployerProfileException;
 import com.hirelink.global.exception.PhoneNotVerifiedException;
 import com.hirelink.global.exception.WithdrawnAccountException;
 
@@ -70,6 +72,32 @@ public class EmployerProfileService {
 
 		return new EmployerProfileCreateResponse(profile.getId(), user.getName(), user.getEmail(),
 				formatPhoneNumber(user.getPhoneNumber()), user.getAcquisitionChannel(), profile.getPosition());
+	}
+
+	@Transactional
+	public EmployerProfileResponse updateProfile(Long userId, EmployerProfileUpdateRequest request) {
+		UserAccount user = userAccountRepository.findByIdForUpdate(userId)
+				.orElseThrow(() -> new AuthenticationCredentialsNotFoundException("로그인이 필요합니다."));
+		if (user.isWithdrawn()) {
+			throw new WithdrawnAccountException();
+		}
+		if (user.getRole() != MemberRole.EMPLOYER) {
+			throw new AccessDeniedException("사업주 계정만 프로필을 수정할 수 있습니다.");
+		}
+		EmployerProfile profile = employerProfileRepository.findById(userId)
+				.orElseThrow(EmployerProfileNotFoundException::new);
+		if (!request.hasChanges()) {
+			throw new InvalidEmployerProfileException("수정할 항목을 하나 이상 입력해주세요.");
+		}
+
+		if (request.getName() != null) {
+			user.updateName(request.getName());
+		}
+		if (request.hasPosition()) {
+			profile.updatePosition(request.getPosition());
+		}
+		return new EmployerProfileResponse(profile.getId(), user.getName(), user.getEmail(),
+				formatPhoneNumber(user.getPhoneNumber()), profile.getPosition());
 	}
 
 	private String formatPhoneNumber(String phoneNumber) {
