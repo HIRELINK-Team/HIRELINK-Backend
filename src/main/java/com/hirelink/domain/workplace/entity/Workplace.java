@@ -75,6 +75,20 @@ public class Workplace {
 		this.employeeCountRange = employeeCountRange;
 	}
 
+	public void updateName(String workplaceName) {
+		this.workplaceName = workplaceName;
+	}
+
+	public void updateBusinessType(BusinessType businessType) {
+		this.businessType = businessType;
+	}
+
+	public void updateLocation(String workplaceAddress, BigDecimal latitude, BigDecimal longitude) {
+		this.workplaceAddress = workplaceAddress;
+		this.latitude = latitude;
+		this.longitude = longitude;
+	}
+
 	public Long getId() {
 		return id;
 	}
