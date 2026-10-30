@@ -21,13 +21,14 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - 유학생 본인의 프로필·경력 조회 및 비공개 프로필 사진의 임시 URL 발급
 - 유학생 프로필 부분 수정 및 비자별 학업 상태 검증
 - 유학생 본인의 근무 경력 추가·수정·삭제
+- 유학생 본인의 매칭 조건 조회
 - 업종·사업장·채용공고 테이블과 Entity, 공고 소유 사업주 관계
 
 채용공고 등록·조회 API, 지원, 사업주 검토, 면접, 채용 및 매칭 기능은 후속 구현 범위입니다.
 
 ### 사업장·채용공고 데이터 구조
 
-- `V8__create_workplace_and_job_posting.sql`은 `business_type`, `workplace`, `job_posting`을 생성합니다. 업종 초기 데이터는 포함하지 않습니다.
+- `V8__create_workplace_and_job_posting.sql`은 `business_type`, `workplace`, `job_posting`을 생성합니다. 업종 초기 데이터 8종은 V10에서 등록합니다.
 - `JobPosting.workplace → Workplace.employerUser → UserAccount` 관계로 공고 소유 사업주의 회원 ID를 확인할 수 있습니다. 연관 Entity는 지연 로딩하므로 필요한 데이터는 트랜잭션 안에서 조회합니다.
 - 공고 상태는 `DRAFT`, `RECRUITING`, `CLOSED`이며 저장할 때 명시합니다. 임시저장을 위해 ERD의 선택 컬럼은 NULL을 허용합니다.
 - 생성·수정 시각은 기존 회원 Entity와 같은 방식으로 기록합니다. 사업장과 공고의 업종은 각각 별도로 연결됩니다.
@@ -290,6 +291,52 @@ Authorization: Bearer <Access Token>
 
 실제 Supabase DB에는 배포 환경에서 Flyway V7 적용이 필요합니다. 동일한 비자 데이터를 수동으로 중복 등록하지 않습니다. 자동 테스트는 별도 PostgreSQL에서 검증하며 실제 Supabase 연결이나 데이터 변경을 수행하지 않습니다. Redis 설정은 필요하지 않습니다.
 
+### 매칭 조건 조회 API
+
+`GET /api/students/me/matching-preferences`는 Access Token으로 식별한 유학생 본인의 희망 업종·근무시간·지역·최소 희망 시급·우선순위를 조회합니다. 요청 본문과 Query / Path parameter는 없습니다.
+
+- 성공 시 `200 OK`이며 Entity 대신 `StudentMatchingPreferenceResponse`를 반환합니다.
+- 프로필은 있지만 아직 조건을 입력하지 않았다면 아래 응답을 반환합니다. 조회 중 기본값을 DB에 저장하지 않습니다. 일부 조건만 저장된 경우에는 해당 조건을 반환하고 나머지는 입력 전 상태로 둡니다.
+- `businessTypeFlexible=true`이면 `preferredJobs`는 항상 빈 배열입니다. `false`인 상태에서도 아직 업종을 선택하지 않았다면 빈 배열일 수 있습니다.
+- 희망 업종은 업종 ID 순, 근무시간은 `MON`부터 `SUN`까지 요일·시작 시간·종료 시간 순, 우선순위는 `priorityOrder` 오름차순으로 반환합니다.
+- 시간은 `HH:mm`, 좌표는 ERD의 `NUMERIC(10,7)` 값을 사용합니다. `otherJobName`은 `OTHER` 업종에만 반환하며 나머지는 `null`입니다.
+- 사용자별 우선순위를 자동 지정하지 않습니다. `criterionId`는 기준을 식별하는 번호이며 사용자가 정한 순서인 `priorityOrder`와 다릅니다. ERD의 `weight`는 유지하지만 응답에 포함하거나 계산하지 않습니다.
+- 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`, 프로필 미등록은 `404 STUDENT_PROFILE_NOT_FOUND`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
+- 매칭 조건 저장·수정 API는 별도 구현 범위입니다.
+
+```json
+{
+  "businessTypeFlexible": false,
+  "preferredJobs": [],
+  "preferredWorkTimes": [],
+  "preferredLocation": null,
+  "minimumHourlyWage": null,
+  "priorities": []
+}
+```
+
+V9는 ERD에 맞춰 `priority_criterion`, `student_preferred_job`, `student_preferred_work_time`, `student_preferred_location`, `student_job_preference`, `student_priority`를 생성합니다. 기존 `business_type`을 재사용하며, V10에서 아래 기준 데이터를 등록합니다. 한글 표시명은 프론트엔드에서 사용하며 DB에는 기존 `name` / `criterion_name` 컬럼에 영문 코드를 저장합니다.
+
+| businessTypeId | businessTypeName | 화면 표시명 |
+| --- | --- | --- |
+| 1 | `FOOD_CAFE` | 음식점·카페 |
+| 2 | `RETAIL` | 매장·판매 |
+| 3 | `OFFICE_EVENT_TOURISM` | 사무·행사·관광 |
+| 4 | `INTERPRETATION_TRANSLATION` | 통·번역 |
+| 5 | `DUTY_FREE` | 면세점 |
+| 6 | `MAJOR_RELATED` | 전공·학업 |
+| 7 | `INTERNSHIP` | 인턴십 |
+| 8 | `OTHER` | 기타 |
+
+| criterionId | criterionName | 화면 표시명 |
+| --- | --- | --- |
+| 1 | `WORK_TIME` | 근무시간 |
+| 2 | `WAGE` | 시급 |
+| 3 | `DISTANCE` | 거리 |
+| 4 | `BUSINESS_TYPE` | 업종 |
+
+실제 Supabase DB에서는 배포 시 Flyway V9·V10 적용이 필요합니다. 기존에 업종 데이터를 수동 등록했다면 ID·코드 충돌 여부를 먼저 확인해야 하며, 자동으로 기존 데이터를 덮어쓰지 않습니다. 기준 데이터가 추가되거나 변경되면 기존 마이그레이션을 수정하지 않고 새 파일로 관리합니다. 이 조회 API에는 Redis·Storage 설정이 필요하지 않습니다.
+
 ### 프로필 사진 저장소 설정
 
 사진 파일은 Supabase Storage의 비공개 버킷에, 버킷 내부 경로는 `student_profile.profile_image_key`에 저장합니다. 기존 JWT로 본인 여부를 확인한 백엔드가 Storage API를 호출합니다.
@@ -509,6 +556,8 @@ Windows PowerShell:
 `StudentProfileUpdateIntegrationTest`는 비자 초기 데이터, 미전송 필드 보존, TOPIK 삭제, 비자·학업 상태 조합, 입력·권한 오류, 동시 부분 수정 및 저장 실패 시 롤백을 검증합니다. 사진 서비스 장애가 프로필 수정을 막지 않는지도 확인합니다.
 
 `StudentCareerCreateIntegrationTest`는 경력 저장과 프로필 조회 연동, 선택 입력, 월 형식·현재 월 경계·기간 순서, 입력·권한 오류 및 DB 저장 실패 처리를 검증합니다.
+
+`StudentMatchingPreferenceReadIntegrationTest`는 기준 데이터와 ID 생성, 입력 전·부분 입력 상태, 본인 조건 조회와 정렬, 권한 검사, DB 제약 및 안전한 오류 응답을 검증합니다. 테스트는 일회용 PostgreSQL에서 실행하며 실제 Supabase 데이터를 변경하지 않습니다.
 
 전체 빌드 검증이 필요하면 `./gradlew build` 또는 `.\gradlew.bat build`를 사용합니다.
 
