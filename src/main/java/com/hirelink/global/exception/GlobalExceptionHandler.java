@@ -19,6 +19,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(WorkplaceNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleWorkplaceNotFound(WorkplaceNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("WORKPLACE_NOT_FOUND", exception.getMessage()));
+	}
+
 	@ExceptionHandler(BusinessRegistrationLookupException.class)
 	public ResponseEntity<ErrorResponse> handleBusinessRegistrationLookup(BusinessRegistrationLookupException exception) {
 		return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
