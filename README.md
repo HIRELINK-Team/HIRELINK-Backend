@@ -17,6 +17,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - Flyway 마이그레이션과 JPA 스키마 검증
 - Testcontainers PostgreSQL을 사용한 인증 통합 테스트
 - 로그인한 회원의 약관별 동의 상태 저장
+- 휴대전화 인증을 완료한 유학생의 기본 프로필 등록
 
 구인 공고, 지원, 사업주 검토, 면접, 채용 및 매칭 기능은 이 README 작성 시점의 소스에서 확인되지 않아 후속 구현 범위로 남겨 둡니다.
 
@@ -145,6 +146,32 @@ Authorization: Bearer <Access Token>
 - 이번 범위는 동의 상태 저장입니다. 필수 동의 검사, 역할별 약관 제한, 약관 내용·버전 관리는 포함하지 않습니다. 화면의 전체 동의 선택 여부는 별도로 저장하지 않습니다.
 - 약관 종류가 추가되면 기존 ID를 유지하고 새 Flyway 파일로 데이터를 추가합니다.
 
+### 유학생 프로필 등록 API
+
+`POST /api/students/me/profile`은 Access Token으로 식별한 유학생의 기본 프로필을 생성합니다.
+
+```json
+{
+  "name": "테스트 이름",
+  "birthDate": "2000-03-14",
+  "nationality": "VN",
+  "currentRegion": "서울 마포구",
+  "koreanLevel": "INTERMEDIATE"
+}
+```
+
+- 이름은 공백만으로 구성할 수 없으며 최대 100자, 현재 거주지역은 공백만으로 구성할 수 없으며 최대 150자입니다.
+- 국적은 ISO 3166-1 alpha-2의 영문 대문자 2자리 코드, 한국어 수준은 `BEGINNER`, `INTERMEDIATE`, `ADVANCED` 중 하나입니다.
+- 생년월일은 `YYYY-MM-DD` 형식이며 한국 날짜(`Asia/Seoul`) 기준으로 만 18세가 되는 생일부터 등록할 수 있습니다.
+- 휴대전화 번호와 인증 완료 시각이 모두 저장된 `STUDENT` 계정만 등록할 수 있습니다.
+- 이름은 `user_account`, 나머지 입력값은 `student_profile`에 하나의 트랜잭션으로 저장합니다. 프로필 ID는 회원 ID와 같습니다.
+- 학교·비자·체류 정보 등 나머지 프로필 컬럼은 ERD대로 유지하며 등록 시 `NULL`입니다. `visa_type`, `study_program`은 테이블만 생성하고 초기 데이터는 넣지 않습니다.
+- 성공 응답은 `201 Created`이며 `studentId`, `name`, `phoneNumber`, `birthDate`, `nationality`, `currentRegion`, `koreanLevel`을 반환합니다. 전화번호는 `010-0000-0000` 형식입니다.
+- 입력 오류·만 18세 미만은 `400 INVALID_INPUT`, 로그인 필요는 `401 UNAUTHORIZED`, 유학생이 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다.
+- 휴대전화 미인증은 `409 PHONE_NOT_VERIFIED`, 이미 등록된 프로필은 `409 DUPLICATE_STUDENT_PROFILE`, 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
+- 같은 회원의 동시 등록 요청도 한 번만 저장하며, 등록 실패 시 기존 이름과 프로필 상태를 유지합니다.
+- 실제 SMS 연동 전에는 신규 회원이 휴대전화 인증을 완료하는 사용자 흐름이 아직 연결되지 않습니다. 통합 테스트는 일회용 DB에 인증된 회원을 준비해 등록을 검증합니다.
+
 ## 팀원
 
 | 이름 | 역할 | GitHub |
@@ -213,7 +240,13 @@ HIRELINK-Backend/
 │   │   │   │   │   ├── entity/
 │   │   │   │   │   ├── repository/
 │   │   │   │   │   └── service/
-│   │   │   │   └── member/
+│   │   │   │   ├── member/
+│   │   │   │   │   ├── controller/
+│   │   │   │   │   ├── dto/
+│   │   │   │   │   ├── entity/
+│   │   │   │   │   ├── repository/
+│   │   │   │   │   └── service/
+│   │   │   │   └── student/
 │   │   │   │       ├── controller/
 │   │   │   │       ├── dto/
 │   │   │   │       ├── entity/
@@ -228,7 +261,8 @@ HIRELINK-Backend/
 │   │       └── application.yml
 │   └── test/java/com/hirelink/domain/
 │       ├── auth/
-│       └── member/
+│       ├── member/
+│       └── student/
 ├── build.gradle
 ├── gradlew
 ├── gradlew.bat
@@ -330,6 +364,8 @@ Windows PowerShell:
 `AuthIntegrationTest`는 Testcontainers가 생성한 일회용 PostgreSQL을 대상으로 실제 HTTP 요청을 보내 회원가입, 로그인, 입력 검증, 중복 가입, 트랜잭션 롤백, 쿠키 속성, 다중 로그인, 토큰과 CSRF 검증을 확인합니다. 로그아웃의 반복·동시 요청, 현재 로그인만 무효화되는지, 오류 발생 시 기존 기록이 유지되는지도 검증합니다. 개발 데이터베이스 접속값은 사용하지 않으며 테스트용 JWT 키도 실행 시 별도로 생성합니다.
 
 `TermAgreementIntegrationTest`는 약관 초기 데이터, 동의 상태 변경과 시각 유지, 사용자 구분, 입력 오류, 없는 약관, 저장 실패 시 전체 롤백과 동시 요청을 확인합니다.
+
+`StudentProfileIntegrationTest`는 프로필 등록 응답과 저장, 만 18세 경계, 입력 검증, 유학생·휴대전화 인증 조건, 중복·동시 등록 및 저장 실패 시 롤백을 확인합니다.
 
 전체 빌드 검증이 필요하면 `./gradlew build` 또는 `.\gradlew.bat build`를 사용합니다.
 
