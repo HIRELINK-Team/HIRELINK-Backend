@@ -18,6 +18,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - Testcontainers PostgreSQL을 사용한 인증 통합 테스트
 - 로그인한 회원의 약관별 동의 상태 저장
 - 휴대전화 인증을 완료한 유학생의 기본 프로필 등록
+- 유학생 본인의 프로필·경력 조회 및 비공개 프로필 사진의 임시 URL 발급
 
 구인 공고, 지원, 사업주 검토, 면접, 채용 및 매칭 기능은 이 README 작성 시점의 소스에서 확인되지 않아 후속 구현 범위로 남겨 둡니다.
 
@@ -172,6 +173,34 @@ Authorization: Bearer <Access Token>
 - 같은 회원의 동시 등록 요청도 한 번만 저장하며, 등록 실패 시 기존 이름과 프로필 상태를 유지합니다.
 - 실제 SMS 연동 전에는 신규 회원이 휴대전화 인증을 완료하는 사용자 흐름이 아직 연결되지 않습니다. 통합 테스트는 일회용 DB에 인증된 회원을 준비해 등록을 검증합니다.
 
+### 내 유학생 프로필 조회 API
+
+`GET /api/students/me/profile`은 Access Token으로 식별한 유학생 본인의 회원 정보, 프로필과 경력 목록을 반환합니다. 요청 본문과 Query / Path Parameter는 사용하지 않습니다.
+
+- 성공 응답은 `200 OK`이며 `studentId`, `name`, `email`, `phoneNumber`, `birthDate`, `nationality`, `currentRegion`, `koreanLevel`을 포함합니다.
+- 온보딩 정보는 `visaCode`, `universityName`, `enrollmentStartDate`, `studyProgramId`, `gradeLevel`, `academicState`, `topikLevel`, `stayStartDate`, `stayExpirationDate`, `hirelinkBadgeIssuedAt`으로 반환합니다. 미입력 값은 `null`입니다.
+- 경력은 `careers` 배열로 반환합니다. 각 항목은 `careerId`, `careerName`, `startMonth`, `endMonth`, `description`이며, 경력이 없으면 `[]`입니다.
+- 경력은 시작월 내림차순, 시작월이 같으면 ID 내림차순입니다. `startMonth`, `endMonth`는 `YYYY-MM` 형식이며 ERD에 따라 둘 다 필수입니다. `description`은 `null`일 수 있습니다.
+- 사진 경로가 없으면 `profileImageUrl`은 `null`입니다. 사진 경로가 있으면 Supabase Storage에서 15분(900초) 유효한 임시 URL을 발급해 반환합니다. DB의 `profile_image_key`는 응답에 포함하지 않습니다.
+- 임시 URL이 만료된 뒤 사진을 다시 불러오려면 프로필을 다시 조회합니다. 사진 파일은 주소 만료로 삭제되지 않습니다. 응답에는 `Cache-Control: no-store`를 설정합니다.
+- `401 UNAUTHORIZED`는 인증 정보가 없거나 유효하지 않은 경우, `403 FORBIDDEN`은 유학생이 아닌 경우, `403 WITHDRAWN_ACCOUNT`는 탈퇴한 회원입니다.
+- 본인의 프로필 자체가 없으면 `404 STUDENT_PROFILE_NOT_FOUND`입니다. 온보딩 미완료나 빈 경력 목록은 `404`가 아닙니다.
+- 사진 경로가 있는데 설정 누락·파일 없음·통신 오류 등으로 임시 URL 발급에 실패하면 `500 INTERNAL_SERVER_ERROR`를 반환합니다. 예상하지 못한 서버 오류도 같은 코드를 사용합니다.
+- 사진 업로드·변경 API는 별도 작업입니다. 이번 API는 저장된 사진의 조회 주소만 발급합니다.
+
+### 프로필 사진 저장소 설정
+
+사진 파일은 Supabase Storage의 비공개 버킷에, 버킷 내부 경로는 `student_profile.profile_image_key`에 저장합니다. 기존 JWT로 본인 여부를 확인한 백엔드가 Storage API를 호출합니다.
+
+1. 실제 DB의 Flyway 적용 상태를 확인하고 새 마이그레이션을 적용합니다. 테이블을 수동으로 중복 생성하지 않습니다.
+2. Supabase Storage에서 `profile-images` 비공개 버킷을 생성합니다. 다른 이름을 사용하면 `SUPABASE_STORAGE_BUCKET`에 지정합니다.
+3. 서버 환경에 `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SUPABASE_STORAGE_BUCKET`을 설정합니다. Secret key는 서버에서만 사용하며 프론트엔드와 저장소에 포함하지 않습니다.
+4. 실제 환경에서 사진 경로와 파일이 일치하는지, 발급한 URL로 사진을 조회할 수 있는지 확인합니다.
+
+URL은 Supabase 프로젝트 기본 URL을 사용합니다. 비밀키는 [공식 API 키 안내](https://supabase.com/docs/guides/getting-started/api-keys)의 서버용 Secret key를 사용하고 `apikey` 헤더로 전달합니다. 임시 URL 발급은 [Storage API](https://supabase.com/docs/reference/javascript/storage-from-createsignedurl)의 `expiresIn`을 900초로 지정합니다.
+
+사진이 없는 회원의 조회는 Storage 설정 없이도 동작합니다. 자동 테스트에서는 일회용 PostgreSQL과 테스트용 HTTP 서버를 사용하며, 실제 Supabase DB·Storage의 설정과 연결 확인은 별도로 수행해야 합니다.
+
 ## 팀원
 
 | 이름 | 역할 | GitHub |
@@ -194,7 +223,7 @@ Authorization: Bearer <Access Token>
 ### Database / Storage
 
 - PostgreSQL
-- 별도 파일·오브젝트 스토리지는 현재 설정 및 소스에서 확인되지 않음
+- Supabase Storage: 비공개 프로필 사진의 임시 URL 발급, 실제 환경 설정·연결 확인 필요
 
 ### Authentication
 
@@ -254,15 +283,18 @@ HIRELINK-Backend/
 │   │   │   │       └── service/
 │   │   │   ├── global/
 │   │   │   │   ├── exception/
-│   │   │   │   └── security/
+│   │   │   │   ├── security/
+│   │   │   │   └── storage/
 │   │   │   └── HirelinkBackendApplication.java
 │   │   └── resources/
 │   │       ├── db/migration/
 │   │       └── application.yml
-│   └── test/java/com/hirelink/domain/
-│       ├── auth/
-│       ├── member/
-│       └── student/
+│   └── test/java/com/hirelink/
+│       ├── domain/
+│       │   ├── auth/
+│       │   ├── member/
+│       │   └── student/
+│       └── global/storage/
 ├── build.gradle
 ├── gradlew
 ├── gradlew.bat
@@ -290,6 +322,9 @@ Gradle은 저장소의 Wrapper를 사용하므로 별도 설치가 필요하지 
 | `DB_PASSWORD` | 필수 | 데이터베이스 비밀번호 |
 | `JWT_SECRET` | 필수 | JWT HS256 서명 키. 32바이트 이상 난수를 Base64로 인코딩해 사용 |
 | `AUTH_COOKIE_SECURE` | 선택 | 기본값 `true`. 로컬 HTTP 테스트에서만 `false` 사용 |
+| `SUPABASE_URL` | 사진 조회 시 필수 | Supabase 프로젝트의 HTTPS 기본 URL |
+| `SUPABASE_SECRET_KEY` | 사진 조회 시 필수 | 서버 전용 Secret key. 프론트엔드·소스 코드에 포함 금지 |
+| `SUPABASE_STORAGE_BUCKET` | 선택 | 기본값 `profile-images`. 실제 비공개 버킷 이름 |
 
 macOS/Linux 예시:
 
@@ -366,6 +401,8 @@ Windows PowerShell:
 `TermAgreementIntegrationTest`는 약관 초기 데이터, 동의 상태 변경과 시각 유지, 사용자 구분, 입력 오류, 없는 약관, 저장 실패 시 전체 롤백과 동시 요청을 확인합니다.
 
 `StudentProfileIntegrationTest`는 프로필 등록 응답과 저장, 만 18세 경계, 입력 검증, 유학생·휴대전화 인증 조건, 중복·동시 등록 및 저장 실패 시 롤백을 확인합니다.
+
+`StudentProfileReadIntegrationTest`는 본인 정보만 조회하는지, 미입력 값과 빈 경력 목록, 경력 정렬, 권한·미등록 오류와 이미지 주소 발급 실패를 확인합니다. `SupabaseStorageClientTest`는 테스트용 HTTP 서버로 900초 발급 요청, URL 인코딩, 외부 오류 처리와 리다이렉트 차단을 검증합니다.
 
 전체 빌드 검증이 필요하면 `./gradlew build` 또는 `.\gradlew.bat build`를 사용합니다.
 

@@ -19,6 +19,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(StudentProfileNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleStudentProfileNotFound(StudentProfileNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("STUDENT_PROFILE_NOT_FOUND", exception.getMessage()));
+	}
+
 	@ExceptionHandler(DuplicateStudentProfileException.class)
 	public ResponseEntity<ErrorResponse> handleDuplicateStudentProfile(DuplicateStudentProfileException exception) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)
