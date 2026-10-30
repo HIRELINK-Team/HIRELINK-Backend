@@ -14,4 +14,6 @@ public interface StudentPreferredJobRepository extends JpaRepository<StudentPref
 	@EntityGraph(attributePaths = "businessType")
 	@Query("select job from StudentPreferredJob job where job.userId = :userId order by job.businessType.id, job.id")
 	List<StudentPreferredJob> findAllByUserId(@Param("userId") Long userId);
+
+	void deleteAllByUserId(Long userId);
 }

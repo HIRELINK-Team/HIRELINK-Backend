@@ -19,6 +19,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(InvalidMatchingPreferenceException.class)
+	public ResponseEntity<ErrorResponse> handleInvalidMatchingPreference(InvalidMatchingPreferenceException exception) {
+		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));
+	}
+
+	@ExceptionHandler(MatchingReferenceNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleMatchingReferenceNotFound(MatchingReferenceNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("MATCHING_REFERENCE_NOT_FOUND", exception.getMessage()));
+	}
+
 	@ExceptionHandler(StudentCareerNotFoundException.class)
 	public ResponseEntity<ErrorResponse> handleStudentCareerNotFound(StudentCareerNotFoundException exception) {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)

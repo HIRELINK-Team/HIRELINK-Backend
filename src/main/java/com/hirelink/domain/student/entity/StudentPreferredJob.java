@@ -33,6 +33,12 @@ public class StudentPreferredJob {
 	protected StudentPreferredJob() {
 	}
 
+	public StudentPreferredJob(Long userId, BusinessType businessType, String otherJobName) {
+		this.userId = userId;
+		this.businessType = businessType;
+		this.otherJobName = otherJobName;
+	}
+
 	public BusinessType getBusinessType() {
 		return businessType;
 	}
