@@ -17,10 +17,14 @@ import com.hirelink.domain.member.repository.UserAccountRepository;
 import com.hirelink.domain.student.dto.StudentProfileCreateRequest;
 import com.hirelink.domain.student.dto.StudentProfileCreateResponse;
 import com.hirelink.domain.student.dto.StudentProfileResponse;
+import com.hirelink.domain.student.dto.StudentProfileUpdateRequest;
+import com.hirelink.domain.student.dto.StudentProfileUpdateResponse;
+import com.hirelink.domain.student.entity.AcademicState;
 import com.hirelink.domain.student.entity.KoreanLevel;
 import com.hirelink.domain.student.entity.StudentProfile;
 import com.hirelink.domain.student.repository.StudentCareerRepository;
 import com.hirelink.domain.student.repository.StudentProfileRepository;
+import com.hirelink.domain.student.repository.VisaTypeRepository;
 import com.hirelink.global.exception.DuplicateStudentProfileException;
 import com.hirelink.global.exception.InvalidStudentProfileException;
 import com.hirelink.global.exception.PhoneNotVerifiedException;
@@ -37,14 +41,16 @@ public class StudentProfileService {
 	private final UserAccountRepository userAccountRepository;
 	private final StudentProfileRepository studentProfileRepository;
 	private final StudentCareerRepository studentCareerRepository;
+	private final VisaTypeRepository visaTypeRepository;
 	private final SupabaseStorageClient storageClient;
 
 	public StudentProfileService(UserAccountRepository userAccountRepository,
 			StudentProfileRepository studentProfileRepository, StudentCareerRepository studentCareerRepository,
-			SupabaseStorageClient storageClient) {
+			VisaTypeRepository visaTypeRepository, SupabaseStorageClient storageClient) {
 		this.userAccountRepository = userAccountRepository;
 		this.studentProfileRepository = studentProfileRepository;
 		this.studentCareerRepository = studentCareerRepository;
+		this.visaTypeRepository = visaTypeRepository;
 		this.storageClient = storageClient;
 	}
 
@@ -105,6 +111,78 @@ public class StudentProfileService {
 
 		return new StudentProfileCreateResponse(profile.getId(), user.getName(), formatPhoneNumber(user.getPhoneNumber()),
 				profile.getBirthDate(), profile.getNationality(), profile.getCurrentRegion(), profile.getKoreanLevel());
+	}
+
+	@Transactional
+	public StudentProfileUpdateResponse updateProfile(Long userId, StudentProfileUpdateRequest request) {
+		UserAccount user = userAccountRepository.findByIdForUpdate(userId)
+				.orElseThrow(() -> new AuthenticationCredentialsNotFoundException("로그인이 필요합니다."));
+		if (user.isWithdrawn()) {
+			throw new WithdrawnAccountException();
+		}
+		if (user.getRole() != MemberRole.STUDENT) {
+			throw new AccessDeniedException("유학생 계정만 프로필을 수정할 수 있습니다.");
+		}
+		StudentProfile profile = studentProfileRepository.findById(userId)
+				.orElseThrow(StudentProfileNotFoundException::new);
+		if (!request.hasChanges()) {
+			throw new InvalidStudentProfileException("수정할 항목을 하나 이상 입력해주세요.");
+		}
+		if (request.getBirthDate() != null
+				&& request.getBirthDate().isAfter(LocalDate.now(KOREA_ZONE).minusYears(18))) {
+			throw new InvalidStudentProfileException("만 18세 이상만 프로필을 수정할 수 있습니다.");
+		}
+		if (request.getNationality() != null && !COUNTRY_CODES.contains(request.getNationality())) {
+			throw new InvalidStudentProfileException("올바른 국적 코드를 입력해주세요.");
+		}
+		String visaCode = request.getVisaCode() != null ? request.getVisaCode() : profile.getVisaCode();
+		String academicState = request.getAcademicState() != null ? request.getAcademicState() : profile.getAcademicState();
+		if (request.getVisaCode() != null
+				&& (AcademicState.allowedFor(visaCode).isEmpty() || !visaTypeRepository.existsById(visaCode))) {
+			throw new InvalidStudentProfileException("등록된 비자 코드를 입력해주세요.");
+		}
+		if (request.getVisaCode() != null || request.getAcademicState() != null) {
+			validateAcademicState(visaCode, academicState);
+		}
+		LocalDate expirationDate = request.getStayExpirationDate() != null
+				? request.getStayExpirationDate() : profile.getStayExpirationDate();
+		if (request.getStayExpirationDate() != null && profile.getStayStartDate() != null
+				&& expirationDate.isBefore(profile.getStayStartDate())) {
+			throw new InvalidStudentProfileException("체류 만료일은 체류 시작일보다 빠를 수 없습니다.");
+		}
+
+		if (request.getName() != null) {
+			user.updateName(request.getName());
+		}
+		profile.updateBasicInformation(
+				request.getBirthDate() != null ? request.getBirthDate() : profile.getBirthDate(),
+				request.getNationality() != null ? request.getNationality() : profile.getNationality(),
+				request.getCurrentRegion() != null ? request.getCurrentRegion() : profile.getCurrentRegion(),
+				request.getKoreanLevel() != null ? KoreanLevel.valueOf(request.getKoreanLevel()) : profile.getKoreanLevel());
+		Short topikLevel = request.hasTopikLevel()
+				? (request.getTopikLevel() == null ? null : request.getTopikLevel().shortValue()) : profile.getTopikLevel();
+		profile.updateOnboardingInformation(visaCode,
+				request.getUniversityName() != null ? request.getUniversityName() : profile.getUniversityName(),
+				academicState, topikLevel, expirationDate);
+
+		return new StudentProfileUpdateResponse(userId, user.getName(), user.getEmail(), formatPhoneNumber(user.getPhoneNumber()),
+				profile.getBirthDate(), profile.getNationality(), profile.getCurrentRegion(), profile.getKoreanLevel(),
+				profile.getVisaCode(), profile.getUniversityName(), profile.getStudyProgramId(), profile.getGradeLevel(),
+				profile.getAcademicState(), profile.getTopikLevel(), profile.getStayExpirationDate(), profile.getHirelinkBadgeIssuedAt());
+	}
+
+	private void validateAcademicState(String visaCode, String academicState) {
+		if (academicState == null) {
+			return;
+		}
+		try {
+			if (AcademicState.allowedFor(visaCode).contains(AcademicState.valueOf(academicState))) {
+				return;
+			}
+		} catch (IllegalArgumentException exception) {
+			throw new InvalidStudentProfileException("올바른 학업 상태를 입력해주세요.");
+		}
+		throw new InvalidStudentProfileException("선택한 비자에 맞는 학업 상태를 함께 입력해주세요.");
 	}
 
 	private String formatPhoneNumber(String phoneNumber) {

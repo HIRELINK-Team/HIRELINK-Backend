@@ -97,6 +97,22 @@ public class StudentProfile {
 		return id;
 	}
 
+	public void updateBasicInformation(LocalDate birthDate, String nationality, String currentRegion, KoreanLevel koreanLevel) {
+		this.birthDate = birthDate;
+		this.nationality = nationality;
+		this.currentRegion = currentRegion;
+		this.koreanLevel = koreanLevel;
+	}
+
+	public void updateOnboardingInformation(String visaCode, String universityName, String academicState,
+			Short topikLevel, LocalDate stayExpirationDate) {
+		this.visaCode = visaCode;
+		this.universityName = universityName;
+		this.academicState = academicState;
+		this.topikLevel = topikLevel;
+		this.stayExpirationDate = stayExpirationDate;
+	}
+
 	public LocalDate getBirthDate() {
 		return birthDate;
 	}

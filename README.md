@@ -19,6 +19,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - 로그인한 회원의 약관별 동의 상태 저장
 - 휴대전화 인증을 완료한 유학생의 기본 프로필 등록
 - 유학생 본인의 프로필·경력 조회 및 비공개 프로필 사진의 임시 URL 발급
+- 유학생 프로필 부분 수정 및 비자별 학업 상태 검증
 
 구인 공고, 지원, 사업주 검토, 면접, 채용 및 매칭 기능은 이 README 작성 시점의 소스에서 확인되지 않아 후속 구현 범위로 남겨 둡니다.
 
@@ -166,7 +167,7 @@ Authorization: Bearer <Access Token>
 - 생년월일은 `YYYY-MM-DD` 형식이며 한국 날짜(`Asia/Seoul`) 기준으로 만 18세가 되는 생일부터 등록할 수 있습니다.
 - 휴대전화 번호와 인증 완료 시각이 모두 저장된 `STUDENT` 계정만 등록할 수 있습니다.
 - 이름은 `user_account`, 나머지 입력값은 `student_profile`에 하나의 트랜잭션으로 저장합니다. 프로필 ID는 회원 ID와 같습니다.
-- 학교·비자·체류 정보 등 나머지 프로필 컬럼은 ERD대로 유지하며 등록 시 `NULL`입니다. `visa_type`, `study_program`은 테이블만 생성하고 초기 데이터는 넣지 않습니다.
+- 학교·비자·체류 정보 등 나머지 프로필 컬럼은 ERD대로 유지하며 등록 시 `NULL`입니다. `visa_type`에는 V7 마이그레이션으로 9종을 등록하고, `study_program`의 초기 데이터는 추가하지 않습니다.
 - 성공 응답은 `201 Created`이며 `studentId`, `name`, `phoneNumber`, `birthDate`, `nationality`, `currentRegion`, `koreanLevel`을 반환합니다. 전화번호는 `010-0000-0000` 형식입니다.
 - 입력 오류·만 18세 미만은 `400 INVALID_INPUT`, 로그인 필요는 `401 UNAUTHORIZED`, 유학생이 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다.
 - 휴대전화 미인증은 `409 PHONE_NOT_VERIFIED`, 이미 등록된 프로필은 `409 DUPLICATE_STUDENT_PROFILE`, 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
@@ -187,6 +188,43 @@ Authorization: Bearer <Access Token>
 - 본인의 프로필 자체가 없으면 `404 STUDENT_PROFILE_NOT_FOUND`입니다. 온보딩 미완료나 빈 경력 목록은 `404`가 아닙니다.
 - 사진 경로가 있는데 설정 누락·파일 없음·통신 오류 등으로 임시 URL 발급에 실패하면 `500 INTERNAL_SERVER_ERROR`를 반환합니다. 예상하지 못한 서버 오류도 같은 코드를 사용합니다.
 - 사진 업로드·변경 API는 별도 작업입니다. 이번 API는 저장된 사진의 조회 주소만 발급합니다.
+
+### 내 유학생 프로필 수정 API
+
+`PATCH /api/students/me/profile`은 Access Token으로 식별한 유학생 본인의 프로필에서 요청에 포함된 항목만 수정합니다.
+
+```json
+{
+  "visaCode": "D-4-1",
+  "academicState": "IN_PROGRESS",
+  "topikLevel": null
+}
+```
+
+- 수정 가능한 항목은 `name`, `birthDate`, `nationality`, `currentRegion`, `koreanLevel`, `visaCode`, `stayExpirationDate`, `universityName`, `academicState`, `topikLevel`입니다.
+- 보내지 않은 항목은 유지합니다. `topikLevel: null`은 기존 TOPIK 급수를 삭제하며, 급수를 입력할 때는 정수 1~6만 허용합니다. 나머지 항목은 명시적인 `null`을 허용하지 않습니다.
+- 빈 객체, 잘못된 자료형, 허용 목록에 없는 항목은 `400 INVALID_INPUT`입니다. `studyProgramId`, `gradeLevel`, 이메일·전화번호·사진·경력도 수정 요청에 포함할 수 없습니다.
+- 이름은 최대 100자, 현재 거주지역과 학교명은 최대 150자이며 공백만 입력할 수 없습니다. 국적·한국어 수준은 등록 API와 같은 기준으로 검증합니다. 생년월일 변경 시 한국 날짜 기준 만 18세 이상인지 확인합니다.
+- 체류 만료일은 과거 날짜도 저장할 수 있습니다. 기존 체류 시작일이 있으면 그 날짜보다 앞선 만료일은 허용하지 않습니다.
+- 비자 또는 학업 상태를 보냈을 때 기존 값과 합친 최종 조합을 검사합니다. 비자 변경 후 기존 학업 상태가 맞지 않으면 `400 INVALID_INPUT`이며, 맞는 `academicState`를 함께 보내야 합니다. 서버가 기존 상태를 자동으로 삭제하지 않습니다.
+- 아직 학업 상태를 입력하지 않은 회원은 비자만 먼저 저장할 수 있습니다. 학업 상태를 입력하려면 요청 또는 기존 프로필에 비자가 있어야 합니다.
+- `study_program_id`, `grade_level`을 비롯한 수정 대상 외 컬럼은 그대로 보존합니다. 비자에 따라 학업과정을 자동 지정하지 않습니다.
+- 이름과 프로필 수정은 하나의 트랜잭션으로 처리합니다. 같은 회원의 동시 수정은 순서대로 처리하고, 실패한 요청의 변경사항은 모두 취소합니다.
+- 성공 응답은 `200 OK`이며 `studentId`, `name`, `email`, `phoneNumber`, `birthDate`, `nationality`, `currentRegion`, `koreanLevel`, `visaCode`, `universityName`, `studyProgramId`, `gradeLevel`, `academicState`, `topikLevel`, `stayExpirationDate`, `hirelinkBadgeIssuedAt`을 반환합니다.
+- 수정 응답에는 `profileImageUrl`을 포함하지 않으며 Storage API도 호출하지 않습니다. 사진 주소는 기존 프로필 조회 API에서 받습니다. 기존 조회 응답은 유지합니다.
+- 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`, 본인의 프로필 미등록은 `404 STUDENT_PROFILE_NOT_FOUND`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
+
+학업 상태는 아래 영문 코드를 요청·응답·DB에 사용합니다. `COMPLETED` 등 같은 코드를 사용하는 상태는 비자에 맞춰 화면에 표시합니다.
+
+| 비자 | 이름 | 학업 상태 코드와 화면 표시 |
+| --- | --- | --- |
+| D-2-1 / D-2-2 / D-2-3 / D-2-4 | 전문학사 / 학사 / 석사 / 박사 | `ENROLLED` 재학 중, `ON_LEAVE` 휴학 중, `COMPLETED` 수료, `GRADUATED` 졸업 |
+| D-2-6 | 교환학생 | `IN_PROGRESS` 교환학생 진행 중, `COMPLETED` 교환학기 종료, `DISCONTINUED` 중단 |
+| D-2-7 | 일·학습연계 | `IN_PROGRESS` 과정 참여 중, `ON_LEAVE_OR_DISCONTINUED` 휴학/중단, `COMPLETED` 과정 수료 |
+| D-2-8 | 방문학생 | `IN_PROGRESS` 방문학기 진행 중, `COMPLETED` 방문학기 종료, `DISCONTINUED` 중단 |
+| D-4-1 / D-4-7 | 한국어연수 / 외국어연수 | `IN_PROGRESS` 연수 중, `DISCONTINUED` 연수 중단, `COMPLETED` 연수 수료 |
+
+실제 Supabase DB에는 배포 환경에서 Flyway V7 적용이 필요합니다. 동일한 비자 데이터를 수동으로 중복 등록하지 않습니다. 자동 테스트는 별도 PostgreSQL에서 검증하며 실제 Supabase 연결이나 데이터 변경을 수행하지 않습니다. Redis 설정은 필요하지 않습니다.
 
 ### 프로필 사진 저장소 설정
 
@@ -403,6 +441,8 @@ Windows PowerShell:
 `StudentProfileIntegrationTest`는 프로필 등록 응답과 저장, 만 18세 경계, 입력 검증, 유학생·휴대전화 인증 조건, 중복·동시 등록 및 저장 실패 시 롤백을 확인합니다.
 
 `StudentProfileReadIntegrationTest`는 본인 정보만 조회하는지, 미입력 값과 빈 경력 목록, 경력 정렬, 권한·미등록 오류와 이미지 주소 발급 실패를 확인합니다. `SupabaseStorageClientTest`는 테스트용 HTTP 서버로 900초 발급 요청, URL 인코딩, 외부 오류 처리와 리다이렉트 차단을 검증합니다.
+
+`StudentProfileUpdateIntegrationTest`는 비자 초기 데이터, 미전송 필드 보존, TOPIK 삭제, 비자·학업 상태 조합, 입력·권한 오류, 동시 부분 수정 및 저장 실패 시 롤백을 검증합니다. 사진 서비스 장애가 프로필 수정을 막지 않는지도 확인합니다.
 
 전체 빌드 검증이 필요하면 `./gradlew build` 또는 `.\gradlew.bat build`를 사용합니다.
 
