@@ -6,6 +6,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -17,6 +18,29 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+	@ExceptionHandler(DuplicateStudentProfileException.class)
+	public ResponseEntity<ErrorResponse> handleDuplicateStudentProfile(DuplicateStudentProfileException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ErrorResponse("DUPLICATE_STUDENT_PROFILE", exception.getMessage()));
+	}
+
+	@ExceptionHandler(PhoneNotVerifiedException.class)
+	public ResponseEntity<ErrorResponse> handlePhoneNotVerified(PhoneNotVerifiedException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ErrorResponse("PHONE_NOT_VERIFIED", exception.getMessage()));
+	}
+
+	@ExceptionHandler(InvalidStudentProfileException.class)
+	public ResponseEntity<ErrorResponse> handleInvalidStudentProfile(InvalidStudentProfileException exception) {
+		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));
+	}
+
+	@ExceptionHandler(AccessDeniedException.class)
+	public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException exception) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN)
+				.body(new ErrorResponse("FORBIDDEN", "접근 권한이 없습니다."));
+	}
 
 	@ExceptionHandler(TermTypeNotFoundException.class)
 	public ResponseEntity<ErrorResponse> handleTermTypeNotFound(TermTypeNotFoundException exception) {

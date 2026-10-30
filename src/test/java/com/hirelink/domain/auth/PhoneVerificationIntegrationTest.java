@@ -87,7 +87,7 @@ class PhoneVerificationIntegrationTest {
 
 	@BeforeEach
 	void setUp() {
-		jdbc.execute("TRUNCATE TABLE user_term_agreement, phone_verification, phone_verification_send_attempt, "
+		jdbc.execute("TRUNCATE TABLE student_profile, user_term_agreement, phone_verification, phone_verification_send_attempt, "
 				+ "refresh_token, auth_account, user_account RESTART IDENTITY");
 		doNothing().when(smsSender).sendVerificationCode(anyString(), anyString());
 	}

@@ -91,6 +91,22 @@ public class UserAccount {
 		return role;
 	}
 
+	public String getName() {
+		return name;
+	}
+
+	public void updateName(String name) {
+		this.name = name;
+	}
+
+	public String getPhoneNumber() {
+		return phoneNumber;
+	}
+
+	public boolean isPhoneVerified() {
+		return phoneNumber != null && phoneVerifiedAt != null;
+	}
+
 	public boolean isWithdrawn() {
 		return withdrawnAt != null;
 	}
