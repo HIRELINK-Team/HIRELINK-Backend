@@ -19,6 +19,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(BusinessRegistrationLookupException.class)
+	public ResponseEntity<ErrorResponse> handleBusinessRegistrationLookup(BusinessRegistrationLookupException exception) {
+		return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+				.body(new ErrorResponse("BUSINESS_REGISTRATION_LOOKUP_FAILED", exception.getMessage()));
+	}
+
 	@ExceptionHandler(InvalidMatchingPreferenceException.class)
 	public ResponseEntity<ErrorResponse> handleInvalidMatchingPreference(InvalidMatchingPreferenceException exception) {
 		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));

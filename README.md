@@ -20,6 +20,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - 휴대전화 인증을 완료한 유학생의 기본 프로필 등록
 - 휴대전화 인증을 완료한 사업주의 프로필 등록
 - 사업주 본인의 프로필 조회·수정
+- 국세청 상태조회 API를 통한 사업자등록번호 확인
 - 유학생 본인의 프로필·경력 조회 및 비공개 프로필 사진의 임시 URL 발급
 - 유학생 프로필 부분 수정 및 비자별 학업 상태 검증
 - 유학생 본인의 근무 경력 추가·수정·삭제
@@ -215,6 +216,29 @@ Authorization: Bearer <Access Token>
 - 인증 정보가 없거나 유효하지 않으면 `401 UNAUTHORIZED`, 현재 회원이 사업주가 아니면 `403 FORBIDDEN`, 탈퇴 계정이면 `403 WITHDRAWN_ACCOUNT`입니다.
 - 본인의 프로필이 없으면 `404 EMPLOYER_PROFILE_NOT_FOUND`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식을 사용합니다.
 - 기존 테이블과 조회 응답 DTO를 재사용하며 새 마이그레이션은 없습니다. 사업장 정보 수정은 별도 API의 범위입니다.
+
+### 사업자등록번호 확인 API
+
+`POST /api/workplaces/business-registration/verify`는 로그인한 사업주가 입력한 사업자등록번호의 현재 영업 상태를 확인합니다.
+
+```json
+{
+  "businessRegistrationNumber": "123-45-67890"
+}
+```
+
+- 입력은 문자열 숫자 10자리 또는 `123-45-67890` 형식이며, 앞뒤 공백은 제거합니다. 누락·NULL·잘못된 타입이나 형식·알 수 없는 요청 항목은 `400 INVALID_INPUT`입니다.
+- Access Token으로 사용자를 식별하고 DB의 현재 회원 상태와 역할을 확인합니다. 인증 오류는 `401 UNAUTHORIZED`, 사업주가 아니면 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다.
+- 국세청 조회가 정상 완료되면 `200`과 `businessRegistrationNumber`, `valid`, `message`를 반환합니다. 응답 번호는 하이픈을 포함하며 `Cache-Control: no-store`를 사용합니다.
+- 국세청 상태 코드 `01`(계속사업자)만 `valid=true`입니다. `02`(휴업), `03`(폐업), 미등록 번호는 `valid=false`입니다. 과세 유형으로 가입을 제한하지 않습니다.
+- 메시지는 `true`일 때 `확인 가능한 사업자등록번호입니다.`, `false`일 때 `확인할 수 없는 사업자등록번호입니다.`입니다.
+- 인증키 미설정, 외부 연결 실패·시간 초과·오류 응답·해석할 수 없는 응답은 `502 BUSINESS_REGISTRATION_LOOKUP_FAILED`입니다. 예상하지 못한 내부 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류 응답은 기존 `{code, message}` 형식을 사용합니다.
+- 조회 결과를 저장하거나 사업장을 생성하지 않습니다. 이 확인은 사업자의 영업 상태에 대한 조회이며, 요청자가 해당 사업자의 대표자인지 증명하지 않습니다. 대표자명은 반환하지 않습니다.
+- 외부 호출은 연결 제한 3초·응답 제한 5초를 사용하며 리다이렉트를 따라가지 않습니다. 외부 오류의 원문이나 인증키를 API 응답에 포함하지 않습니다.
+
+실제 연동에는 [국세청 사업자등록정보 진위확인 및 상태조회 서비스](https://www.data.go.kr/data/15081808/openapi.do)의 활용 신청과 인증키가 필요합니다. 공공데이터포털의 **일반 인증키(Decoding) 원문**을 서버 환경변수 `NTS_SERVICE_KEY`로 설정합니다. URL 인코딩은 서버가 수행하므로 사전에 인코딩하지 않습니다. 키를 프론트엔드나 저장소에 포함하지 않습니다.
+
+로컬 테스트는 테스트용 HTTP 서버를 사용합니다. 실제 국세청 조회는 인증키 설정 후 별도로 확인해야 합니다. 이 기능에는 Supabase 스키마 변경이나 Redis 설정이 필요하지 않습니다.
 
 ### 유학생 프로필 등록 API
 
@@ -558,6 +582,7 @@ Gradle은 저장소의 Wrapper를 사용하므로 별도 설치가 필요하지 
 | `SUPABASE_URL` | 사진 조회 시 필수 | Supabase 프로젝트의 HTTPS 기본 URL |
 | `SUPABASE_SECRET_KEY` | 사진 조회 시 필수 | 서버 전용 Secret key. 프론트엔드·소스 코드에 포함 금지 |
 | `SUPABASE_STORAGE_BUCKET` | 선택 | 기본값 `profile-images`. 실제 비공개 버킷 이름 |
+| `NTS_SERVICE_KEY` | 사업자등록번호 확인 시 필수 | 국세청 API 일반 인증키(Decoding) 원문. 미설정 시 확인 요청은 502 |
 
 macOS/Linux 예시:
 
@@ -640,6 +665,8 @@ Windows PowerShell:
 `EmployerProfileReadIntegrationTest`는 본인 정보만 반환하는지, 직책의 NULL 응답, 조회 전후 데이터 보존, 인증·권한·미등록 오류와 DB 조회 실패 시 안전한 오류 응답을 검증합니다.
 
 `EmployerProfileUpdateIntegrationTest`는 부분 수정과 조회 연동, 직책 삭제, 입력·권한·미등록 오류, 다른 회원과 수정 대상이 아닌 정보의 보존, 저장 실패 시 전체 롤백과 동시 부분 수정을 검증합니다.
+
+`BusinessRegistrationIntegrationTest`는 번호 정규화, 성공·실패 응답, 입력·권한 검사와 DB 데이터 보존을 확인합니다. `NtsBusinessRegistrationClientTest`는 테스트용 HTTP 서버로 요청 형식과 인증키 인코딩, 사업자 상태 판정, 설정 누락·응답 오류·연결 실패·시간 초과·리다이렉트 차단을 검증합니다. 실제 인증키나 국세청 조회는 사용하지 않습니다.
 
 `StudentProfileReadIntegrationTest`는 본인 정보만 조회하는지, 미입력 값과 빈 경력 목록, 경력 정렬, 권한·미등록 오류와 이미지 주소 발급 실패를 확인합니다. `SupabaseStorageClientTest`는 테스트용 HTTP 서버로 900초 발급 요청, URL 인코딩, 외부 오류 처리와 리다이렉트 차단을 검증합니다.
 
