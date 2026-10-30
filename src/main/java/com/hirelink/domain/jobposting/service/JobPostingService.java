@@ -14,6 +14,7 @@ import org.springframework.security.authentication.AuthenticationCredentialsNotF
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hirelink.domain.jobposting.dto.JobPostingCloseResponse;
 import com.hirelink.domain.jobposting.dto.JobPostingCreateRequest;
 import com.hirelink.domain.jobposting.dto.JobPostingCreateResponse;
 import com.hirelink.domain.jobposting.dto.JobPostingDetailResponse;
@@ -164,6 +165,25 @@ public class JobPostingService {
 				posting.getWageType(), posting.getWageAmount(), posting.getWorkStartDate(), posting.getRequiredKoreanLevel(),
 				posting.getPreferredExperience(), posting.getApplicationDeadlineDate(), posting.getWorkTimeNegotiable(),
 				posting.getStatus(), toWorkTimes(workTimes), posting.getUpdatedAt());
+	}
+
+	@Transactional
+	public JobPostingCloseResponse closeJobPosting(Long userId, Long jobPostingId) {
+		UserAccount user = getCurrentUser(userId);
+		if (user.getRole() != MemberRole.EMPLOYER) {
+			throw new AccessDeniedException("사업주 계정만 공고를 마감할 수 있습니다.");
+		}
+		JobPosting posting = jobPostingRepository.findByIdForUpdate(jobPostingId)
+				.orElseThrow(JobPostingNotFoundException::new);
+		if (!posting.getWorkplace().getEmployerUser().getId().equals(userId)) {
+			throw new AccessDeniedException("본인 사업장의 공고만 마감할 수 있습니다.");
+		}
+		if (posting.getStatus() != JobPostingStatus.RECRUITING) {
+			throw new JobPostingStateConflictException("모집 중인 공고만 마감할 수 있습니다.");
+		}
+		posting.closeRecruitment();
+		jobPostingRepository.flush();
+		return new JobPostingCloseResponse(posting.getId(), posting.getStatus(), posting.getClosedAt());
 	}
 
 	@Transactional(readOnly = true)
