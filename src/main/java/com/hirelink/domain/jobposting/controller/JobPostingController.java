@@ -1,14 +1,22 @@
 package com.hirelink.domain.jobposting.controller;
 
+import jakarta.validation.Valid;
+
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.hirelink.domain.jobposting.dto.JobPostingCreateRequest;
+import com.hirelink.domain.jobposting.dto.JobPostingCreateResponse;
 import com.hirelink.domain.jobposting.dto.JobPostingDetailResponse;
 import com.hirelink.domain.jobposting.dto.JobPostingListResponse;
 import com.hirelink.domain.jobposting.service.JobPostingService;
@@ -20,6 +28,13 @@ public class JobPostingController {
 
 	public JobPostingController(JobPostingService jobPostingService) {
 		this.jobPostingService = jobPostingService;
+	}
+
+	@PostMapping(value = "/api/job-postings", consumes = MediaType.APPLICATION_JSON_VALUE)
+	public ResponseEntity<JobPostingCreateResponse> createJobPosting(@AuthenticationPrincipal Jwt jwt,
+			@Valid @RequestBody JobPostingCreateRequest request) {
+		JobPostingCreateResponse response = jobPostingService.createJobPosting(Long.valueOf(jwt.getSubject()), request);
+		return ResponseEntity.status(HttpStatus.CREATED).header(HttpHeaders.CACHE_CONTROL, "no-store").body(response);
 	}
 
 	@GetMapping("/api/employers/me/job-postings")
