@@ -18,6 +18,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - Testcontainers PostgreSQL을 사용한 인증 통합 테스트
 - 로그인한 회원의 약관별 동의 상태 저장
 - 휴대전화 인증을 완료한 유학생의 기본 프로필 등록
+- 휴대전화 인증을 완료한 사업주의 프로필 등록
 - 유학생 본인의 프로필·경력 조회 및 비공개 프로필 사진의 임시 URL 발급
 - 유학생 프로필 부분 수정 및 비자별 학업 상태 검증
 - 유학생 본인의 근무 경력 추가·수정·삭제
@@ -158,6 +159,28 @@ Authorization: Bearer <Access Token>
 - 로그인 필요 `401`, 탈퇴 계정 `403`, 예상하지 못한 서버 오류 `500`은 기존 공통 오류 형식을 사용합니다.
 - 이번 범위는 동의 상태 저장입니다. 필수 동의 검사, 역할별 약관 제한, 약관 내용·버전 관리는 포함하지 않습니다. 화면의 전체 동의 선택 여부는 별도로 저장하지 않습니다.
 - 약관 종류가 추가되면 기존 ID를 유지하고 새 Flyway 파일로 데이터를 추가합니다.
+
+### 사업주 프로필 등록 API
+
+`POST /api/employers/me/profile`은 Access Token으로 식별한 사업주 본인의 프로필을 생성합니다.
+
+```json
+{
+  "name": "테스트 이름",
+  "acquisitionChannel": "REFERRAL"
+}
+```
+
+- 이름은 필수이며 공백만으로 구성할 수 없고 최대 100자입니다. 유입 경로도 필수이며 `SEARCH`(검색), `REFERRAL`(지인 추천), `OTHER`(기타) 중 하나를 사용합니다. 기타의 별도 입력값은 받지 않습니다.
+- 요청에는 `name`, `acquisitionChannel`만 허용합니다. `userId`, `phoneNumber`, `position` 등 명세에 없는 항목이나 잘못된 입력은 `400 INVALID_INPUT`입니다.
+- 현재 회원의 역할이 `EMPLOYER`이며 `phone_number`, `phone_verified_at`이 모두 저장되어 있어야 합니다. 전화번호는 기존 인증 정보를 사용합니다.
+- 이름과 유입 경로는 `user_account`에 저장하고, `employer_profile`은 회원과 같은 ID로 생성합니다. ERD의 `position`은 처음에 `NULL`입니다.
+- 성공 응답은 `201 Created`이며 `employerId`, `name`, `email`, `phoneNumber`, `acquisitionChannel`, `position`을 반환합니다. 전화번호는 `010-0000-0000` 형식이며 응답에 `Cache-Control: no-store`를 설정합니다.
+- 로그인 필요는 `401 UNAUTHORIZED`, 사업주가 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다.
+- 휴대전화 미인증은 `409 PHONE_NOT_VERIFIED`, 이미 등록된 프로필은 `409 DUPLICATE_EMPLOYER_PROFILE`, 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
+- 회원 정보 저장과 프로필 생성은 하나의 트랜잭션으로 처리합니다. 같은 회원의 동시 등록도 한 번만 성공하며, 실패한 요청은 기존 정보를 변경하지 않습니다.
+- V12 마이그레이션은 `employer_profile` 테이블만 추가합니다. 사업장·채용공고 정보는 이 API에서 저장하지 않습니다.
+- 실제 Supabase에는 해당 환경에서 Flyway 마이그레이션을 적용해야 합니다. 실제 SMS 연동 전에는 신규 회원의 휴대전화 인증 흐름이 아직 연결되지 않습니다.
 
 ### 유학생 프로필 등록 API
 
@@ -577,6 +600,8 @@ Windows PowerShell:
 `TermAgreementIntegrationTest`는 약관 초기 데이터, 동의 상태 변경과 시각 유지, 사용자 구분, 입력 오류, 없는 약관, 저장 실패 시 전체 롤백과 동시 요청을 확인합니다.
 
 `StudentProfileIntegrationTest`는 프로필 등록 응답과 저장, 만 18세 경계, 입력 검증, 유학생·휴대전화 인증 조건, 중복·동시 등록 및 저장 실패 시 롤백을 확인합니다.
+
+`EmployerProfileCreateIntegrationTest`는 사업주 프로필 등록 응답과 저장, 입력 검증, 현재 회원의 역할·휴대전화 인증 조건, 중복·동시 등록 및 저장 실패 시 회원 정보와 프로필의 전체 롤백을 검증합니다. 일회용 PostgreSQL을 사용하며 실제 Supabase 데이터는 변경하지 않습니다.
 
 `StudentProfileReadIntegrationTest`는 본인 정보만 조회하는지, 미입력 값과 빈 경력 목록, 경력 정렬, 권한·미등록 오류와 이미지 주소 발급 실패를 확인합니다. `SupabaseStorageClientTest`는 테스트용 HTTP 서버로 900초 발급 요청, URL 인코딩, 외부 오류 처리와 리다이렉트 차단을 검증합니다.
 
