@@ -76,6 +76,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));
 	}
 
+	@ExceptionHandler(InvalidEmployerProfileException.class)
+	public ResponseEntity<ErrorResponse> handleInvalidEmployerProfile(InvalidEmployerProfileException exception) {
+		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));
+	}
+
 	@ExceptionHandler(AccessDeniedException.class)
 	public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException exception) {
 		return ResponseEntity.status(HttpStatus.FORBIDDEN)
