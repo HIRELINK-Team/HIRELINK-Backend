@@ -20,7 +20,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - 휴대전화 인증을 완료한 유학생의 기본 프로필 등록
 - 유학생 본인의 프로필·경력 조회 및 비공개 프로필 사진의 임시 URL 발급
 - 유학생 프로필 부분 수정 및 비자별 학업 상태 검증
-- 유학생 본인의 근무 경력 추가
+- 유학생 본인의 근무 경력 추가·수정
 - 업종·사업장·채용공고 테이블과 Entity, 공고 소유 사업주 관계
 
 채용공고 등록·조회 API, 지원, 사업주 검토, 면접, 채용 및 매칭 기능은 후속 구현 범위입니다.
@@ -221,6 +221,25 @@ Authorization: Bearer <Access Token>
 - 한 회원은 여러 경력을 등록할 수 있습니다. 저장된 경력은 기존 `GET /api/students/me/profile` 응답의 `careers`에 포함됩니다.
 - 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`, 본인 프로필 미등록은 `404 STUDENT_PROFILE_NOT_FOUND`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
 - 기존 V6의 `student_career` 테이블을 사용하며 이번 기능을 위한 새 마이그레이션은 없습니다. 실제 Supabase DB에 V6가 적용되어 있어야 하며, Redis·Storage 설정은 추가로 필요하지 않습니다.
+
+### 경력 수정 API
+
+`PATCH /api/students/me/careers/{careerId}`는 로그인한 유학생 본인의 경력에서 요청에 포함된 항목만 수정합니다.
+
+```json
+{
+  "endMonth": "2023-10",
+  "description": null
+}
+```
+
+- 수정 가능한 항목은 `careerName`, `startMonth`, `endMonth`, `description`입니다. 생략한 항목은 유지하고 `description: null`은 근무 내용을 삭제합니다.
+- 경력명은 공백만 입력할 수 없으며 최대 150자입니다. 경력명·시작월·종료월에 명시적인 `null`을 보내거나, 빈 객체·잘못된 자료형·허용하지 않은 항목을 보내면 `400 INVALID_INPUT`입니다.
+- 근무기간은 JSON 문자열 `YYYY-MM` 형식입니다. 기존 값과 합친 최종 근무기간에서 종료월은 시작월과 같거나 뒤여야 하며, 두 날짜 모두 한국 날짜(`Asia/Seoul`) 기준 이번 달까지만 허용합니다.
+- 성공 응답은 `200 OK`와 기존 `StudentCareerResponse`의 다섯 항목이며 `Cache-Control: no-store`를 설정합니다. 수정 결과는 프로필 조회의 `careers`에도 반영됩니다.
+- 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아니거나 다른 사람의 경력은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`, 없는 경력은 `404 STUDENT_CAREER_NOT_FOUND`입니다. 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
+- 같은 경력의 동시 수정은 순서대로 처리합니다. 저장 실패 시 요청의 변경사항은 모두 취소됩니다.
+- 기존 V6의 `student_career` 테이블을 사용합니다. 추가 마이그레이션이나 Redis·Storage 설정은 필요하지 않습니다.
 
 ### 내 유학생 프로필 수정 API
 
