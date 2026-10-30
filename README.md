@@ -20,6 +20,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - 휴대전화 인증을 완료한 유학생의 기본 프로필 등록
 - 휴대전화 인증을 완료한 사업주의 프로필 등록
 - 사업주 본인의 프로필 조회·수정
+- 사업주 본인의 사업장 목록 조회
 - 국세청 상태조회 API를 통한 사업자등록번호 확인
 - 유학생 본인의 프로필·경력 조회 및 비공개 프로필 사진의 임시 URL 발급
 - 유학생 프로필 부분 수정 및 비자별 학업 상태 검증
@@ -216,6 +217,18 @@ Authorization: Bearer <Access Token>
 - 인증 정보가 없거나 유효하지 않으면 `401 UNAUTHORIZED`, 현재 회원이 사업주가 아니면 `403 FORBIDDEN`, 탈퇴 계정이면 `403 WITHDRAWN_ACCOUNT`입니다.
 - 본인의 프로필이 없으면 `404 EMPLOYER_PROFILE_NOT_FOUND`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식을 사용합니다.
 - 기존 테이블과 조회 응답 DTO를 재사용하며 새 마이그레이션은 없습니다. 사업장 정보 수정은 별도 API의 범위입니다.
+
+### 내 사업장 목록 조회 API
+
+`GET /api/employers/me/workplaces`는 Access Token으로 식별한 사업주 본인의 사업장 목록을 반환합니다. 요청 본문과 Query / Path Parameter는 사용하지 않습니다.
+
+- 성공하면 `200`과 `{ "workplaces": [...] }`를 반환하며, 등록된 사업장이 없으면 `200`과 `{ "workplaces": [] }`를 반환합니다.
+- 각 항목은 `workplaceId`, `workplaceName`, `businessTypeId`, `businessTypeName`, `workplaceAddress`, `employeeCountRange`로 구성합니다. `businessTypeName`은 `FOOD_CAFE`, `OTHER` 등의 업종 코드입니다.
+- 사업장 ID 오름차순으로 반환하며 페이지네이션은 적용하지 않습니다.
+- 목록에는 사업자등록번호·대표자명·등록증 파일 정보·좌표를 포함하지 않습니다. 응답에는 `Cache-Control: no-store`를 적용합니다.
+- 현재 DB의 회원 역할과 탈퇴 여부를 검사합니다. 인증 오류는 `401 UNAUTHORIZED`, 사업주가 아니면 `403 FORBIDDEN`, 탈퇴 계정이면 `403 WITHDRAWN_ACCOUNT`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식을 사용합니다.
+- 읽기 전용 트랜잭션에서 현재 사용자가 소유한 사업장과 업종을 함께 조회합니다. 데이터 생성·수정과 외부 서비스 호출은 수행하지 않습니다.
+- 기존 테이블과 Entity를 사용하며 새 마이그레이션이나 환경변수는 없습니다.
 
 ### 사업자등록번호 확인 API
 
@@ -667,6 +680,8 @@ Windows PowerShell:
 `EmployerProfileUpdateIntegrationTest`는 부분 수정과 조회 연동, 직책 삭제, 입력·권한·미등록 오류, 다른 회원과 수정 대상이 아닌 정보의 보존, 저장 실패 시 전체 롤백과 동시 부분 수정을 검증합니다.
 
 `BusinessRegistrationIntegrationTest`는 번호 정규화, 성공·실패 응답, 입력·권한 검사와 DB 데이터 보존을 확인합니다. `NtsBusinessRegistrationClientTest`는 테스트용 HTTP 서버로 요청 형식과 인증키 인코딩, 사업자 상태 판정, 설정 누락·응답 오류·연결 실패·시간 초과·리다이렉트 차단을 검증합니다. 실제 인증키나 국세청 조회는 사용하지 않습니다.
+
+`WorkplaceListIntegrationTest`는 본인 사업장만 반환하는지, 응답 항목과 ID 정렬, 빈 목록, 조회 전후 데이터 보존, 인증·권한 검사와 DB 조회 실패 시 안전한 오류 응답을 검증합니다. 일회용 PostgreSQL에 테스트용 사업장을 만들며 실제 Supabase 데이터는 변경하지 않습니다.
 
 `StudentProfileReadIntegrationTest`는 본인 정보만 조회하는지, 미입력 값과 빈 경력 목록, 경력 정렬, 권한·미등록 오류와 이미지 주소 발급 실패를 확인합니다. `SupabaseStorageClientTest`는 테스트용 HTTP 서버로 900초 발급 요청, URL 인코딩, 외부 오류 처리와 리다이렉트 차단을 검증합니다.
 
