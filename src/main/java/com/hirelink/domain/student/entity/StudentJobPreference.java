@@ -22,6 +22,18 @@ public class StudentJobPreference {
 	protected StudentJobPreference() {
 	}
 
+	public StudentJobPreference(Long userId) {
+		this.userId = userId;
+	}
+
+	public void updateBusinessTypeFlexible(boolean businessTypeFlexible) {
+		this.businessTypeFlexible = businessTypeFlexible;
+	}
+
+	public void updateMinimumHourlyWage(Integer minimumHourlyWage) {
+		this.minimumHourlyWage = minimumHourlyWage;
+	}
+
 	public Integer getMinimumHourlyWage() {
 		return minimumHourlyWage;
 	}

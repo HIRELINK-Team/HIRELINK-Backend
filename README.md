@@ -21,7 +21,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - 유학생 본인의 프로필·경력 조회 및 비공개 프로필 사진의 임시 URL 발급
 - 유학생 프로필 부분 수정 및 비자별 학업 상태 검증
 - 유학생 본인의 근무 경력 추가·수정·삭제
-- 유학생 본인의 매칭 조건 조회
+- 유학생 본인의 매칭 조건 조회·저장·수정
 - 업종·사업장·채용공고 테이블과 Entity, 공고 소유 사업주 관계
 
 채용공고 등록·조회 API, 지원, 사업주 검토, 면접, 채용 및 매칭 기능은 후속 구현 범위입니다.
@@ -302,7 +302,7 @@ Authorization: Bearer <Access Token>
 - 시간은 `HH:mm`, 좌표는 ERD의 `NUMERIC(10,7)` 값을 사용합니다. `otherJobName`은 `OTHER` 업종에만 반환하며 나머지는 `null`입니다.
 - 사용자별 우선순위를 자동 지정하지 않습니다. `criterionId`는 기준을 식별하는 번호이며 사용자가 정한 순서인 `priorityOrder`와 다릅니다. ERD의 `weight`는 유지하지만 응답에 포함하거나 계산하지 않습니다.
 - 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`, 프로필 미등록은 `404 STUDENT_PROFILE_NOT_FOUND`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
-- 매칭 조건 저장·수정 API는 별도 구현 범위입니다.
+- 저장·수정은 같은 경로의 `PATCH` API를 사용합니다.
 
 ```json
 {
@@ -336,6 +336,33 @@ V9는 ERD에 맞춰 `priority_criterion`, `student_preferred_job`, `student_pref
 | 4 | `BUSINESS_TYPE` | 업종 |
 
 실제 Supabase DB에서는 배포 시 Flyway V9·V10 적용이 필요합니다. 기존에 업종 데이터를 수동 등록했다면 ID·코드 충돌 여부를 먼저 확인해야 하며, 자동으로 기존 데이터를 덮어쓰지 않습니다. 기준 데이터가 추가되거나 변경되면 기존 마이그레이션을 수정하지 않고 새 파일로 관리합니다. 이 조회 API에는 Redis·Storage 설정이 필요하지 않습니다.
+
+### 매칭 조건 저장·수정 API
+
+`PATCH /api/students/me/matching-preferences`는 프로필이 있는 유학생 본인의 조건을 저장·수정합니다. 보내지 않은 항목은 유지하며, 성공 시 `200 OK`와 조회 API와 같은 전체 조건을 반환합니다.
+
+```json
+{
+  "preferredWorkTimes": [
+    { "dayOfWeek": "MON", "startTime": "22:00", "endTime": "00:00" },
+    { "dayOfWeek": "TUE", "startTime": "00:00", "endTime": "02:00" }
+  ],
+  "minimumHourlyWage": null
+}
+```
+
+- 업종을 수정하려면 `businessTypeFlexible`과 `preferredJobs`를 함께 보냅니다. `true`이면 빈 목록, `false`이면 한 개 이상의 업종을 보내며 같은 업종을 중복 선택할 수 없습니다. 전달된 목록으로 기존 희망 업종을 전체 교체합니다.
+- `OTHER`의 `otherJobName`은 공백이 아닌 문자열로 최대 100자입니다. 다른 업종에서는 생략하거나 `null`로 보냅니다.
+- `preferredWorkTimes`를 보내면 기존 시간 목록을 전체 교체하며, `[]`는 전체 삭제입니다. 요일은 `MON`~`SUN`, 시간은 `HH:mm` 형식이며 분은 `00` 또는 `30`만 허용합니다.
+- 종료의 `00:00`은 해당 요일이 끝나는 자정, 시작의 `00:00`은 해당 요일이 시작되는 시각입니다. 자정을 넘는 근무시간은 프론트엔드가 위 예시처럼 요일별로 나눠 보냅니다. `24:00`, 시작·종료가 같은 구간, 같은 요일의 중복·겹치는 구간은 허용하지 않습니다. 바로 이어지는 구간은 허용합니다.
+- `preferredLocation`은 위치명·위도·경도·반경을 모두 보내 기존 위치를 교체합니다. 위치명은 공백 불가·최대 150자, 위도는 -90~90, 경도는 -180~180, 좌표는 소수점 이하 7자리까지, 반경은 1 이상의 정수(미터)입니다. `null`로 위치를 삭제하는 기능은 제공하지 않습니다.
+- `minimumHourlyWage`는 1 이상의 정수(원) 또는 `null`입니다. 명시적인 `null`은 기존 시급을 초기화합니다.
+- `priorities`를 보내면 근무시간·시급·거리·업종 네 기준을 모두 보내야 합니다. `criterionId`는 중복될 수 없으며 `priorityOrder`는 1~4를 각각 한 번씩 사용합니다. `[]`나 `null`로 우선순위를 삭제할 수 없습니다.
+- 가중치는 이 API에서 계산하지 않습니다. 신규 기준 또는 순위가 바뀐 기준의 `weight`는 `null`로 저장하고, 같은 기준의 순위가 유지되면 기존 가중치를 보존합니다. 우선순위를 생략하면 순위·가중치 모두 유지합니다. `weight`는 요청·응답에 포함하지 않습니다.
+- 한 요청의 변경은 하나의 트랜잭션으로 처리하며 오류가 나면 전체 취소합니다. 같은 회원의 동시 수정은 순서대로 처리하여 생략한 필드가 다른 요청으로 덮어써지지 않게 합니다.
+- 빈 요청, 알 수 없는 항목, 잘못된 자료형·범위·조합, 허용하지 않은 `null`은 `400 INVALID_INPUT`, 없는 업종·우선순위 기준은 `404 MATCHING_REFERENCE_NOT_FOUND`입니다. 회원·프로필 오류와 예상하지 못한 서버 오류는 조회 API와 같습니다.
+
+`V11__allow_unassigned_student_priority_weight.sql`은 `student_priority.weight`의 NOT NULL 제약만 제거합니다. 기존 값과 다른 컬럼·제약은 유지합니다. ERD도 `weight NUMERIC(6,3)`을 NULL 허용으로 맞춰야 합니다. 실제 Supabase에는 배포 시 V11 적용이 필요하며, 가중치 계산과 Redis 도입은 이 API에 포함하지 않습니다.
 
 ### 프로필 사진 저장소 설정
 
@@ -558,6 +585,8 @@ Windows PowerShell:
 `StudentCareerCreateIntegrationTest`는 경력 저장과 프로필 조회 연동, 선택 입력, 월 형식·현재 월 경계·기간 순서, 입력·권한 오류 및 DB 저장 실패 처리를 검증합니다.
 
 `StudentMatchingPreferenceReadIntegrationTest`는 기준 데이터와 ID 생성, 입력 전·부분 입력 상태, 본인 조건 조회와 정렬, 권한 검사, DB 제약 및 안전한 오류 응답을 검증합니다. 테스트는 일회용 PostgreSQL에서 실행하며 실제 Supabase 데이터를 변경하지 않습니다.
+
+`StudentMatchingPreferenceUpdateIntegrationTest`는 최초 저장·부분 수정·목록 교체, 자정 및 시간 중복, 입력·권한 오류, 가중치 유지·초기화, 전체 롤백과 동시 최초 수정을 검증합니다.
 
 전체 빌드 검증이 필요하면 `./gradlew build` 또는 `.\gradlew.bat build`를 사용합니다.
 

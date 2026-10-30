@@ -38,6 +38,17 @@ public class StudentPreferredLocation {
 	protected StudentPreferredLocation() {
 	}
 
+	public StudentPreferredLocation(Long userId) {
+		this.userId = userId;
+	}
+
+	public void updateLocation(String locationName, BigDecimal latitude, BigDecimal longitude, Integer radiusM) {
+		this.locationName = locationName;
+		this.latitude = latitude;
+		this.longitude = longitude;
+		this.radiusM = radiusM;
+	}
+
 	public String getLocationName() {
 		return locationName;
 	}

@@ -32,6 +32,13 @@ public class StudentPreferredWorkTime {
 	protected StudentPreferredWorkTime() {
 	}
 
+	public StudentPreferredWorkTime(Long userId, String dayOfWeek, LocalTime startTime, LocalTime endTime) {
+		this.userId = userId;
+		this.dayOfWeek = dayOfWeek;
+		this.startTime = startTime;
+		this.endTime = endTime;
+	}
+
 	public Long getId() {
 		return id;
 	}

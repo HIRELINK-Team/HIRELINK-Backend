@@ -20,6 +20,11 @@ public class StudentPriorityId implements Serializable {
 	protected StudentPriorityId() {
 	}
 
+	public StudentPriorityId(Long userId, Long criterionId) {
+		this.userId = userId;
+		this.criterionId = criterionId;
+	}
+
 	@Override
 	public boolean equals(Object other) {
 		if (this == other) {

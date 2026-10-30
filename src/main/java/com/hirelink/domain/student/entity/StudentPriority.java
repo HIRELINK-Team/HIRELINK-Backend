@@ -29,10 +29,21 @@ public class StudentPriority {
 	@Column(name = "priority_order", nullable = false)
 	private Short priorityOrder;
 
-	@Column(nullable = false, precision = 6, scale = 3)
+	@Column(precision = 6, scale = 3)
 	private BigDecimal weight;
 
 	protected StudentPriority() {
+	}
+
+	public StudentPriority(Long userId, PriorityCriterion criterion, short priorityOrder, BigDecimal weight) {
+		this.id = new StudentPriorityId(userId, criterion.getId());
+		this.criterion = criterion;
+		this.priorityOrder = priorityOrder;
+		this.weight = weight;
+	}
+
+	public BigDecimal getWeight() {
+		return weight;
 	}
 
 	public PriorityCriterion getCriterion() {

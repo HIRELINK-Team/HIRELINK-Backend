@@ -205,7 +205,7 @@ class StudentMatchingPreferenceReadIntegrationTest {
 	}
 
 	@Test
-	void keepsErdKeysAndRequiredWeightInDatabase() {
+	void keepsErdKeysAndAllowsUnassignedWeightInDatabase() {
 		long userId = createUser("STUDENT", true);
 		assertThatThrownBy(() -> jdbc.update("insert into student_preferred_job(user_id, business_type_id) values (-1, 1)"))
 				.isInstanceOf(DataIntegrityViolationException.class);
@@ -226,8 +226,9 @@ class StudentMatchingPreferenceReadIntegrationTest {
 				.isInstanceOf(DataIntegrityViolationException.class);
 		assertThatThrownBy(() -> jdbc.update("insert into student_priority values (?, -1, 3, 0.2)", userId))
 				.isInstanceOf(DataIntegrityViolationException.class);
-		assertThatThrownBy(() -> jdbc.update("insert into student_priority(user_id, criterion_id, priority_order) values (?, 3, 3)", userId))
-				.isInstanceOf(DataIntegrityViolationException.class);
+		jdbc.update("insert into student_priority(user_id, criterion_id, priority_order) values (?, 3, 3)", userId);
+		assertThat(jdbc.queryForMap("select weight from student_priority where user_id = ? and criterion_id = 3", userId))
+				.containsEntry("weight", null);
 	}
 
 	@Test
