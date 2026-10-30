@@ -19,6 +19,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(InvalidWorkplaceException.class)
+	public ResponseEntity<ErrorResponse> handleInvalidWorkplace(InvalidWorkplaceException exception) {
+		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));
+	}
+
+	@ExceptionHandler(BusinessTypeNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleBusinessTypeNotFound(BusinessTypeNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("BUSINESS_TYPE_NOT_FOUND", exception.getMessage()));
+	}
+
 	@ExceptionHandler(WorkplaceNotFoundException.class)
 	public ResponseEntity<ErrorResponse> handleWorkplaceNotFound(WorkplaceNotFoundException exception) {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)

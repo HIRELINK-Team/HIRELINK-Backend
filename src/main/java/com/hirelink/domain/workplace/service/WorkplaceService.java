@@ -13,8 +13,13 @@ import com.hirelink.domain.member.repository.UserAccountRepository;
 import com.hirelink.domain.workplace.dto.WorkplaceDetailResponse;
 import com.hirelink.domain.workplace.dto.WorkplaceListResponse;
 import com.hirelink.domain.workplace.dto.WorkplaceListResponse.WorkplaceSummary;
+import com.hirelink.domain.workplace.dto.WorkplaceUpdateRequest;
+import com.hirelink.domain.workplace.entity.BusinessType;
 import com.hirelink.domain.workplace.entity.Workplace;
+import com.hirelink.domain.workplace.repository.BusinessTypeRepository;
 import com.hirelink.domain.workplace.repository.WorkplaceRepository;
+import com.hirelink.global.exception.BusinessTypeNotFoundException;
+import com.hirelink.global.exception.InvalidWorkplaceException;
 import com.hirelink.global.exception.WithdrawnAccountException;
 import com.hirelink.global.exception.WorkplaceNotFoundException;
 
@@ -23,10 +28,13 @@ public class WorkplaceService {
 
 	private final UserAccountRepository userAccountRepository;
 	private final WorkplaceRepository workplaceRepository;
+	private final BusinessTypeRepository businessTypeRepository;
 
-	public WorkplaceService(UserAccountRepository userAccountRepository, WorkplaceRepository workplaceRepository) {
+	public WorkplaceService(UserAccountRepository userAccountRepository, WorkplaceRepository workplaceRepository,
+			BusinessTypeRepository businessTypeRepository) {
 		this.userAccountRepository = userAccountRepository;
 		this.workplaceRepository = workplaceRepository;
+		this.businessTypeRepository = businessTypeRepository;
 	}
 
 	@Transactional(readOnly = true)
@@ -48,11 +56,38 @@ public class WorkplaceService {
 		if (!workplace.getEmployerUser().getId().equals(userId)) {
 			throw new AccessDeniedException("본인의 사업장만 조회할 수 있습니다.");
 		}
-		return new WorkplaceDetailResponse(workplace.getId(), workplace.getWorkplaceName(),
-				workplace.getRepresentativeName(), formatBusinessRegistrationNumber(workplace.getBusinessRegistrationNumber()),
-				workplace.getBusinessType().getId(), workplace.getBusinessType().getName(),
-				workplace.getEmployeeCountRange(), workplace.getWorkplaceAddress(),
-				workplace.getLatitude(), workplace.getLongitude());
+		return toDetailResponse(workplace);
+	}
+
+	@Transactional
+	public WorkplaceDetailResponse updateWorkplace(Long userId, Long workplaceId, WorkplaceUpdateRequest request) {
+		validateEmployer(userId);
+		if (!request.hasChanges()) {
+			throw new InvalidWorkplaceException("수정할 항목을 하나 이상 입력해주세요.");
+		}
+		if (request.hasLocationChanges()
+				&& (request.getWorkplaceAddress() == null || request.getLatitude() == null || request.getLongitude() == null)) {
+			throw new InvalidWorkplaceException("주소와 위도·경도를 함께 입력해주세요.");
+		}
+
+		Workplace workplace = workplaceRepository.findByIdForUpdate(workplaceId)
+				.orElseThrow(WorkplaceNotFoundException::new);
+		if (!workplace.getEmployerUser().getId().equals(userId)) {
+			throw new AccessDeniedException("본인의 사업장만 수정할 수 있습니다.");
+		}
+		BusinessType businessType = request.getBusinessTypeId() == null ? null
+				: businessTypeRepository.findById(request.getBusinessTypeId()).orElseThrow(BusinessTypeNotFoundException::new);
+
+		if (request.getWorkplaceName() != null) {
+			workplace.updateName(request.getWorkplaceName());
+		}
+		if (businessType != null) {
+			workplace.updateBusinessType(businessType);
+		}
+		if (request.hasLocationChanges()) {
+			workplace.updateLocation(request.getWorkplaceAddress(), request.getLatitude(), request.getLongitude());
+		}
+		return toDetailResponse(workplace);
 	}
 
 	private void validateEmployer(Long userId) {
@@ -62,8 +97,16 @@ public class WorkplaceService {
 			throw new WithdrawnAccountException();
 		}
 		if (user.getRole() != MemberRole.EMPLOYER) {
-			throw new AccessDeniedException("사업주 계정만 사업장을 조회할 수 있습니다.");
+			throw new AccessDeniedException("사업주 계정만 사업장을 관리할 수 있습니다.");
 		}
+	}
+
+	private WorkplaceDetailResponse toDetailResponse(Workplace workplace) {
+		return new WorkplaceDetailResponse(workplace.getId(), workplace.getWorkplaceName(),
+				workplace.getRepresentativeName(), formatBusinessRegistrationNumber(workplace.getBusinessRegistrationNumber()),
+				workplace.getBusinessType().getId(), workplace.getBusinessType().getName(),
+				workplace.getEmployeeCountRange(), workplace.getWorkplaceAddress(),
+				workplace.getLatitude(), workplace.getLongitude());
 	}
 
 	private String formatBusinessRegistrationNumber(String number) {
