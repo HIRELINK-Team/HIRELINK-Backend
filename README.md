@@ -20,7 +20,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - 휴대전화 인증을 완료한 유학생의 기본 프로필 등록
 - 유학생 본인의 프로필·경력 조회 및 비공개 프로필 사진의 임시 URL 발급
 - 유학생 프로필 부분 수정 및 비자별 학업 상태 검증
-- 유학생 본인의 근무 경력 추가·수정
+- 유학생 본인의 근무 경력 추가·수정·삭제
 - 업종·사업장·채용공고 테이블과 Entity, 공고 소유 사업주 관계
 
 채용공고 등록·조회 API, 지원, 사업주 검토, 면접, 채용 및 매칭 기능은 후속 구현 범위입니다.
@@ -240,6 +240,18 @@ Authorization: Bearer <Access Token>
 - 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아니거나 다른 사람의 경력은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`, 없는 경력은 `404 STUDENT_CAREER_NOT_FOUND`입니다. 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
 - 같은 경력의 동시 수정은 순서대로 처리합니다. 저장 실패 시 요청의 변경사항은 모두 취소됩니다.
 - 기존 V6의 `student_career` 테이블을 사용합니다. 추가 마이그레이션이나 Redis·Storage 설정은 필요하지 않습니다.
+
+### 경력 삭제 API
+
+`DELETE /api/students/me/careers/{careerId}`는 로그인한 유학생 본인의 경력을 실제 삭제합니다. Request Body는 사용하지 않습니다.
+
+- 성공 응답은 `204 No Content`이며 응답 본문은 없습니다. 응답에는 `Cache-Control: no-store`를 설정합니다.
+- 현재 회원의 유학생 역할·탈퇴 여부와 해당 경력의 소유자를 확인합니다. 사용자 ID는 Access Token에서 가져옵니다.
+- 삭제된 경력은 이후 프로필 조회의 `careers`에 포함되지 않습니다. 회원·프로필·다른 경력은 유지됩니다.
+- 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아니거나 다른 사람의 경력은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다.
+- 없는 경력이나 이미 삭제한 경력을 다시 요청하면 `404 STUDENT_CAREER_NOT_FOUND`입니다. 숫자가 아니거나 Long 범위를 벗어난 ID는 `400 INVALID_INPUT`입니다.
+- 삭제는 하나의 트랜잭션으로 처리합니다. 저장소 오류 시 삭제를 취소하고 `500 INTERNAL_SERVER_ERROR`를 반환합니다. 같은 경력의 수정·삭제 요청은 순서대로 처리합니다.
+- 삭제 복구 기능은 제공하지 않습니다. 기존 테이블과 예외 처리를 사용하므로 추가 마이그레이션이나 Redis·Storage 설정은 필요하지 않습니다.
 
 ### 내 유학생 프로필 수정 API
 

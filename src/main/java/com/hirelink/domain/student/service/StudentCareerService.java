@@ -82,6 +82,17 @@ public class StudentCareerService {
 				career.getEndMonth(), career.getDescription());
 	}
 
+	@Transactional
+	public void deleteCareer(Long userId, Long careerId) {
+		validateStudent(userId);
+		StudentCareer career = studentCareerRepository.findByIdForUpdate(careerId)
+				.orElseThrow(StudentCareerNotFoundException::new);
+		if (!career.getUserId().equals(userId)) {
+			throw new AccessDeniedException("본인의 경력만 삭제할 수 있습니다.");
+		}
+		studentCareerRepository.delete(career);
+	}
+
 	private void validateStudent(Long userId) {
 		UserAccount user = userAccountRepository.findById(userId)
 				.orElseThrow(() -> new AuthenticationCredentialsNotFoundException("로그인이 필요합니다."));
