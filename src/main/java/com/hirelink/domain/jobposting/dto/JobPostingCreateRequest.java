@@ -1,10 +1,7 @@
 package com.hirelink.domain.jobposting.dto;
 
 import java.time.LocalDate;
-import java.time.LocalTime;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -44,7 +41,7 @@ public class JobPostingCreateRequest {
 	private LocalDate applicationDeadlineDate;
 	private Boolean workTimeNegotiable;
 	@Valid
-	private List<WorkTime> workTimes = List.of();
+	private List<JobPostingWorkTimeRequest> workTimes = List.of();
 	@NotNull(message = "공고 상태를 입력해주세요.")
 	private JobPostingStatus status;
 
@@ -119,18 +116,7 @@ public class JobPostingCreateRequest {
 			workTimes = List.of();
 			return;
 		}
-		if (!value.isArray()) {
-			throw new IllegalArgumentException("근무시간은 목록 형식으로 입력해주세요.");
-		}
-		List<WorkTime> times = new ArrayList<>();
-		for (JsonNode item : value) {
-			if (!item.isObject() || !Set.of("dayOfWeek", "startTime", "endTime").containsAll(item.propertyNames())) {
-				throw new IllegalArgumentException("근무시간 항목이 올바르지 않습니다.");
-			}
-			times.add(new WorkTime(requireText(item.get("dayOfWeek")),
-					parseTime(item.get("startTime")), parseTime(item.get("endTime"))));
-		}
-		workTimes = List.copyOf(times);
+		workTimes = JobPostingWorkTimeRequest.parseList(value);
 	}
 
 	@JsonSetter
@@ -193,14 +179,6 @@ public class JobPostingCreateRequest {
 		return date;
 	}
 
-	private LocalTime parseTime(JsonNode value) {
-		String text = requireText(value);
-		if (!text.matches("([01][0-9]|2[0-3]):(00|30)")) {
-			throw new IllegalArgumentException("근무시간은 HH:mm 형식의 30분 단위로 입력해주세요.");
-		}
-		return LocalTime.parse(text);
-	}
-
 	public Long getWorkplaceId() {
 		return workplaceId;
 	}
@@ -245,16 +223,11 @@ public class JobPostingCreateRequest {
 		return workTimeNegotiable;
 	}
 
-	public List<WorkTime> getWorkTimes() {
+	public List<JobPostingWorkTimeRequest> getWorkTimes() {
 		return workTimes;
 	}
 
 	public JobPostingStatus getStatus() {
 		return status;
-	}
-
-	public record WorkTime(
-			@Pattern(regexp = "MON|TUE|WED|THU|FRI|SAT|SUN", message = "올바른 요일을 입력해주세요.") String dayOfWeek,
-			LocalTime startTime, LocalTime endTime) {
 	}
 }

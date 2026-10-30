@@ -24,6 +24,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - 사업주 본인의 채용공고 목록 조회와 상태·임시저장 필터
 - 사업주 본인 공고 및 유학생의 모집 중 공고 상세 조회
 - 사업주 본인 사업장의 채용공고 등록·임시저장과 근무조건 검증
+- 사업주 본인 공고의 부분 수정과 임시저장 공고의 모집 시작
 - 국세청 상태조회 API를 통한 사업자등록번호 확인
 - 유학생 본인의 프로필·경력 조회 및 비공개 프로필 사진의 임시 URL 발급
 - 유학생 프로필 부분 수정 및 비자별 학업 상태 검증
@@ -31,7 +32,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - 유학생 본인의 매칭 조건 조회·저장·수정
 - 업종·사업장·채용공고 테이블과 Entity, 공고 소유 사업주 관계
 
-채용공고 수정·모집 마감 API, 지원, 사업주 검토, 면접, 채용 및 매칭 기능은 후속 구현 범위입니다.
+채용공고 모집 마감 API, 지원, 사업주 검토, 면접, 채용 및 매칭 기능은 후속 구현 범위입니다.
 
 ### 사업장·채용공고 데이터 구조
 
@@ -295,7 +296,7 @@ Authorization: Bearer <Access Token>
 
 ### 채용공고 등록·임시저장 API
 
-`POST /api/job-postings`는 로그인한 사업주 본인의 사업장에 새 공고를 생성합니다. `status`에는 `DRAFT` 또는 `RECRUITING`을 명시해야 합니다. 기존 공고를 수정하거나 임시저장을 모집 상태로 전환하는 기능은 이후 수정 API에서 처리합니다.
+`POST /api/job-postings`는 로그인한 사업주 본인의 사업장에 새 공고를 생성합니다. `status`에는 `DRAFT` 또는 `RECRUITING`을 명시해야 합니다. 기존 공고를 수정하거나 임시저장을 모집 상태로 전환하는 기능은 수정 API에서 처리합니다.
 
 - `DRAFT`는 `workplaceId`와 `status`만 필수입니다. 나머지 항목은 생략하거나 `null`로 보낼 수 있습니다. `workTimes`의 생략·`null`·빈 배열은 모두 근무시간 없음으로 처리합니다. 입력한 값은 임시저장에서도 타입·길이·허용값·근무시간 검사를 통과해야 합니다.
 - `RECRUITING`은 `businessTypeId`, `jobRole`, `recruitmentCount`, `wageType`, `wageAmount`, `workStartDate`, `requiredKoreanLevel`, `preferredExperience`, `applicationDeadlineDate`, `workTimeNegotiable`, `workTimes`가 모두 필수입니다. 근무시간 협의가 가능해도 `workTimes`는 한 개 이상이어야 합니다.
@@ -310,6 +311,21 @@ Authorization: Bearer <Access Token>
 - 잘못된 입력은 `400 INVALID_INPUT`, 인증 오류는 `401 UNAUTHORIZED`, 사업주가 아닌 계정·타인 사업장 접근은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다. 없는 사업장은 `404 WORKPLACE_NOT_FOUND`, 없는 업종은 `404 BUSINESS_TYPE_NOT_FOUND`, 예상하지 못한 저장 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류 응답은 기존 `{ code, message }` 형식을 사용합니다.
 - 공고와 모든 근무시간은 함께 성공하거나 함께 취소됩니다. 동일한 POST 요청을 다시 보내면 별도의 새 공고를 생성합니다. 기존 공고 불러오기는 조회한 값을 프론트 입력 폼에 채운 뒤 새 POST 요청으로 등록하는 흐름입니다.
 - 기존 V8·V10·V13을 사용하며 새 마이그레이션·환경변수·Redis 설정은 없습니다. 실제 사용에는 미리 등록된 본인 사업장이 필요하며, 사업장 등록 API와 OCR 연동은 별도 작업입니다.
+
+### 채용공고 수정 API
+
+`PATCH /api/job-postings/{jobPostingId}`는 로그인한 사업주 본인의 공고를 부분 수정합니다. 보내지 않은 항목은 기존 값을 유지하며, 공고의 사업장은 변경할 수 없습니다.
+
+- 수정 항목은 `businessTypeId`, `jobRole`, `recruitmentCount`, `wageType`, `wageAmount`, `workStartDate`, `requiredKoreanLevel`, `preferredExperience`, `applicationDeadlineDate`, `workTimeNegotiable`, `workTimes`, `status`입니다. 빈 요청, 각 항목의 `null`, 잘못된 타입과 알 수 없는 항목은 `400 INVALID_INPUT`입니다. `workplaceId`, `title`, `otherJobName`은 받지 않습니다. 기타 업종은 `OTHER`를 선택하고 구체적인 업무는 직무명으로 입력합니다.
+- 입력한 값의 길이·숫자 범위·허용값·날짜 및 시간 형식은 등록 API와 같습니다. `DRAFT`는 일부만 저장할 수 있고, `RECRUITING`은 기존 값과 이번 요청을 합친 최종 상태가 등록 API의 필수 조건을 모두 충족해야 합니다.
+- `DRAFT → RECRUITING` 전환 시 근무 시작일과 모집 마감일 모두 한국 시간(`Asia/Seoul`) 기준 오늘 또는 미래여야 합니다. `RECRUITING` 수정 시에는 이번에 보낸 날짜만 검사하며, 보내지 않은 기존 날짜는 과거여도 유지합니다. `DRAFT` 상태에서는 과거 날짜도 저장할 수 있습니다. 두 날짜의 앞뒤 순서는 제한하지 않습니다.
+- 모집 중 공고는 임시저장으로 되돌릴 수 없으며 마감한 공고는 수정하거나 재모집할 수 없습니다. 이 경우 `409 JOB_POSTING_STATE_CONFLICT`를 반환합니다. 요청의 `status`는 `DRAFT` 또는 `RECRUITING`만 허용하며 `CLOSED`는 `400 INVALID_INPUT`입니다. 모집 마감은 별도 API에서 처리합니다.
+- `workTimes`를 보내면 기존 목록 전체를 교체합니다. `[]`로 전부 삭제하는 것은 최종 상태가 `DRAFT`일 때만 가능합니다. 근무시간 협의 여부와 관계없이 `RECRUITING`은 근무시간이 한 개 이상이어야 합니다. 요일·30분 단위·중복·겹침·자정 분할 규칙은 등록 API와 같습니다.
+- 제목은 등록과 동일하게 `사업장명 + 공백 + 직무명 + 공백 + 모집`으로 다시 생성합니다. 직무명이 없으면 제목은 `null`이고, 200자를 넘으면 제목만 앞 199자와 `…`로 줄입니다. 기존 사업장·생성 시각·마감 시각·기타 업종명 컬럼은 변경하지 않습니다.
+- 성공하면 `200`과 등록 API의 응답 중 `createdAt`을 `updatedAt`으로 바꾼 18개 항목을 반환합니다. 임시저장에서 미입력된 값은 `null`, 근무시간이 없으면 `[]`입니다. 근무시간은 월~일·시작 시간·ID 순으로 반환하며 `Cache-Control: no-store`를 적용합니다. 근무시간만 수정해도 `updatedAt`을 갱신합니다.
+- 인증 오류는 `401 UNAUTHORIZED`, 사업주가 아닌 계정·타인 공고 접근은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다. 없는 공고는 `404 JOB_POSTING_NOT_FOUND`, 없는 업종은 `404 BUSINESS_TYPE_NOT_FOUND`, 공고 ID를 Long으로 변환할 수 없으면 `400 INVALID_INPUT`, 예상하지 못한 저장 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식입니다.
+- 공고 행을 잠가 같은 공고의 수정 요청을 순서대로 처리합니다. 공고 정보와 근무시간 교체는 하나의 트랜잭션으로 처리하며, 중간에 실패하면 기존 공고와 근무시간을 그대로 유지합니다.
+- 기존 V8·V10·V13을 사용하며 새 마이그레이션·환경변수·Redis 설정은 없습니다. OCR·국세청·파일 저장소 호출도 없습니다.
 
 ### 사업자등록번호 확인 API
 
@@ -773,6 +789,8 @@ Windows PowerShell:
 `JobPostingDetailIntegrationTest`는 상세 응답과 근무시간 정렬, 공고 업종과 사업장 업종 구분, 임시저장 미입력 값, 현재 회원 역할·소유권·공고 상태에 따른 조회 권한, 입력·인증·미등록·서버 오류 및 데이터 보존을 검증합니다. 일회용 PostgreSQL을 사용하며 실제 Supabase 데이터는 변경하지 않습니다.
 
 `JobPostingCreateIntegrationTest`는 등록·임시저장 저장과 기존 목록·상세 조회 연동, 필수값·날짜·근무시간 검증, 소유권·회원 상태, 제목 길이와 원본 보존, 근무시간 저장 실패 시 전체 롤백을 확인합니다. 실제 Supabase에 접근하지 않고 일회용 PostgreSQL을 사용합니다.
+
+`JobPostingUpdateIntegrationTest`는 부분 수정과 기존 값 보존, 임시저장의 모집 시작, 공고 상태별 날짜 검사, 근무시간 교체·삭제와 수정 시각, 권한·입력·상태 오류 및 저장 실패 시 전체 롤백을 확인합니다. 일회용 PostgreSQL을 사용합니다.
 
 `StudentProfileReadIntegrationTest`는 본인 정보만 조회하는지, 미입력 값과 빈 경력 목록, 경력 정렬, 권한·미등록 오류와 이미지 주소 발급 실패를 확인합니다. `SupabaseStorageClientTest`는 테스트용 HTTP 서버로 900초 발급 요청, URL 인코딩, 외부 오류 처리와 리다이렉트 차단을 검증합니다.
 

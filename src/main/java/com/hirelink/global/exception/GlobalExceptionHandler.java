@@ -19,6 +19,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(JobPostingStateConflictException.class)
+	public ResponseEntity<ErrorResponse> handleJobPostingStateConflict(JobPostingStateConflictException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ErrorResponse("JOB_POSTING_STATE_CONFLICT", exception.getMessage()));
+	}
+
 	@ExceptionHandler(JobPostingNotFoundException.class)
 	public ResponseEntity<ErrorResponse> handleJobPostingNotFound(JobPostingNotFoundException exception) {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)

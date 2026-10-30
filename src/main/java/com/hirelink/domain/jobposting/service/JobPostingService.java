@@ -19,6 +19,9 @@ import com.hirelink.domain.jobposting.dto.JobPostingCreateResponse;
 import com.hirelink.domain.jobposting.dto.JobPostingDetailResponse;
 import com.hirelink.domain.jobposting.dto.JobPostingListResponse;
 import com.hirelink.domain.jobposting.dto.JobPostingListResponse.JobPostingSummary;
+import com.hirelink.domain.jobposting.dto.JobPostingUpdateRequest;
+import com.hirelink.domain.jobposting.dto.JobPostingUpdateResponse;
+import com.hirelink.domain.jobposting.dto.JobPostingWorkTimeRequest;
 import com.hirelink.domain.jobposting.dto.JobPostingWorkTimeResponse;
 import com.hirelink.domain.jobposting.entity.JobPosting;
 import com.hirelink.domain.jobposting.entity.JobPostingStatus;
@@ -35,6 +38,7 @@ import com.hirelink.domain.workplace.repository.WorkplaceRepository;
 import com.hirelink.global.exception.BusinessTypeNotFoundException;
 import com.hirelink.global.exception.InvalidJobPostingException;
 import com.hirelink.global.exception.JobPostingNotFoundException;
+import com.hirelink.global.exception.JobPostingStateConflictException;
 import com.hirelink.global.exception.WithdrawnAccountException;
 import com.hirelink.global.exception.WorkplaceNotFoundException;
 
@@ -71,7 +75,6 @@ public class JobPostingService {
 		if (!workplace.getEmployerUser().getId().equals(userId)) {
 			throw new AccessDeniedException("본인 사업장에만 공고를 등록할 수 있습니다.");
 		}
-		validateRecruitingConditions(request);
 		validateWorkTimes(request.getWorkTimes());
 		BusinessType businessType = request.getBusinessTypeId() == null ? null
 				: businessTypeRepository.findById(request.getBusinessTypeId()).orElseThrow(BusinessTypeNotFoundException::new);
@@ -82,6 +85,10 @@ public class JobPostingService {
 				request.getRecruitmentCount() == null ? null : request.getRecruitmentCount().shortValue(),
 				request.getWorkStartDate(), request.getRequiredKoreanLevel(), request.getPreferredExperience(),
 				request.getWorkTimeNegotiable(), request.getApplicationDeadlineDate());
+		if (posting.getStatus() == JobPostingStatus.RECRUITING) {
+			validateRecruitingConditions(posting, !request.getWorkTimes().isEmpty());
+			validateRecruitingDates(posting.getWorkStartDate(), posting.getApplicationDeadlineDate());
+		}
 		jobPostingRepository.save(posting);
 		List<JobPostingWorkTime> workTimes = request.getWorkTimes().stream()
 				.map(time -> new JobPostingWorkTime(posting, time.dayOfWeek(), time.startTime(), time.endTime()))
@@ -93,6 +100,70 @@ public class JobPostingService {
 				posting.getWageType(), posting.getWageAmount(), posting.getWorkStartDate(), posting.getRequiredKoreanLevel(),
 				posting.getPreferredExperience(), posting.getApplicationDeadlineDate(), posting.getWorkTimeNegotiable(),
 				posting.getStatus(), toWorkTimes(workTimes), posting.getCreatedAt());
+	}
+
+	@Transactional
+	public JobPostingUpdateResponse updateJobPosting(Long userId, Long jobPostingId, JobPostingUpdateRequest request) {
+		UserAccount user = getCurrentUser(userId);
+		if (user.getRole() != MemberRole.EMPLOYER) {
+			throw new AccessDeniedException("사업주 계정만 공고를 수정할 수 있습니다.");
+		}
+		if (!request.hasChanges()) {
+			throw new InvalidJobPostingException("수정할 항목을 입력해주세요.");
+		}
+		JobPosting posting = jobPostingRepository.findByIdForUpdate(jobPostingId)
+				.orElseThrow(JobPostingNotFoundException::new);
+		Workplace workplace = posting.getWorkplace();
+		if (!workplace.getEmployerUser().getId().equals(userId)) {
+			throw new AccessDeniedException("본인 사업장의 공고만 수정할 수 있습니다.");
+		}
+		JobPostingStatus previousStatus = posting.getStatus();
+		JobPostingStatus status = request.getStatus() != null ? request.getStatus() : previousStatus;
+		if (previousStatus == JobPostingStatus.CLOSED) {
+			throw new JobPostingStateConflictException("마감한 공고는 수정할 수 없습니다.");
+		}
+		if (previousStatus == JobPostingStatus.RECRUITING && status == JobPostingStatus.DRAFT) {
+			throw new JobPostingStateConflictException("모집 중인 공고는 임시저장으로 되돌릴 수 없습니다.");
+		}
+
+		BusinessType businessType = request.getBusinessTypeId() != null
+				? businessTypeRepository.findById(request.getBusinessTypeId()).orElseThrow(BusinessTypeNotFoundException::new)
+				: posting.getBusinessType();
+		List<JobPostingWorkTime> workTimes = workTimeRepository.findAllByJobPostingIdIn(List.of(jobPostingId));
+		if (request.getWorkTimes() != null) {
+			validateWorkTimes(request.getWorkTimes());
+		}
+		String jobRole = request.getJobRole() != null ? request.getJobRole() : posting.getJobRole();
+		posting.updateConditions(status, businessType, createTitle(workplace.getWorkplaceName(), jobRole), jobRole,
+				request.getWageType() != null ? request.getWageType() : posting.getWageType(),
+				request.getWageAmount() != null ? request.getWageAmount() : posting.getWageAmount(),
+				request.getRecruitmentCount() != null ? Short.valueOf(request.getRecruitmentCount().shortValue()) : posting.getRecruitmentCount(),
+				request.getWorkStartDate() != null ? request.getWorkStartDate() : posting.getWorkStartDate(),
+				request.getRequiredKoreanLevel() != null ? request.getRequiredKoreanLevel() : posting.getRequiredKoreanLevel(),
+				request.getPreferredExperience() != null ? request.getPreferredExperience() : posting.getPreferredExperience(),
+				request.getWorkTimeNegotiable() != null ? request.getWorkTimeNegotiable() : posting.getWorkTimeNegotiable(),
+				request.getApplicationDeadlineDate() != null ? request.getApplicationDeadlineDate() : posting.getApplicationDeadlineDate());
+		if (status == JobPostingStatus.RECRUITING) {
+			boolean hasWorkTimes = request.getWorkTimes() != null ? !request.getWorkTimes().isEmpty() : !workTimes.isEmpty();
+			validateRecruitingConditions(posting, hasWorkTimes);
+			// 모집을 처음 시작할 때는 두 날짜를, 모집 중 수정할 때는 이번에 받은 날짜만 검사한다.
+			validateRecruitingDates(previousStatus == JobPostingStatus.DRAFT ? posting.getWorkStartDate() : request.getWorkStartDate(),
+					previousStatus == JobPostingStatus.DRAFT ? posting.getApplicationDeadlineDate() : request.getApplicationDeadlineDate());
+		}
+		if (request.getWorkTimes() != null) {
+			workTimeRepository.deleteAllInBatch(workTimes);
+			workTimes = workTimeRepository.saveAll(request.getWorkTimes().stream()
+					.map(time -> new JobPostingWorkTime(posting, time.dayOfWeek(), time.startTime(), time.endTime()))
+					.toList());
+		}
+		jobPostingRepository.flush();
+		return new JobPostingUpdateResponse(posting.getId(), workplace.getId(), workplace.getWorkplaceName(),
+				posting.getTitle(), businessType == null ? null : businessType.getId(),
+				businessType == null ? null : businessType.getName(), posting.getJobRole(),
+				posting.getRecruitmentCount() == null ? null : posting.getRecruitmentCount().intValue(),
+				posting.getWageType(), posting.getWageAmount(), posting.getWorkStartDate(), posting.getRequiredKoreanLevel(),
+				posting.getPreferredExperience(), posting.getApplicationDeadlineDate(), posting.getWorkTimeNegotiable(),
+				posting.getStatus(), toWorkTimes(workTimes), posting.getUpdatedAt());
 	}
 
 	@Transactional(readOnly = true)
@@ -142,30 +213,30 @@ public class JobPostingService {
 				posting.getWorkTimeNegotiable(), posting.getApplicationDeadlineDate(), toWorkTimes(workTimes));
 	}
 
-	private void validateRecruitingConditions(JobPostingCreateRequest request) {
-		if (request.getStatus() != JobPostingStatus.RECRUITING) {
-			return;
-		}
-		if (request.getBusinessTypeId() == null || request.getJobRole() == null || request.getRecruitmentCount() == null
-				|| request.getWageType() == null || request.getWageAmount() == null || request.getWorkStartDate() == null
-				|| request.getRequiredKoreanLevel() == null || request.getPreferredExperience() == null
-				|| request.getApplicationDeadlineDate() == null || request.getWorkTimeNegotiable() == null
-				|| request.getWorkTimes().isEmpty()) {
+	private void validateRecruitingConditions(JobPosting posting, boolean hasWorkTimes) {
+		if (posting.getBusinessType() == null || posting.getJobRole() == null || posting.getRecruitmentCount() == null
+				|| posting.getWageType() == null || posting.getWageAmount() == null || posting.getWorkStartDate() == null
+				|| posting.getRequiredKoreanLevel() == null || posting.getPreferredExperience() == null
+				|| posting.getApplicationDeadlineDate() == null || posting.getWorkTimeNegotiable() == null || !hasWorkTimes) {
 			throw new InvalidJobPostingException("모집을 시작하려면 모든 근무조건과 근무시간을 입력해주세요.");
-		}
-		LocalDate today = LocalDate.now(KOREA_ZONE);
-		if (request.getWorkStartDate().isBefore(today) || request.getApplicationDeadlineDate().isBefore(today)) {
-			throw new InvalidJobPostingException("모집 시작 시 근무 시작일과 모집 마감일은 오늘 또는 이후 날짜여야 합니다.");
 		}
 	}
 
-	private void validateWorkTimes(List<JobPostingCreateRequest.WorkTime> workTimes) {
-		List<JobPostingCreateRequest.WorkTime> sorted = workTimes.stream()
-				.sorted(Comparator.comparing(JobPostingCreateRequest.WorkTime::dayOfWeek)
-						.thenComparing(JobPostingCreateRequest.WorkTime::startTime))
+	private void validateRecruitingDates(LocalDate workStartDate, LocalDate applicationDeadlineDate) {
+		LocalDate today = LocalDate.now(KOREA_ZONE);
+		if ((workStartDate != null && workStartDate.isBefore(today))
+				|| (applicationDeadlineDate != null && applicationDeadlineDate.isBefore(today))) {
+			throw new InvalidJobPostingException("근무 시작일과 모집 마감일은 오늘 또는 이후 날짜여야 합니다.");
+		}
+	}
+
+	private void validateWorkTimes(List<JobPostingWorkTimeRequest> workTimes) {
+		List<JobPostingWorkTimeRequest> sorted = workTimes.stream()
+				.sorted(Comparator.comparing(JobPostingWorkTimeRequest::dayOfWeek)
+						.thenComparing(JobPostingWorkTimeRequest::startTime))
 				.toList();
 		Map<String, Integer> previousEnds = new HashMap<>();
-		for (JobPostingCreateRequest.WorkTime time : sorted) {
+		for (JobPostingWorkTimeRequest time : sorted) {
 			int start = time.startTime().toSecondOfDay() / 60;
 			// 종료의 00:00은 해당 요일이 끝나는 자정이다.
 			int end = time.endTime().equals(LocalTime.MIDNIGHT) ? 24 * 60 : time.endTime().toSecondOfDay() / 60;
