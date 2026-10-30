@@ -21,6 +21,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - 휴대전화 인증을 완료한 사업주의 프로필 등록
 - 사업주 본인의 프로필 조회·수정
 - 사업주 본인의 사업장 목록·상세 조회 및 정보 수정
+- 사업주 본인의 채용공고 목록 조회와 상태·임시저장 필터
 - 국세청 상태조회 API를 통한 사업자등록번호 확인
 - 유학생 본인의 프로필·경력 조회 및 비공개 프로필 사진의 임시 URL 발급
 - 유학생 프로필 부분 수정 및 비자별 학업 상태 검증
@@ -28,15 +29,16 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - 유학생 본인의 매칭 조건 조회·저장·수정
 - 업종·사업장·채용공고 테이블과 Entity, 공고 소유 사업주 관계
 
-채용공고 등록·조회 API, 지원, 사업주 검토, 면접, 채용 및 매칭 기능은 후속 구현 범위입니다.
+채용공고 상세 조회·등록·수정·모집 마감 API, 지원, 사업주 검토, 면접, 채용 및 매칭 기능은 후속 구현 범위입니다.
 
 ### 사업장·채용공고 데이터 구조
 
 - `V8__create_workplace_and_job_posting.sql`은 `business_type`, `workplace`, `job_posting`을 생성합니다. 업종 초기 데이터 8종은 V10에서 등록합니다.
+- `V13__create_job_posting_work_time.sql`은 기존 ERD의 `job_posting_work_time`을 생성합니다. 공고 ID, 요일, 시작·종료 시간은 필수이며 공고 테이블을 외래키로 참조합니다.
 - `JobPosting.workplace → Workplace.employerUser → UserAccount` 관계로 공고 소유 사업주의 회원 ID를 확인할 수 있습니다. 연관 Entity는 지연 로딩하므로 필요한 데이터는 트랜잭션 안에서 조회합니다.
 - 공고 상태는 `DRAFT`, `RECRUITING`, `CLOSED`이며 저장할 때 명시합니다. 임시저장을 위해 ERD의 선택 컬럼은 NULL을 허용합니다.
 - 생성·수정 시각은 기존 회원 Entity와 같은 방식으로 기록합니다. 사업장과 공고의 업종은 각각 별도로 연결됩니다.
-- 이번 구성은 테이블과 Entity까지입니다. 사업주 역할·소유권 검사, 모집 상태의 필수값 검사, 제목 생성, 사진·근무시간 저장은 해당 기능을 구현할 때 추가합니다.
+- 채용공고 목록은 현재 회원 상태와 사업장 소유권을 확인해 조회합니다. 모집 상태의 필수값 검사, 제목 생성, 공고·근무시간 등록은 후속 등록 API에서 구현합니다.
 
 ### 현재 인증 API
 
@@ -255,6 +257,26 @@ Authorization: Bearer <Access Token>
 - 없는 사업장은 `404 WORKPLACE_NOT_FOUND`, 없는 업종은 `404 BUSINESS_TYPE_NOT_FOUND`입니다. 사업장 ID를 Long으로 변환할 수 없으면 `400 INVALID_INPUT`, 예상하지 못한 내부 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식을 사용합니다.
 - 하나의 트랜잭션으로 저장하며 중간에 실패하면 이번 수정 전체를 취소합니다. 수정할 사업장 행을 잠가 동시에 다른 항목을 수정할 때 기존 값이 덮어써지지 않도록 합니다.
 - 기존 테이블과 Entity를 사용하며 새 마이그레이션·환경변수나 OCR·국세청·파일 저장소 호출은 없습니다.
+
+### 내 채용공고 목록 조회 API
+
+`GET /api/employers/me/job-postings`는 로그인한 사업주 본인의 사업장에 연결된 공고를 조회합니다. 요청 본문과 Path Parameter는 없으며 Query Parameter로 필터를 받습니다.
+
+| status | includeDraft | 반환하는 상태 |
+| --- | --- | --- |
+| 미전달 | 미전달 또는 `false` | `RECRUITING`, `CLOSED` |
+| 미전달 | `true` | `DRAFT`, `RECRUITING`, `CLOSED` |
+| `RECRUITING` | 미전달 / `true` / `false` | `RECRUITING` |
+| `CLOSED` | 미전달 / `true` / `false` | `CLOSED` |
+
+- `status`는 `RECRUITING` 또는 `CLOSED`, `includeDraft`는 소문자 `true` 또는 `false`만 허용합니다. 빈 값이나 잘못된 값은 `400 INVALID_INPUT`입니다. 상태가 지정되어도 `includeDraft`의 형식은 검증합니다.
+- 성공하면 `200`과 `{ "jobPostings": [...] }`를 반환합니다. 각 항목은 `jobPostingId`, `workplaceId`, `workplaceName`, `jobRole`, `wageType`, `wageAmount`, `status`, `applicationDeadlineDate`, `workTimes`, `createdAt`입니다.
+- 임시저장에서 미입력된 `jobRole`, `wageType`, `wageAmount`, `applicationDeadlineDate`는 `null`, 근무시간이 없으면 `workTimes: []`입니다. 응답 상태에는 `DRAFT`도 포함될 수 있습니다.
+- 공고는 생성 시각 내림차순, 같은 시각이면 ID 내림차순입니다. 근무시간은 월~일·시작 시간 순으로 반환하며 시간이 같으면 ID 순으로 정렬합니다. 시작·종료 시간은 `HH:mm`이고 종료 시간 `00:00`은 해당 요일의 자정입니다.
+- 공고가 없거나 조건에 맞는 공고가 없으면 `200`과 `{ "jobPostings": [] }`를 반환합니다. 페이지네이션·지원자 수·화면 표시용 D-Day 문구는 포함하지 않습니다.
+- 인증 오류는 `401 UNAUTHORIZED`, 사업주가 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`, 예상하지 못한 내부 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식을 사용합니다.
+- 읽기 전용 트랜잭션으로 공고와 사업장을 조회하고, 해당 공고들의 근무시간은 한 번에 조회합니다. 데이터 생성·수정·자동 마감이나 외부 서비스 호출은 하지 않으며 응답에는 `Cache-Control: no-store`를 적용합니다.
+- 추가 환경변수·Redis 설정은 없습니다. 실제 DB에서는 배포 후 애플리케이션의 Flyway 실행으로 V13 적용 여부를 확인해야 합니다.
 
 ### 사업자등록번호 확인 API
 
@@ -712,6 +734,8 @@ Windows PowerShell:
 `WorkplaceDetailIntegrationTest`는 상세 응답 항목과 번호 표시 형식, 좌표, 원본 파일 정보 제외, 소유권·회원 상태 검사, 없는 사업장과 잘못된 ID, 서버 오류 및 조회 전후 데이터 보존을 검증합니다. 일회용 PostgreSQL을 사용하며 실제 Supabase 데이터는 변경하지 않습니다.
 
 `WorkplaceUpdateIntegrationTest`는 부분 수정과 변경 불가 항목 보존, 입력 검증·주소/좌표 동시 전달, 소유권·회원 상태, 미존재 오류, 동시 수정과 DB 저장 실패 시 롤백을 검증합니다. 일회용 PostgreSQL을 사용하며 실제 Supabase 데이터는 변경하지 않습니다.
+
+`JobPostingListIntegrationTest`는 본인 공고만 조회하는지, 공고·근무시간 정렬, 필터 우선순위, 임시저장 미입력 값, 빈 목록, 인증·권한·서버 오류와 데이터 보존을 검증합니다. `JobPostingEntityIntegrationTest`는 근무시간 Entity 저장과 새 테이블의 외래키·필수 컬럼도 확인합니다. 모두 일회용 PostgreSQL을 사용합니다.
 
 `StudentProfileReadIntegrationTest`는 본인 정보만 조회하는지, 미입력 값과 빈 경력 목록, 경력 정렬, 권한·미등록 오류와 이미지 주소 발급 실패를 확인합니다. `SupabaseStorageClientTest`는 테스트용 HTTP 서버로 900초 발급 요청, URL 인코딩, 외부 오류 처리와 리다이렉트 차단을 검증합니다.
 

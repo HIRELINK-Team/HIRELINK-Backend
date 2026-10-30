@@ -19,6 +19,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(InvalidJobPostingException.class)
+	public ResponseEntity<ErrorResponse> handleInvalidJobPosting(InvalidJobPostingException exception) {
+		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));
+	}
+
 	@ExceptionHandler(InvalidWorkplaceException.class)
 	public ResponseEntity<ErrorResponse> handleInvalidWorkplace(InvalidWorkplaceException exception) {
 		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));
