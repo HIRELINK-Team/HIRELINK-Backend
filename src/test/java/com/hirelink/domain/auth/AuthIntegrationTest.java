@@ -109,7 +109,7 @@ class AuthIntegrationTest {
 	@BeforeEach
 	void clearTestDatabase() {
 		// DynamicPropertySource가 연결한 일회용 PostgreSQL 컨테이너만 초기화한다.
-		jdbcTemplate.execute("TRUNCATE TABLE student_preferred_job, student_preferred_work_time, student_preferred_location, "
+		jdbcTemplate.execute("TRUNCATE TABLE employer_profile, student_preferred_job, student_preferred_work_time, student_preferred_location, "
 				+ "student_job_preference, student_priority, job_posting, workplace, student_career, student_profile, user_term_agreement, phone_verification, phone_verification_send_attempt, "
 				+ "refresh_token, auth_account, user_account RESTART IDENTITY");
 	}

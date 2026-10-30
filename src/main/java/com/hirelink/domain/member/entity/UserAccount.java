@@ -103,6 +103,14 @@ public class UserAccount {
 		return phoneNumber;
 	}
 
+	public String getAcquisitionChannel() {
+		return acquisitionChannel;
+	}
+
+	public void updateAcquisitionChannel(String acquisitionChannel) {
+		this.acquisitionChannel = acquisitionChannel;
+	}
+
 	public boolean isPhoneVerified() {
 		return phoneNumber != null && phoneVerifiedAt != null;
 	}

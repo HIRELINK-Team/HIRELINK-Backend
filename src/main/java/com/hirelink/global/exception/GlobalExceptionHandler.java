@@ -59,6 +59,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 				.body(new ErrorResponse("PHONE_NOT_VERIFIED", exception.getMessage()));
 	}
 
+	@ExceptionHandler(DuplicateEmployerProfileException.class)
+	public ResponseEntity<ErrorResponse> handleDuplicateEmployerProfile(DuplicateEmployerProfileException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ErrorResponse("DUPLICATE_EMPLOYER_PROFILE", exception.getMessage()));
+	}
+
 	@ExceptionHandler(InvalidStudentProfileException.class)
 	public ResponseEntity<ErrorResponse> handleInvalidStudentProfile(InvalidStudentProfileException exception) {
 		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));
