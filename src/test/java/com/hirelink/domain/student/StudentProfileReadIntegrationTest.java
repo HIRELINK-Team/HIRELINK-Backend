@@ -71,7 +71,7 @@ class StudentProfileReadIntegrationTest {
 
 	@BeforeEach
 	void clearTestDatabase() {
-		jdbc.execute("TRUNCATE TABLE student_career, student_profile, user_term_agreement, phone_verification, "
+		jdbc.execute("TRUNCATE TABLE job_posting, workplace, student_career, student_profile, user_term_agreement, phone_verification, "
 				+ "phone_verification_send_attempt, refresh_token, auth_account, user_account, study_program RESTART IDENTITY");
 		jdbc.update("delete from visa_type where visa_code = 'TEST-VISA'");
 	}
