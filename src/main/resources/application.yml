@@ -25,3 +25,7 @@ storage:
     url: ${SUPABASE_URL:}
     secret-key: ${SUPABASE_SECRET_KEY:}
     bucket: ${SUPABASE_STORAGE_BUCKET:profile-images}
+
+business-registration:
+  nts:
+    service-key: ${NTS_SERVICE_KEY:}
