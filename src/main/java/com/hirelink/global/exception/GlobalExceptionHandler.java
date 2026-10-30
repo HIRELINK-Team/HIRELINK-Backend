@@ -65,6 +65,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 				.body(new ErrorResponse("DUPLICATE_EMPLOYER_PROFILE", exception.getMessage()));
 	}
 
+	@ExceptionHandler(EmployerProfileNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleEmployerProfileNotFound(EmployerProfileNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("EMPLOYER_PROFILE_NOT_FOUND", exception.getMessage()));
+	}
+
 	@ExceptionHandler(InvalidStudentProfileException.class)
 	public ResponseEntity<ErrorResponse> handleInvalidStudentProfile(InvalidStudentProfileException exception) {
 		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));
