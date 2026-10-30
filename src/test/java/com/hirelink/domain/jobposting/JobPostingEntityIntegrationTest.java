@@ -5,6 +5,7 @@ import java.security.SecureRandom;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.Base64;
 import java.util.UUID;
 
@@ -26,6 +27,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import com.hirelink.domain.jobposting.entity.JobPosting;
 import com.hirelink.domain.jobposting.entity.JobPostingStatus;
+import com.hirelink.domain.jobposting.entity.JobPostingWorkTime;
 import com.hirelink.domain.member.entity.MemberRole;
 import com.hirelink.domain.member.entity.UserAccount;
 import com.hirelink.domain.workplace.entity.BusinessType;
@@ -62,7 +64,7 @@ class JobPostingEntityIntegrationTest {
 	@BeforeEach
 	void clearTestDatabase() {
 		jdbc.execute("TRUNCATE TABLE employer_profile, student_preferred_job, student_preferred_work_time, student_preferred_location, "
-				+ "student_job_preference, student_priority, job_posting, workplace, business_type, student_career, student_profile, "
+				+ "student_job_preference, student_priority, job_posting_work_time, job_posting, workplace, business_type, student_career, student_profile, "
 				+ "user_term_agreement, phone_verification, phone_verification_send_attempt, "
 				+ "refresh_token, auth_account, user_account RESTART IDENTITY");
 		transactions = new TransactionTemplate(transactionManager);
@@ -182,6 +184,34 @@ class JobPostingEntityIntegrationTest {
 			assertThat(posting.getCreatedAt()).isNotNull();
 			assertThat(posting.getUpdatedAt()).isNotNull();
 		});
+	}
+
+	@Test
+	void persistsWorkTimeAndEnforcesItsForeignKeyAndRequiredColumns() {
+		Fixture fixture = createFixture();
+		Long workTimeId = transactions.execute(status -> {
+			JobPosting posting = entityManager.find(JobPosting.class, fixture.jobPostingId());
+			JobPostingWorkTime time = new JobPostingWorkTime(posting, "MON", LocalTime.of(22, 0), LocalTime.MIDNIGHT);
+			entityManager.persist(time);
+			entityManager.flush();
+			return time.getId();
+		});
+		transactions.executeWithoutResult(status -> {
+			JobPostingWorkTime time = entityManager.find(JobPostingWorkTime.class, workTimeId);
+			assertThat(time.getJobPosting().getId()).isEqualTo(fixture.jobPostingId());
+			assertThat(time.getDayOfWeek()).isEqualTo("MON");
+			assertThat(time.getStartTime()).isEqualTo(LocalTime.of(22, 0));
+			assertThat(time.getEndTime()).isEqualTo(LocalTime.MIDNIGHT);
+		});
+		assertThatThrownBy(() -> jdbc.update("""
+				insert into job_posting_work_time(job_posting_id, day_of_week, start_time, end_time)
+				values (-1, 'MON', '09:00', '18:00')
+				""")).isInstanceOf(DataIntegrityViolationException.class);
+		for (String column : new String[] {"job_posting_id", "day_of_week", "start_time", "end_time"}) {
+			assertThatThrownBy(() -> jdbc.update("update job_posting_work_time set " + column + " = null where id = ?", workTimeId))
+					.isInstanceOf(DataIntegrityViolationException.class);
+		}
+		assertThat(jdbc.queryForObject("select count(*) from job_posting_work_time", Integer.class)).isEqualTo(1);
 	}
 
 	private Fixture createFixture() {
