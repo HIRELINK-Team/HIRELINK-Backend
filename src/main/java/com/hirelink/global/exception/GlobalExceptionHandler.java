@@ -19,6 +19,63 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(JobPostingStateConflictException.class)
+	public ResponseEntity<ErrorResponse> handleJobPostingStateConflict(JobPostingStateConflictException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ErrorResponse("JOB_POSTING_STATE_CONFLICT", exception.getMessage()));
+	}
+
+	@ExceptionHandler(JobPostingNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleJobPostingNotFound(JobPostingNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("JOB_POSTING_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(InvalidJobPostingException.class)
+	public ResponseEntity<ErrorResponse> handleInvalidJobPosting(InvalidJobPostingException exception) {
+		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));
+	}
+
+	@ExceptionHandler(InvalidWorkplaceException.class)
+	public ResponseEntity<ErrorResponse> handleInvalidWorkplace(InvalidWorkplaceException exception) {
+		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));
+	}
+
+	@ExceptionHandler(BusinessTypeNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleBusinessTypeNotFound(BusinessTypeNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("BUSINESS_TYPE_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(WorkplaceNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleWorkplaceNotFound(WorkplaceNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("WORKPLACE_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(BusinessRegistrationLookupException.class)
+	public ResponseEntity<ErrorResponse> handleBusinessRegistrationLookup(BusinessRegistrationLookupException exception) {
+		return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+				.body(new ErrorResponse("BUSINESS_REGISTRATION_LOOKUP_FAILED", exception.getMessage()));
+	}
+
+	@ExceptionHandler(InvalidMatchingPreferenceException.class)
+	public ResponseEntity<ErrorResponse> handleInvalidMatchingPreference(InvalidMatchingPreferenceException exception) {
+		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));
+	}
+
+	@ExceptionHandler(MatchingReferenceNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleMatchingReferenceNotFound(MatchingReferenceNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("MATCHING_REFERENCE_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(StudentCareerNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleStudentCareerNotFound(StudentCareerNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("STUDENT_CAREER_NOT_FOUND", exception.getMessage()));
+	}
+
 	@ExceptionHandler(InvalidStudentCareerException.class)
 	public ResponseEntity<ErrorResponse> handleInvalidStudentCareer(InvalidStudentCareerException exception) {
 		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));
@@ -42,8 +99,25 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 				.body(new ErrorResponse("PHONE_NOT_VERIFIED", exception.getMessage()));
 	}
 
+	@ExceptionHandler(DuplicateEmployerProfileException.class)
+	public ResponseEntity<ErrorResponse> handleDuplicateEmployerProfile(DuplicateEmployerProfileException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ErrorResponse("DUPLICATE_EMPLOYER_PROFILE", exception.getMessage()));
+	}
+
+	@ExceptionHandler(EmployerProfileNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleEmployerProfileNotFound(EmployerProfileNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("EMPLOYER_PROFILE_NOT_FOUND", exception.getMessage()));
+	}
+
 	@ExceptionHandler(InvalidStudentProfileException.class)
 	public ResponseEntity<ErrorResponse> handleInvalidStudentProfile(InvalidStudentProfileException exception) {
+		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));
+	}
+
+	@ExceptionHandler(InvalidEmployerProfileException.class)
+	public ResponseEntity<ErrorResponse> handleInvalidEmployerProfile(InvalidEmployerProfileException exception) {
 		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));
 	}
 

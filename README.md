@@ -18,20 +18,31 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - Testcontainers PostgreSQL을 사용한 인증 통합 테스트
 - 로그인한 회원의 약관별 동의 상태 저장
 - 휴대전화 인증을 완료한 유학생의 기본 프로필 등록
+- 휴대전화 인증을 완료한 사업주의 프로필 등록
+- 사업주 본인의 프로필 조회·수정
+- 사업주 본인의 사업장 목록·상세 조회 및 정보 수정
+- 사업주 본인의 채용공고 목록 조회와 상태·임시저장 필터
+- 사업주 본인 공고 및 유학생의 모집 중 공고 상세 조회
+- 사업주 본인 사업장의 채용공고 등록·임시저장과 근무조건 검증
+- 사업주 본인 공고의 부분 수정과 임시저장 공고의 모집 시작
+- 사업주 본인 공고의 모집 마감과 실제 마감 시각 기록
+- 국세청 상태조회 API를 통한 사업자등록번호 확인
 - 유학생 본인의 프로필·경력 조회 및 비공개 프로필 사진의 임시 URL 발급
 - 유학생 프로필 부분 수정 및 비자별 학업 상태 검증
-- 유학생 본인의 근무 경력 추가
+- 유학생 본인의 근무 경력 추가·수정·삭제
+- 유학생 본인의 매칭 조건 조회·저장·수정
 - 업종·사업장·채용공고 테이블과 Entity, 공고 소유 사업주 관계
 
-채용공고 등록·조회 API, 지원, 사업주 검토, 면접, 채용 및 매칭 기능은 후속 구현 범위입니다.
+지원, 사업주 검토, 면접, 채용 및 매칭 기능은 후속 구현 범위입니다. 공고 마감에 따른 지원·채용 제안 종료 처리는 해당 기능과의 후속 연동이 필요합니다.
 
 ### 사업장·채용공고 데이터 구조
 
-- `V8__create_workplace_and_job_posting.sql`은 `business_type`, `workplace`, `job_posting`을 생성합니다. 업종 초기 데이터는 포함하지 않습니다.
+- `V8__create_workplace_and_job_posting.sql`은 `business_type`, `workplace`, `job_posting`을 생성합니다. 업종 초기 데이터 8종은 V10에서 등록합니다.
+- `V13__create_job_posting_work_time.sql`은 기존 ERD의 `job_posting_work_time`을 생성합니다. 공고 ID, 요일, 시작·종료 시간은 필수이며 공고 테이블을 외래키로 참조합니다.
 - `JobPosting.workplace → Workplace.employerUser → UserAccount` 관계로 공고 소유 사업주의 회원 ID를 확인할 수 있습니다. 연관 Entity는 지연 로딩하므로 필요한 데이터는 트랜잭션 안에서 조회합니다.
 - 공고 상태는 `DRAFT`, `RECRUITING`, `CLOSED`이며 저장할 때 명시합니다. 임시저장을 위해 ERD의 선택 컬럼은 NULL을 허용합니다.
 - 생성·수정 시각은 기존 회원 Entity와 같은 방식으로 기록합니다. 사업장과 공고의 업종은 각각 별도로 연결됩니다.
-- 이번 구성은 테이블과 Entity까지입니다. 사업주 역할·소유권 검사, 모집 상태의 필수값 검사, 제목 생성, 사진·근무시간 저장은 해당 기능을 구현할 때 추가합니다.
+- 채용공고 등록 시 회원 역할과 사업장 소유권을 확인하고, 공고와 근무시간을 하나의 트랜잭션으로 저장합니다. 모집 상태의 필수 근무조건과 날짜를 검증하고 제목을 생성합니다.
 
 ### 현재 인증 API
 
@@ -158,6 +169,202 @@ Authorization: Bearer <Access Token>
 - 이번 범위는 동의 상태 저장입니다. 필수 동의 검사, 역할별 약관 제한, 약관 내용·버전 관리는 포함하지 않습니다. 화면의 전체 동의 선택 여부는 별도로 저장하지 않습니다.
 - 약관 종류가 추가되면 기존 ID를 유지하고 새 Flyway 파일로 데이터를 추가합니다.
 
+### 사업주 프로필 등록 API
+
+`POST /api/employers/me/profile`은 Access Token으로 식별한 사업주 본인의 프로필을 생성합니다.
+
+```json
+{
+  "name": "테스트 이름",
+  "acquisitionChannel": "REFERRAL"
+}
+```
+
+- 이름은 필수이며 공백만으로 구성할 수 없고 최대 100자입니다. 유입 경로도 필수이며 `SEARCH`(검색), `REFERRAL`(지인 추천), `OTHER`(기타) 중 하나를 사용합니다. 기타의 별도 입력값은 받지 않습니다.
+- 요청에는 `name`, `acquisitionChannel`만 허용합니다. `userId`, `phoneNumber`, `position` 등 명세에 없는 항목이나 잘못된 입력은 `400 INVALID_INPUT`입니다.
+- 현재 회원의 역할이 `EMPLOYER`이며 `phone_number`, `phone_verified_at`이 모두 저장되어 있어야 합니다. 전화번호는 기존 인증 정보를 사용합니다.
+- 이름과 유입 경로는 `user_account`에 저장하고, `employer_profile`은 회원과 같은 ID로 생성합니다. ERD의 `position`은 처음에 `NULL`입니다.
+- 성공 응답은 `201 Created`이며 `employerId`, `name`, `email`, `phoneNumber`, `acquisitionChannel`, `position`을 반환합니다. 전화번호는 `010-0000-0000` 형식이며 응답에 `Cache-Control: no-store`를 설정합니다.
+- 로그인 필요는 `401 UNAUTHORIZED`, 사업주가 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다.
+- 휴대전화 미인증은 `409 PHONE_NOT_VERIFIED`, 이미 등록된 프로필은 `409 DUPLICATE_EMPLOYER_PROFILE`, 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
+- 회원 정보 저장과 프로필 생성은 하나의 트랜잭션으로 처리합니다. 같은 회원의 동시 등록도 한 번만 성공하며, 실패한 요청은 기존 정보를 변경하지 않습니다.
+- V12 마이그레이션은 `employer_profile` 테이블만 추가합니다. 사업장·채용공고 정보는 이 API에서 저장하지 않습니다.
+- 실제 Supabase에는 해당 환경에서 Flyway 마이그레이션을 적용해야 합니다. 실제 SMS 연동 전에는 신규 회원의 휴대전화 인증 흐름이 아직 연결되지 않습니다.
+
+### 내 사업주 프로필 조회 API
+
+`GET /api/employers/me/profile`은 Access Token으로 식별한 사업주 본인의 회원 정보와 프로필을 반환합니다. 요청 본문과 Query / Path Parameter는 사용하지 않습니다.
+
+- 성공 응답은 `200 OK`이며 `employerId`, `name`, `email`, `phoneNumber`, `position`을 포함합니다. `employerId`는 회원 ID와 같습니다.
+- 이름·이메일·전화번호는 `user_account`, 직책은 `employer_profile`에서 조회합니다. 전화번호는 `010-0000-0000` 형식이며, 직책 미등록 시 `position`은 `null`입니다.
+- 유입 경로(`acquisitionChannel`)와 사업장 정보는 응답에 포함하지 않습니다. 사업장 조회는 별도 API의 범위입니다.
+- 인증 정보가 없거나 유효하지 않으면 `401 UNAUTHORIZED`, 현재 회원이 사업주가 아니면 `403 FORBIDDEN`, 탈퇴 계정이면 `403 WITHDRAWN_ACCOUNT`입니다.
+- 본인의 프로필이 없으면 `404 EMPLOYER_PROFILE_NOT_FOUND`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식을 사용합니다.
+- 조회는 기존 데이터를 생성하거나 수정하지 않으며, 응답에는 `Cache-Control: no-store`를 설정합니다. 기존 테이블을 사용하므로 새 마이그레이션은 없습니다.
+
+### 내 사업주 프로필 수정 API
+
+`PATCH /api/employers/me/profile`은 Access Token으로 식별한 사업주 본인의 이름과 직책을 부분 수정합니다.
+
+```json
+{
+  "name": "수정 이름",
+  "position": null
+}
+```
+
+- 보내지 않은 항목은 기존 값을 유지합니다. 위 예시는 이름을 수정하고 기존 직책을 삭제합니다.
+- 이름을 보내면 문자열·최대 100자이며 `null`, 빈 문자열, 공백만 입력할 수 없습니다.
+- 직책을 보내면 문자열·최대 50자이며 빈 문자열과 공백만 입력할 수 없습니다. `position: null`은 직책 삭제를 뜻합니다.
+- 이름은 `user_account.name`, 직책은 `employer_profile.position`에 하나의 트랜잭션으로 저장합니다. 같은 회원의 수정 요청은 순서대로 처리하며, 저장에 실패하면 요청의 변경을 모두 취소합니다.
+- 빈 요청(`{}`), 잘못된 타입·길이·값, 수정 대상이 아닌 항목은 `400 INVALID_INPUT`입니다. `userId`, `email`, `phoneNumber`, `acquisitionChannel`, `preferredLanguage`는 수정 요청에 포함하지 않습니다.
+- 이메일과 유입 경로는 이 API에서 변경하지 않습니다. 전화번호 변경은 기존 휴대전화 인증 API에서 처리합니다.
+- 성공하면 `200 OK`와 조회 API와 같은 `employerId`, `name`, `email`, `phoneNumber`, `position`을 반환합니다. 전화번호는 `010-0000-0000` 형식이며 응답에는 `Cache-Control: no-store`를 설정합니다.
+- 인증 정보가 없거나 유효하지 않으면 `401 UNAUTHORIZED`, 현재 회원이 사업주가 아니면 `403 FORBIDDEN`, 탈퇴 계정이면 `403 WITHDRAWN_ACCOUNT`입니다.
+- 본인의 프로필이 없으면 `404 EMPLOYER_PROFILE_NOT_FOUND`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식을 사용합니다.
+- 기존 테이블과 조회 응답 DTO를 재사용하며 새 마이그레이션은 없습니다. 사업장 정보 수정은 별도 API의 범위입니다.
+
+### 내 사업장 목록 조회 API
+
+`GET /api/employers/me/workplaces`는 Access Token으로 식별한 사업주 본인의 사업장 목록을 반환합니다. 요청 본문과 Query / Path Parameter는 사용하지 않습니다.
+
+- 성공하면 `200`과 `{ "workplaces": [...] }`를 반환하며, 등록된 사업장이 없으면 `200`과 `{ "workplaces": [] }`를 반환합니다.
+- 각 항목은 `workplaceId`, `workplaceName`, `businessTypeId`, `businessTypeName`, `workplaceAddress`, `employeeCountRange`로 구성합니다. `businessTypeName`은 `FOOD_CAFE`, `OTHER` 등의 업종 코드입니다.
+- 사업장 ID 오름차순으로 반환하며 페이지네이션은 적용하지 않습니다.
+- 목록에는 사업자등록번호·대표자명·등록증 파일 정보·좌표를 포함하지 않습니다. 응답에는 `Cache-Control: no-store`를 적용합니다.
+- 현재 DB의 회원 역할과 탈퇴 여부를 검사합니다. 인증 오류는 `401 UNAUTHORIZED`, 사업주가 아니면 `403 FORBIDDEN`, 탈퇴 계정이면 `403 WITHDRAWN_ACCOUNT`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식을 사용합니다.
+- 읽기 전용 트랜잭션에서 현재 사용자가 소유한 사업장과 업종을 함께 조회합니다. 데이터 생성·수정과 외부 서비스 호출은 수행하지 않습니다.
+- 기존 테이블과 Entity를 사용하며 새 마이그레이션이나 환경변수는 없습니다.
+
+### 사업장 상세 조회 API
+
+`GET /api/workplaces/{workplaceId}`는 로그인한 사업주가 본인 소유 사업장의 상세 정보를 조회합니다. 요청 본문과 Query Parameter는 사용하지 않으며 Path Parameter로 사업장 ID를 받습니다.
+
+- 성공하면 `200`과 `workplaceId`, `workplaceName`, `representativeName`, `businessRegistrationNumber`, `businessTypeId`, `businessTypeName`, `employeeCountRange`, `workplaceAddress`, `latitude`, `longitude`를 반환합니다.
+- 사업자등록번호는 `123-45-67890` 형식으로 표시하며 저장된 값은 변경하지 않습니다. 위도·경도는 숫자로 반환하고 `businessTypeName`은 업종 코드입니다.
+- 등록증 원본·파일 경로·파일 URL은 반환하지 않으며, 응답에는 `Cache-Control: no-store`를 적용합니다.
+- 인증 오류는 `401 UNAUTHORIZED`, 사업주가 아닌 계정이나 타인 소유 사업장 접근은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다.
+- 사업장이 없으면 `404 WORKPLACE_NOT_FOUND`입니다. 사업장 ID를 Long으로 변환할 수 없으면 `400 INVALID_INPUT`, 예상하지 못한 내부 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식을 사용합니다.
+- 현재 회원 상태와 사업장 존재 여부·소유권을 확인한 뒤 DTO를 반환합니다. 읽기 전용 트랜잭션으로 조회하며 데이터 변경이나 OCR·국세청·파일 저장소 호출은 수행하지 않습니다.
+- 기존 테이블과 Entity를 사용하며 새 마이그레이션이나 환경변수는 없습니다.
+
+### 사업장 정보 수정 API
+
+`PATCH /api/workplaces/{workplaceId}`는 로그인한 사업주가 본인 소유 사업장의 이름·업종·주소·좌표를 부분 수정합니다. 보내지 않은 항목은 기존 값을 유지합니다.
+
+- JSON 요청에는 `workplaceName`, `businessTypeId`, `workplaceAddress`, `latitude`, `longitude`만 허용합니다. 사업장명은 공백 불가·최대 150자, 주소는 공백 불가·최대 500자입니다.
+- 주소·위도·경도 중 하나라도 수정하려면 세 항목을 함께 보냅니다. 위도는 -90~90, 경도는 -180~180이며 좌표는 소수점 이하 7자리까지 허용합니다. 주소 검색과 지도 선택은 프론트엔드에서 처리합니다.
+- 모든 항목의 명시적 `null`, 빈 요청, 잘못된 타입·길이·좌표, 알 수 없는 항목은 `400 INVALID_INPUT`입니다. 업종 ID는 JSON 정수, 좌표는 JSON 숫자로 보내야 합니다.
+- 사업자등록번호·대표자명·직원 수·등록증 파일은 변경하지 않습니다. `OTHER` 업종에도 별도의 기타 업종명을 입력받지 않습니다.
+- 성공하면 `200`과 상세 조회 API와 같은 10개 항목을 반환합니다. 사업자등록번호 표시 형식과 `Cache-Control: no-store`도 동일합니다.
+- 인증 오류는 `401 UNAUTHORIZED`, 사업주가 아닌 계정이나 타인 소유 사업장 접근은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다.
+- 없는 사업장은 `404 WORKPLACE_NOT_FOUND`, 없는 업종은 `404 BUSINESS_TYPE_NOT_FOUND`입니다. 사업장 ID를 Long으로 변환할 수 없으면 `400 INVALID_INPUT`, 예상하지 못한 내부 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식을 사용합니다.
+- 하나의 트랜잭션으로 저장하며 중간에 실패하면 이번 수정 전체를 취소합니다. 수정할 사업장 행을 잠가 동시에 다른 항목을 수정할 때 기존 값이 덮어써지지 않도록 합니다.
+- 기존 테이블과 Entity를 사용하며 새 마이그레이션·환경변수나 OCR·국세청·파일 저장소 호출은 없습니다.
+
+### 내 채용공고 목록 조회 API
+
+`GET /api/employers/me/job-postings`는 로그인한 사업주 본인의 사업장에 연결된 공고를 조회합니다. 요청 본문과 Path Parameter는 없으며 Query Parameter로 필터를 받습니다.
+
+| status | includeDraft | 반환하는 상태 |
+| --- | --- | --- |
+| 미전달 | 미전달 또는 `false` | `RECRUITING`, `CLOSED` |
+| 미전달 | `true` | `DRAFT`, `RECRUITING`, `CLOSED` |
+| `RECRUITING` | 미전달 / `true` / `false` | `RECRUITING` |
+| `CLOSED` | 미전달 / `true` / `false` | `CLOSED` |
+
+- `status`는 `RECRUITING` 또는 `CLOSED`, `includeDraft`는 소문자 `true` 또는 `false`만 허용합니다. 빈 값이나 잘못된 값은 `400 INVALID_INPUT`입니다. 상태가 지정되어도 `includeDraft`의 형식은 검증합니다.
+- 성공하면 `200`과 `{ "jobPostings": [...] }`를 반환합니다. 각 항목은 `jobPostingId`, `workplaceId`, `workplaceName`, `jobRole`, `wageType`, `wageAmount`, `status`, `applicationDeadlineDate`, `workTimes`, `createdAt`입니다.
+- 임시저장에서 미입력된 `jobRole`, `wageType`, `wageAmount`, `applicationDeadlineDate`는 `null`, 근무시간이 없으면 `workTimes: []`입니다. 응답 상태에는 `DRAFT`도 포함될 수 있습니다.
+- 공고는 생성 시각 내림차순, 같은 시각이면 ID 내림차순입니다. 근무시간은 월~일·시작 시간 순으로 반환하며 시간이 같으면 ID 순으로 정렬합니다. 시작·종료 시간은 `HH:mm`이고 종료 시간 `00:00`은 해당 요일의 자정입니다.
+- 공고가 없거나 조건에 맞는 공고가 없으면 `200`과 `{ "jobPostings": [] }`를 반환합니다. 페이지네이션·지원자 수·화면 표시용 D-Day 문구는 포함하지 않습니다.
+- 인증 오류는 `401 UNAUTHORIZED`, 사업주가 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`, 예상하지 못한 내부 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식을 사용합니다.
+- 읽기 전용 트랜잭션으로 공고와 사업장을 조회하고, 해당 공고들의 근무시간은 한 번에 조회합니다. 데이터 생성·수정·자동 마감이나 외부 서비스 호출은 하지 않으며 응답에는 `Cache-Control: no-store`를 적용합니다.
+- 추가 환경변수·Redis 설정은 없습니다. 실제 DB에서는 배포 후 애플리케이션의 Flyway 실행으로 V13 적용 여부를 확인해야 합니다.
+
+### 채용공고 상세 조회 API
+
+`GET /api/job-postings/{jobPostingId}`는 로그인한 사용자가 공고의 사업장 정보와 근무조건을 조회합니다. 요청 본문과 Query Parameter는 없습니다.
+
+- 현재 회원 정보가 사업주이면 본인 사업장의 `DRAFT`, `RECRUITING`, `CLOSED` 공고를 조회할 수 있습니다. 유학생이면 `RECRUITING` 공고만 조회할 수 있습니다.
+- 성공하면 `200`과 `jobPostingId`, `title`, `status`, `workplaceId`, `workplaceName`, `workplaceAddress`, `latitude`, `longitude`, `businessTypeId`, `businessTypeName`, `jobRole`, `wageType`, `wageAmount`, `recruitmentCount`, `workStartDate`, `requiredKoreanLevel`, `preferredExperience`, `workTimeNegotiable`, `applicationDeadlineDate`, `workTimes`를 반환합니다. 응답에 `Cache-Control: no-store`를 적용합니다.
+- 임시저장 공고에서 미입력된 제목·업종·근무조건은 `null`입니다. 해당 항목은 `title`, `businessTypeId`, `businessTypeName`, `jobRole`, `wageType`, `wageAmount`, `recruitmentCount`, `workStartDate`, `requiredKoreanLevel`, `preferredExperience`, `workTimeNegotiable`, `applicationDeadlineDate`입니다.
+- `businessTypeId`와 `businessTypeName`은 공고에 선택된 업종의 ID·코드입니다. 공고의 업종이 없으면 사업장 업종으로 대체하지 않고 두 항목 모두 `null`로 반환합니다. 사업장명·주소·좌표는 연결된 사업장의 현재 정보를 반환합니다.
+- `workTimes`는 없으면 `[]`이며, 월~일·시작 시간·ID 순으로 정렬합니다. 각 항목은 `dayOfWeek`, `startTime`, `endTime`이며 시간 형식은 `HH:mm`입니다. 종료 시간 `00:00`은 해당 요일의 자정입니다.
+- 인증 오류는 `401 UNAUTHORIZED`, 다른 사업주의 공고 또는 유학생의 임시저장·마감 공고 접근은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다. 없는 공고는 `404 JOB_POSTING_NOT_FOUND`, 공고 ID를 Long으로 변환할 수 없으면 `400 INVALID_INPUT`, 예상하지 못한 내부 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식을 사용합니다.
+- 읽기 전용 트랜잭션으로 조회합니다. 제목은 저장된 값을 반환하며, 마감일이 지나도 조회 시 상태를 변경하지 않습니다. 추천 결과·지원자 정보·사업자등록증 정보는 응답에 포함하지 않습니다.
+- 기존 V8·V10·V13의 테이블과 업종 데이터를 사용하며 새 마이그레이션·환경변수·Redis 설정은 없습니다. OCR·국세청·파일 저장소도 호출하지 않습니다.
+
+### 채용공고 등록·임시저장 API
+
+`POST /api/job-postings`는 로그인한 사업주 본인의 사업장에 새 공고를 생성합니다. `status`에는 `DRAFT` 또는 `RECRUITING`을 명시해야 합니다. 기존 공고를 수정하거나 임시저장을 모집 상태로 전환하는 기능은 수정 API에서 처리합니다.
+
+- `DRAFT`는 `workplaceId`와 `status`만 필수입니다. 나머지 항목은 생략하거나 `null`로 보낼 수 있습니다. `workTimes`의 생략·`null`·빈 배열은 모두 근무시간 없음으로 처리합니다. 입력한 값은 임시저장에서도 타입·길이·허용값·근무시간 검사를 통과해야 합니다.
+- `RECRUITING`은 `businessTypeId`, `jobRole`, `recruitmentCount`, `wageType`, `wageAmount`, `workStartDate`, `requiredKoreanLevel`, `preferredExperience`, `applicationDeadlineDate`, `workTimeNegotiable`, `workTimes`가 모두 필수입니다. 근무시간 협의가 가능해도 `workTimes`는 한 개 이상이어야 합니다.
+- ID는 양의 JSON 정수, 직무명은 공백 불가·최대 100자입니다. 채용 인원은 기존 SMALLINT 범위에 맞춰 1~32,767명, 급여는 1~2,147,483,647원의 JSON 정수로 받습니다. 숫자 문자열이나 소수는 허용하지 않습니다.
+- 급여 유형은 `HOURLY` / `MONTHLY`, 한국어 수준은 `BEGINNER` / `INTERMEDIATE` / `ADVANCED`, 우대 경력은 `NONE` / `SIX_MONTHS_OR_MORE` / `ONE_YEAR_OR_MORE`입니다. 협의 여부는 JSON의 `true` / `false`로 받습니다.
+- 날짜는 `YYYY-MM-DD` 형식입니다. 모집 시작 시 근무 시작일과 모집 마감일 모두 한국 시간(`Asia/Seoul`) 기준 오늘 또는 미래여야 합니다. 임시저장은 과거 날짜도 보관합니다. 두 날짜의 앞뒤 순서는 제한하지 않습니다.
+- 근무시간은 `MON`~`SUN`과 `HH:mm` 형식의 30분 단위로 받습니다. 시작·종료가 같은 구간, 종료가 시작보다 이른 구간, 같은 요일의 중복·겹침은 400입니다. 바로 이어지는 구간은 허용합니다.
+- 자정을 넘는 근무는 `MON 22:00~00:00`, `TUE 00:00~04:00`처럼 두 구간으로 나눠 전송합니다. 종료 `00:00`은 해당 요일의 자정이며 `00:00~00:00`은 허용하지 않습니다.
+- 공고 제목은 `사업장명 + 공백 + 직무명 + 공백 + 모집` 형식입니다. 임시저장에서 직무가 없으면 제목도 `null`입니다. 200자를 넘으면 앞 199자와 `…`로 제목만 줄이고 사업장명·직무명은 보존합니다. 제목은 서버가 생성하며 Request로 받지 않습니다.
+- 업종은 공고에 선택된 값을 저장하며 사업장 업종을 자동으로 복사하지 않습니다. `otherJobName`을 포함해 명세에 없는 필드는 받지 않습니다.
+- 성공하면 `201`과 `jobPostingId`, `workplaceId`, `workplaceName`, `title`, `businessTypeId`, `businessTypeName`, `jobRole`, `recruitmentCount`, `wageType`, `wageAmount`, `workStartDate`, `requiredKoreanLevel`, `preferredExperience`, `applicationDeadlineDate`, `workTimeNegotiable`, `status`, `workTimes`, `createdAt`을 반환합니다. 미입력 값은 `null`, 근무시간이 없으면 `[]`이며 근무시간은 기존 조회 API와 동일한 순서·형식입니다. 응답에 `Cache-Control: no-store`를 적용합니다.
+- 잘못된 입력은 `400 INVALID_INPUT`, 인증 오류는 `401 UNAUTHORIZED`, 사업주가 아닌 계정·타인 사업장 접근은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다. 없는 사업장은 `404 WORKPLACE_NOT_FOUND`, 없는 업종은 `404 BUSINESS_TYPE_NOT_FOUND`, 예상하지 못한 저장 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류 응답은 기존 `{ code, message }` 형식을 사용합니다.
+- 공고와 모든 근무시간은 함께 성공하거나 함께 취소됩니다. 동일한 POST 요청을 다시 보내면 별도의 새 공고를 생성합니다. 기존 공고 불러오기는 조회한 값을 프론트 입력 폼에 채운 뒤 새 POST 요청으로 등록하는 흐름입니다.
+- 기존 V8·V10·V13을 사용하며 새 마이그레이션·환경변수·Redis 설정은 없습니다. 실제 사용에는 미리 등록된 본인 사업장이 필요하며, 사업장 등록 API와 OCR 연동은 별도 작업입니다.
+
+### 채용공고 수정 API
+
+`PATCH /api/job-postings/{jobPostingId}`는 로그인한 사업주 본인의 공고를 부분 수정합니다. 보내지 않은 항목은 기존 값을 유지하며, 공고의 사업장은 변경할 수 없습니다.
+
+- 수정 항목은 `businessTypeId`, `jobRole`, `recruitmentCount`, `wageType`, `wageAmount`, `workStartDate`, `requiredKoreanLevel`, `preferredExperience`, `applicationDeadlineDate`, `workTimeNegotiable`, `workTimes`, `status`입니다. 빈 요청, 각 항목의 `null`, 잘못된 타입과 알 수 없는 항목은 `400 INVALID_INPUT`입니다. `workplaceId`, `title`, `otherJobName`은 받지 않습니다. 기타 업종은 `OTHER`를 선택하고 구체적인 업무는 직무명으로 입력합니다.
+- 입력한 값의 길이·숫자 범위·허용값·날짜 및 시간 형식은 등록 API와 같습니다. `DRAFT`는 일부만 저장할 수 있고, `RECRUITING`은 기존 값과 이번 요청을 합친 최종 상태가 등록 API의 필수 조건을 모두 충족해야 합니다.
+- `DRAFT → RECRUITING` 전환 시 근무 시작일과 모집 마감일 모두 한국 시간(`Asia/Seoul`) 기준 오늘 또는 미래여야 합니다. `RECRUITING` 수정 시에는 이번에 보낸 날짜만 검사하며, 보내지 않은 기존 날짜는 과거여도 유지합니다. `DRAFT` 상태에서는 과거 날짜도 저장할 수 있습니다. 두 날짜의 앞뒤 순서는 제한하지 않습니다.
+- 모집 중 공고는 임시저장으로 되돌릴 수 없으며 마감한 공고는 수정하거나 재모집할 수 없습니다. 이 경우 `409 JOB_POSTING_STATE_CONFLICT`를 반환합니다. 요청의 `status`는 `DRAFT` 또는 `RECRUITING`만 허용하며 `CLOSED`는 `400 INVALID_INPUT`입니다. 모집 마감은 별도 API에서 처리합니다.
+- `workTimes`를 보내면 기존 목록 전체를 교체합니다. `[]`로 전부 삭제하는 것은 최종 상태가 `DRAFT`일 때만 가능합니다. 근무시간 협의 여부와 관계없이 `RECRUITING`은 근무시간이 한 개 이상이어야 합니다. 요일·30분 단위·중복·겹침·자정 분할 규칙은 등록 API와 같습니다.
+- 제목은 등록과 동일하게 `사업장명 + 공백 + 직무명 + 공백 + 모집`으로 다시 생성합니다. 직무명이 없으면 제목은 `null`이고, 200자를 넘으면 제목만 앞 199자와 `…`로 줄입니다. 기존 사업장·생성 시각·마감 시각·기타 업종명 컬럼은 변경하지 않습니다.
+- 성공하면 `200`과 등록 API의 응답 중 `createdAt`을 `updatedAt`으로 바꾼 18개 항목을 반환합니다. 임시저장에서 미입력된 값은 `null`, 근무시간이 없으면 `[]`입니다. 근무시간은 월~일·시작 시간·ID 순으로 반환하며 `Cache-Control: no-store`를 적용합니다. 근무시간만 수정해도 `updatedAt`을 갱신합니다.
+- 인증 오류는 `401 UNAUTHORIZED`, 사업주가 아닌 계정·타인 공고 접근은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다. 없는 공고는 `404 JOB_POSTING_NOT_FOUND`, 없는 업종은 `404 BUSINESS_TYPE_NOT_FOUND`, 공고 ID를 Long으로 변환할 수 없으면 `400 INVALID_INPUT`, 예상하지 못한 저장 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식입니다.
+- 공고 행을 잠가 같은 공고의 수정 요청을 순서대로 처리합니다. 공고 정보와 근무시간 교체는 하나의 트랜잭션으로 처리하며, 중간에 실패하면 기존 공고와 근무시간을 그대로 유지합니다.
+- 기존 V8·V10·V13을 사용하며 새 마이그레이션·환경변수·Redis 설정은 없습니다. OCR·국세청·파일 저장소 호출도 없습니다.
+
+### 채용공고 모집 마감 API
+
+`PATCH /api/job-postings/{jobPostingId}/close`는 로그인한 사업주가 본인 사업장의 모집 중 공고를 마감합니다. 요청 본문과 Query Parameter는 없습니다.
+
+- 현재 회원 정보의 역할과 탈퇴 여부를 확인하고 공고 소유권을 검사합니다. `RECRUITING` 상태만 `CLOSED`로 변경할 수 있습니다.
+- `closedAt`에 실제 처리 시점의 서버 시각을 기록하고 `updatedAt`도 갱신합니다. 제목·모집조건·근무시간·생성 시각은 그대로 유지하며 공고를 삭제하지 않습니다. 모집 마감일이 지나도 현재 상태가 `RECRUITING`이면 수동 마감할 수 있습니다.
+- 성공하면 `200`과 `jobPostingId`, `status`, `closedAt`을 반환합니다. `status`는 `CLOSED`, `closedAt`은 ISO-8601 형식이며 모두 null이 아닙니다. 응답에는 `Cache-Control: no-store`를 적용합니다.
+- `DRAFT` 또는 이미 `CLOSED`인 공고는 `409 JOB_POSTING_STATE_CONFLICT`입니다. 같은 요청을 다시 보내도 최초 마감 시각은 변경하지 않습니다. 같은 공고의 동시 마감 요청은 한 건만 성공하고 나머지는 409를 반환합니다.
+- 수정 API와 동일한 공고 행 잠금을 사용하고 하나의 트랜잭션으로 처리합니다. 저장 실패 시 상태와 시각의 변경을 모두 취소합니다.
+- 인증 오류는 `401 UNAUTHORIZED`, 사업주가 아닌 계정·타인 공고 접근은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다. 없는 공고는 `404 JOB_POSTING_NOT_FOUND`, 공고 ID를 Long으로 변환할 수 없으면 `400 INVALID_INPUT`, 예상하지 못한 저장 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식입니다.
+- 마감한 공고는 기존 수정 API에서 수정·재모집할 수 없습니다. 사업주는 본인 마감 공고를 조회할 수 있지만 유학생의 상세 조회는 기존 정책대로 403입니다. 다시 모집하려면 기존 조회 결과를 입력 폼에 채운 뒤 등록 API로 새 공고를 생성합니다.
+- 검토 중인 지원과 대기 중인 채용 제안을 종료하고 이미 완료된 채용을 유지하는 것은 최종 정책입니다. 현재 API는 공고 상태와 마감 시각까지만 처리하며, 지원·채용 제안 종료는 해당 기능이 준비된 후 별도로 연결해야 합니다.
+- 기존 V8의 컬럼을 사용하므로 새 마이그레이션·환경변수·Redis 설정은 없습니다. 외부 서비스 호출이나 날짜에 따른 자동 마감도 수행하지 않습니다.
+
+### 사업자등록번호 확인 API
+
+`POST /api/workplaces/business-registration/verify`는 로그인한 사업주가 입력한 사업자등록번호의 현재 영업 상태를 확인합니다.
+
+```json
+{
+  "businessRegistrationNumber": "123-45-67890"
+}
+```
+
+- 입력은 문자열 숫자 10자리 또는 `123-45-67890` 형식이며, 앞뒤 공백은 제거합니다. 누락·NULL·잘못된 타입이나 형식·알 수 없는 요청 항목은 `400 INVALID_INPUT`입니다.
+- Access Token으로 사용자를 식별하고 DB의 현재 회원 상태와 역할을 확인합니다. 인증 오류는 `401 UNAUTHORIZED`, 사업주가 아니면 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다.
+- 국세청 조회가 정상 완료되면 `200`과 `businessRegistrationNumber`, `valid`, `message`를 반환합니다. 응답 번호는 하이픈을 포함하며 `Cache-Control: no-store`를 사용합니다.
+- 국세청 상태 코드 `01`(계속사업자)만 `valid=true`입니다. `02`(휴업), `03`(폐업), 미등록 번호는 `valid=false`입니다. 과세 유형으로 가입을 제한하지 않습니다.
+- 메시지는 `true`일 때 `확인 가능한 사업자등록번호입니다.`, `false`일 때 `확인할 수 없는 사업자등록번호입니다.`입니다.
+- 인증키 미설정, 외부 연결 실패·시간 초과·오류 응답·해석할 수 없는 응답은 `502 BUSINESS_REGISTRATION_LOOKUP_FAILED`입니다. 예상하지 못한 내부 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류 응답은 기존 `{code, message}` 형식을 사용합니다.
+- 조회 결과를 저장하거나 사업장을 생성하지 않습니다. 이 확인은 사업자의 영업 상태에 대한 조회이며, 요청자가 해당 사업자의 대표자인지 증명하지 않습니다. 대표자명은 반환하지 않습니다.
+- 외부 호출은 연결 제한 3초·응답 제한 5초를 사용하며 리다이렉트를 따라가지 않습니다. 외부 오류의 원문이나 인증키를 API 응답에 포함하지 않습니다.
+
+실제 연동에는 [국세청 사업자등록정보 진위확인 및 상태조회 서비스](https://www.data.go.kr/data/15081808/openapi.do)의 활용 신청과 인증키가 필요합니다. 공공데이터포털의 **일반 인증키(Decoding) 원문**을 서버 환경변수 `NTS_SERVICE_KEY`로 설정합니다. URL 인코딩은 서버가 수행하므로 사전에 인코딩하지 않습니다. 키를 프론트엔드나 저장소에 포함하지 않습니다.
+
+로컬 테스트는 테스트용 HTTP 서버를 사용합니다. 실제 국세청 조회는 인증키 설정 후 별도로 확인해야 합니다. 이 기능에는 Supabase 스키마 변경이나 Redis 설정이 필요하지 않습니다.
+
 ### 유학생 프로필 등록 API
 
 `POST /api/students/me/profile`은 Access Token으로 식별한 유학생의 기본 프로필을 생성합니다.
@@ -222,6 +429,37 @@ Authorization: Bearer <Access Token>
 - 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`, 본인 프로필 미등록은 `404 STUDENT_PROFILE_NOT_FOUND`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
 - 기존 V6의 `student_career` 테이블을 사용하며 이번 기능을 위한 새 마이그레이션은 없습니다. 실제 Supabase DB에 V6가 적용되어 있어야 하며, Redis·Storage 설정은 추가로 필요하지 않습니다.
 
+### 경력 수정 API
+
+`PATCH /api/students/me/careers/{careerId}`는 로그인한 유학생 본인의 경력에서 요청에 포함된 항목만 수정합니다.
+
+```json
+{
+  "endMonth": "2023-10",
+  "description": null
+}
+```
+
+- 수정 가능한 항목은 `careerName`, `startMonth`, `endMonth`, `description`입니다. 생략한 항목은 유지하고 `description: null`은 근무 내용을 삭제합니다.
+- 경력명은 공백만 입력할 수 없으며 최대 150자입니다. 경력명·시작월·종료월에 명시적인 `null`을 보내거나, 빈 객체·잘못된 자료형·허용하지 않은 항목을 보내면 `400 INVALID_INPUT`입니다.
+- 근무기간은 JSON 문자열 `YYYY-MM` 형식입니다. 기존 값과 합친 최종 근무기간에서 종료월은 시작월과 같거나 뒤여야 하며, 두 날짜 모두 한국 날짜(`Asia/Seoul`) 기준 이번 달까지만 허용합니다.
+- 성공 응답은 `200 OK`와 기존 `StudentCareerResponse`의 다섯 항목이며 `Cache-Control: no-store`를 설정합니다. 수정 결과는 프로필 조회의 `careers`에도 반영됩니다.
+- 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아니거나 다른 사람의 경력은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`, 없는 경력은 `404 STUDENT_CAREER_NOT_FOUND`입니다. 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
+- 같은 경력의 동시 수정은 순서대로 처리합니다. 저장 실패 시 요청의 변경사항은 모두 취소됩니다.
+- 기존 V6의 `student_career` 테이블을 사용합니다. 추가 마이그레이션이나 Redis·Storage 설정은 필요하지 않습니다.
+
+### 경력 삭제 API
+
+`DELETE /api/students/me/careers/{careerId}`는 로그인한 유학생 본인의 경력을 실제 삭제합니다. Request Body는 사용하지 않습니다.
+
+- 성공 응답은 `204 No Content`이며 응답 본문은 없습니다. 응답에는 `Cache-Control: no-store`를 설정합니다.
+- 현재 회원의 유학생 역할·탈퇴 여부와 해당 경력의 소유자를 확인합니다. 사용자 ID는 Access Token에서 가져옵니다.
+- 삭제된 경력은 이후 프로필 조회의 `careers`에 포함되지 않습니다. 회원·프로필·다른 경력은 유지됩니다.
+- 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아니거나 다른 사람의 경력은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다.
+- 없는 경력이나 이미 삭제한 경력을 다시 요청하면 `404 STUDENT_CAREER_NOT_FOUND`입니다. 숫자가 아니거나 Long 범위를 벗어난 ID는 `400 INVALID_INPUT`입니다.
+- 삭제는 하나의 트랜잭션으로 처리합니다. 저장소 오류 시 삭제를 취소하고 `500 INTERNAL_SERVER_ERROR`를 반환합니다. 같은 경력의 수정·삭제 요청은 순서대로 처리합니다.
+- 삭제 복구 기능은 제공하지 않습니다. 기존 테이블과 예외 처리를 사용하므로 추가 마이그레이션이나 Redis·Storage 설정은 필요하지 않습니다.
+
 ### 내 유학생 프로필 수정 API
 
 `PATCH /api/students/me/profile`은 Access Token으로 식별한 유학생 본인의 프로필에서 요청에 포함된 항목만 수정합니다.
@@ -258,6 +496,79 @@ Authorization: Bearer <Access Token>
 | D-4-1 / D-4-7 | 한국어연수 / 외국어연수 | `IN_PROGRESS` 연수 중, `DISCONTINUED` 연수 중단, `COMPLETED` 연수 수료 |
 
 실제 Supabase DB에는 배포 환경에서 Flyway V7 적용이 필요합니다. 동일한 비자 데이터를 수동으로 중복 등록하지 않습니다. 자동 테스트는 별도 PostgreSQL에서 검증하며 실제 Supabase 연결이나 데이터 변경을 수행하지 않습니다. Redis 설정은 필요하지 않습니다.
+
+### 매칭 조건 조회 API
+
+`GET /api/students/me/matching-preferences`는 Access Token으로 식별한 유학생 본인의 희망 업종·근무시간·지역·최소 희망 시급·우선순위를 조회합니다. 요청 본문과 Query / Path parameter는 없습니다.
+
+- 성공 시 `200 OK`이며 Entity 대신 `StudentMatchingPreferenceResponse`를 반환합니다.
+- 프로필은 있지만 아직 조건을 입력하지 않았다면 아래 응답을 반환합니다. 조회 중 기본값을 DB에 저장하지 않습니다. 일부 조건만 저장된 경우에는 해당 조건을 반환하고 나머지는 입력 전 상태로 둡니다.
+- `businessTypeFlexible=true`이면 `preferredJobs`는 항상 빈 배열입니다. `false`인 상태에서도 아직 업종을 선택하지 않았다면 빈 배열일 수 있습니다.
+- 희망 업종은 업종 ID 순, 근무시간은 `MON`부터 `SUN`까지 요일·시작 시간·종료 시간 순, 우선순위는 `priorityOrder` 오름차순으로 반환합니다.
+- 시간은 `HH:mm`, 좌표는 ERD의 `NUMERIC(10,7)` 값을 사용합니다. `otherJobName`은 `OTHER` 업종에만 반환하며 나머지는 `null`입니다.
+- 사용자별 우선순위를 자동 지정하지 않습니다. `criterionId`는 기준을 식별하는 번호이며 사용자가 정한 순서인 `priorityOrder`와 다릅니다. ERD의 `weight`는 유지하지만 응답에 포함하거나 계산하지 않습니다.
+- 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`, 프로필 미등록은 `404 STUDENT_PROFILE_NOT_FOUND`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
+- 저장·수정은 같은 경로의 `PATCH` API를 사용합니다.
+
+```json
+{
+  "businessTypeFlexible": false,
+  "preferredJobs": [],
+  "preferredWorkTimes": [],
+  "preferredLocation": null,
+  "minimumHourlyWage": null,
+  "priorities": []
+}
+```
+
+V9는 ERD에 맞춰 `priority_criterion`, `student_preferred_job`, `student_preferred_work_time`, `student_preferred_location`, `student_job_preference`, `student_priority`를 생성합니다. 기존 `business_type`을 재사용하며, V10에서 아래 기준 데이터를 등록합니다. 한글 표시명은 프론트엔드에서 사용하며 DB에는 기존 `name` / `criterion_name` 컬럼에 영문 코드를 저장합니다.
+
+| businessTypeId | businessTypeName | 화면 표시명 |
+| --- | --- | --- |
+| 1 | `FOOD_CAFE` | 음식점·카페 |
+| 2 | `RETAIL` | 매장·판매 |
+| 3 | `OFFICE_EVENT_TOURISM` | 사무·행사·관광 |
+| 4 | `INTERPRETATION_TRANSLATION` | 통·번역 |
+| 5 | `DUTY_FREE` | 면세점 |
+| 6 | `MAJOR_RELATED` | 전공·학업 |
+| 7 | `INTERNSHIP` | 인턴십 |
+| 8 | `OTHER` | 기타 |
+
+| criterionId | criterionName | 화면 표시명 |
+| --- | --- | --- |
+| 1 | `WORK_TIME` | 근무시간 |
+| 2 | `WAGE` | 시급 |
+| 3 | `DISTANCE` | 거리 |
+| 4 | `BUSINESS_TYPE` | 업종 |
+
+실제 Supabase DB에서는 배포 시 Flyway V9·V10 적용이 필요합니다. 기존에 업종 데이터를 수동 등록했다면 ID·코드 충돌 여부를 먼저 확인해야 하며, 자동으로 기존 데이터를 덮어쓰지 않습니다. 기준 데이터가 추가되거나 변경되면 기존 마이그레이션을 수정하지 않고 새 파일로 관리합니다. 이 조회 API에는 Redis·Storage 설정이 필요하지 않습니다.
+
+### 매칭 조건 저장·수정 API
+
+`PATCH /api/students/me/matching-preferences`는 프로필이 있는 유학생 본인의 조건을 저장·수정합니다. 보내지 않은 항목은 유지하며, 성공 시 `200 OK`와 조회 API와 같은 전체 조건을 반환합니다.
+
+```json
+{
+  "preferredWorkTimes": [
+    { "dayOfWeek": "MON", "startTime": "22:00", "endTime": "00:00" },
+    { "dayOfWeek": "TUE", "startTime": "00:00", "endTime": "02:00" }
+  ],
+  "minimumHourlyWage": null
+}
+```
+
+- 업종을 수정하려면 `businessTypeFlexible`과 `preferredJobs`를 함께 보냅니다. `true`이면 빈 목록, `false`이면 한 개 이상의 업종을 보내며 같은 업종을 중복 선택할 수 없습니다. 전달된 목록으로 기존 희망 업종을 전체 교체합니다.
+- `OTHER`의 `otherJobName`은 공백이 아닌 문자열로 최대 100자입니다. 다른 업종에서는 생략하거나 `null`로 보냅니다.
+- `preferredWorkTimes`를 보내면 기존 시간 목록을 전체 교체하며, `[]`는 전체 삭제입니다. 요일은 `MON`~`SUN`, 시간은 `HH:mm` 형식이며 분은 `00` 또는 `30`만 허용합니다.
+- 종료의 `00:00`은 해당 요일이 끝나는 자정, 시작의 `00:00`은 해당 요일이 시작되는 시각입니다. 자정을 넘는 근무시간은 프론트엔드가 위 예시처럼 요일별로 나눠 보냅니다. `24:00`, 시작·종료가 같은 구간, 같은 요일의 중복·겹치는 구간은 허용하지 않습니다. 바로 이어지는 구간은 허용합니다.
+- `preferredLocation`은 위치명·위도·경도·반경을 모두 보내 기존 위치를 교체합니다. 위치명은 공백 불가·최대 150자, 위도는 -90~90, 경도는 -180~180, 좌표는 소수점 이하 7자리까지, 반경은 1 이상의 정수(미터)입니다. `null`로 위치를 삭제하는 기능은 제공하지 않습니다.
+- `minimumHourlyWage`는 1 이상의 정수(원) 또는 `null`입니다. 명시적인 `null`은 기존 시급을 초기화합니다.
+- `priorities`를 보내면 근무시간·시급·거리·업종 네 기준을 모두 보내야 합니다. `criterionId`는 중복될 수 없으며 `priorityOrder`는 1~4를 각각 한 번씩 사용합니다. `[]`나 `null`로 우선순위를 삭제할 수 없습니다.
+- 가중치는 이 API에서 계산하지 않습니다. 신규 기준 또는 순위가 바뀐 기준의 `weight`는 `null`로 저장하고, 같은 기준의 순위가 유지되면 기존 가중치를 보존합니다. 우선순위를 생략하면 순위·가중치 모두 유지합니다. `weight`는 요청·응답에 포함하지 않습니다.
+- 한 요청의 변경은 하나의 트랜잭션으로 처리하며 오류가 나면 전체 취소합니다. 같은 회원의 동시 수정은 순서대로 처리하여 생략한 필드가 다른 요청으로 덮어써지지 않게 합니다.
+- 빈 요청, 알 수 없는 항목, 잘못된 자료형·범위·조합, 허용하지 않은 `null`은 `400 INVALID_INPUT`, 없는 업종·우선순위 기준은 `404 MATCHING_REFERENCE_NOT_FOUND`입니다. 회원·프로필 오류와 예상하지 못한 서버 오류는 조회 API와 같습니다.
+
+`V11__allow_unassigned_student_priority_weight.sql`은 `student_priority.weight`의 NOT NULL 제약만 제거합니다. 기존 값과 다른 컬럼·제약은 유지합니다. ERD도 `weight NUMERIC(6,3)`을 NULL 허용으로 맞춰야 합니다. 실제 Supabase에는 배포 시 V11 적용이 필요하며, 가중치 계산과 Redis 도입은 이 API에 포함하지 않습니다.
 
 ### 프로필 사진 저장소 설정
 
@@ -396,6 +707,7 @@ Gradle은 저장소의 Wrapper를 사용하므로 별도 설치가 필요하지 
 | `SUPABASE_URL` | 사진 조회 시 필수 | Supabase 프로젝트의 HTTPS 기본 URL |
 | `SUPABASE_SECRET_KEY` | 사진 조회 시 필수 | 서버 전용 Secret key. 프론트엔드·소스 코드에 포함 금지 |
 | `SUPABASE_STORAGE_BUCKET` | 선택 | 기본값 `profile-images`. 실제 비공개 버킷 이름 |
+| `NTS_SERVICE_KEY` | 사업자등록번호 확인 시 필수 | 국세청 API 일반 인증키(Decoding) 원문. 미설정 시 확인 요청은 502 |
 
 macOS/Linux 예시:
 
@@ -473,11 +785,39 @@ Windows PowerShell:
 
 `StudentProfileIntegrationTest`는 프로필 등록 응답과 저장, 만 18세 경계, 입력 검증, 유학생·휴대전화 인증 조건, 중복·동시 등록 및 저장 실패 시 롤백을 확인합니다.
 
+`EmployerProfileCreateIntegrationTest`는 사업주 프로필 등록 응답과 저장, 입력 검증, 현재 회원의 역할·휴대전화 인증 조건, 중복·동시 등록 및 저장 실패 시 회원 정보와 프로필의 전체 롤백을 검증합니다. 일회용 PostgreSQL을 사용하며 실제 Supabase 데이터는 변경하지 않습니다.
+
+`EmployerProfileReadIntegrationTest`는 본인 정보만 반환하는지, 직책의 NULL 응답, 조회 전후 데이터 보존, 인증·권한·미등록 오류와 DB 조회 실패 시 안전한 오류 응답을 검증합니다.
+
+`EmployerProfileUpdateIntegrationTest`는 부분 수정과 조회 연동, 직책 삭제, 입력·권한·미등록 오류, 다른 회원과 수정 대상이 아닌 정보의 보존, 저장 실패 시 전체 롤백과 동시 부분 수정을 검증합니다.
+
+`BusinessRegistrationIntegrationTest`는 번호 정규화, 성공·실패 응답, 입력·권한 검사와 DB 데이터 보존을 확인합니다. `NtsBusinessRegistrationClientTest`는 테스트용 HTTP 서버로 요청 형식과 인증키 인코딩, 사업자 상태 판정, 설정 누락·응답 오류·연결 실패·시간 초과·리다이렉트 차단을 검증합니다. 실제 인증키나 국세청 조회는 사용하지 않습니다.
+
+`WorkplaceListIntegrationTest`는 본인 사업장만 반환하는지, 응답 항목과 ID 정렬, 빈 목록, 조회 전후 데이터 보존, 인증·권한 검사와 DB 조회 실패 시 안전한 오류 응답을 검증합니다. 일회용 PostgreSQL에 테스트용 사업장을 만들며 실제 Supabase 데이터는 변경하지 않습니다.
+
+`WorkplaceDetailIntegrationTest`는 상세 응답 항목과 번호 표시 형식, 좌표, 원본 파일 정보 제외, 소유권·회원 상태 검사, 없는 사업장과 잘못된 ID, 서버 오류 및 조회 전후 데이터 보존을 검증합니다. 일회용 PostgreSQL을 사용하며 실제 Supabase 데이터는 변경하지 않습니다.
+
+`WorkplaceUpdateIntegrationTest`는 부분 수정과 변경 불가 항목 보존, 입력 검증·주소/좌표 동시 전달, 소유권·회원 상태, 미존재 오류, 동시 수정과 DB 저장 실패 시 롤백을 검증합니다. 일회용 PostgreSQL을 사용하며 실제 Supabase 데이터는 변경하지 않습니다.
+
+`JobPostingListIntegrationTest`는 본인 공고만 조회하는지, 공고·근무시간 정렬, 필터 우선순위, 임시저장 미입력 값, 빈 목록, 인증·권한·서버 오류와 데이터 보존을 검증합니다. `JobPostingEntityIntegrationTest`는 근무시간 Entity 저장과 새 테이블의 외래키·필수 컬럼도 확인합니다. 모두 일회용 PostgreSQL을 사용합니다.
+
+`JobPostingDetailIntegrationTest`는 상세 응답과 근무시간 정렬, 공고 업종과 사업장 업종 구분, 임시저장 미입력 값, 현재 회원 역할·소유권·공고 상태에 따른 조회 권한, 입력·인증·미등록·서버 오류 및 데이터 보존을 검증합니다. 일회용 PostgreSQL을 사용하며 실제 Supabase 데이터는 변경하지 않습니다.
+
+`JobPostingCreateIntegrationTest`는 등록·임시저장 저장과 기존 목록·상세 조회 연동, 필수값·날짜·근무시간 검증, 소유권·회원 상태, 제목 길이와 원본 보존, 근무시간 저장 실패 시 전체 롤백을 확인합니다. 실제 Supabase에 접근하지 않고 일회용 PostgreSQL을 사용합니다.
+
+`JobPostingUpdateIntegrationTest`는 부분 수정과 기존 값 보존, 임시저장의 모집 시작, 공고 상태별 날짜 검사, 근무시간 교체·삭제와 수정 시각, 권한·입력·상태 오류 및 저장 실패 시 전체 롤백을 확인합니다. 일회용 PostgreSQL을 사용합니다.
+
+`JobPostingCloseIntegrationTest`는 마감 상태·시각 저장과 기존 정보 보존, 목록·상세·수정 API의 마감 후 동작, 반복·동시 마감, 권한·입력 오류 및 저장 실패 시 롤백을 확인합니다. 일회용 PostgreSQL을 사용하며 실제 Supabase 데이터는 변경하지 않습니다.
+
 `StudentProfileReadIntegrationTest`는 본인 정보만 조회하는지, 미입력 값과 빈 경력 목록, 경력 정렬, 권한·미등록 오류와 이미지 주소 발급 실패를 확인합니다. `SupabaseStorageClientTest`는 테스트용 HTTP 서버로 900초 발급 요청, URL 인코딩, 외부 오류 처리와 리다이렉트 차단을 검증합니다.
 
 `StudentProfileUpdateIntegrationTest`는 비자 초기 데이터, 미전송 필드 보존, TOPIK 삭제, 비자·학업 상태 조합, 입력·권한 오류, 동시 부분 수정 및 저장 실패 시 롤백을 검증합니다. 사진 서비스 장애가 프로필 수정을 막지 않는지도 확인합니다.
 
 `StudentCareerCreateIntegrationTest`는 경력 저장과 프로필 조회 연동, 선택 입력, 월 형식·현재 월 경계·기간 순서, 입력·권한 오류 및 DB 저장 실패 처리를 검증합니다.
+
+`StudentMatchingPreferenceReadIntegrationTest`는 기준 데이터와 ID 생성, 입력 전·부분 입력 상태, 본인 조건 조회와 정렬, 권한 검사, DB 제약 및 안전한 오류 응답을 검증합니다. 테스트는 일회용 PostgreSQL에서 실행하며 실제 Supabase 데이터를 변경하지 않습니다.
+
+`StudentMatchingPreferenceUpdateIntegrationTest`는 최초 저장·부분 수정·목록 교체, 자정 및 시간 중복, 입력·권한 오류, 가중치 유지·초기화, 전체 롤백과 동시 최초 수정을 검증합니다.
 
 전체 빌드 검증이 필요하면 `./gradlew build` 또는 `.\gradlew.bat build`를 사용합니다.
 

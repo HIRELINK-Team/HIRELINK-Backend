@@ -90,11 +90,52 @@ public class JobPosting {
 		this.status = status;
 	}
 
+	public JobPosting(Workplace workplace, JobPostingStatus status, BusinessType businessType, String title,
+			String jobRole, String wageType, Integer wageAmount, Short recruitmentCount, LocalDate workStartDate,
+			String requiredKoreanLevel, String preferredExperience, Boolean workTimeNegotiable, LocalDate applicationDeadlineDate) {
+		this(workplace, status);
+		this.businessType = businessType;
+		this.title = title;
+		this.jobRole = jobRole;
+		this.wageType = wageType;
+		this.wageAmount = wageAmount;
+		this.recruitmentCount = recruitmentCount;
+		this.workStartDate = workStartDate;
+		this.requiredKoreanLevel = requiredKoreanLevel;
+		this.preferredExperience = preferredExperience;
+		this.workTimeNegotiable = workTimeNegotiable;
+		this.applicationDeadlineDate = applicationDeadlineDate;
+	}
+
 	@PrePersist
 	void setCreatedTimestamps() {
 		Instant now = Instant.now();
 		createdAt = now;
 		updatedAt = now;
+	}
+
+	public void updateConditions(JobPostingStatus status, BusinessType businessType, String title, String jobRole,
+			String wageType, Integer wageAmount, Short recruitmentCount, LocalDate workStartDate,
+			String requiredKoreanLevel, String preferredExperience, Boolean workTimeNegotiable, LocalDate applicationDeadlineDate) {
+		this.status = status;
+		this.businessType = businessType;
+		this.title = title;
+		this.jobRole = jobRole;
+		this.wageType = wageType;
+		this.wageAmount = wageAmount;
+		this.recruitmentCount = recruitmentCount;
+		this.workStartDate = workStartDate;
+		this.requiredKoreanLevel = requiredKoreanLevel;
+		this.preferredExperience = preferredExperience;
+		this.workTimeNegotiable = workTimeNegotiable;
+		this.applicationDeadlineDate = applicationDeadlineDate;
+		// 근무시간 목록만 바뀌어도 공고의 수정 시각을 갱신한다.
+		this.updatedAt = Instant.now();
+	}
+
+	public void closeRecruitment() {
+		status = JobPostingStatus.CLOSED;
+		closedAt = Instant.now();
 	}
 
 	@PreUpdate
