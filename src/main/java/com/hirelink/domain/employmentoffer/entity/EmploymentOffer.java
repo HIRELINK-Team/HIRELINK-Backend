@@ -96,4 +96,11 @@ public class EmploymentOffer {
 	public Instant getEndedAt() {
 		return endedAt;
 	}
+
+	public void reject(Instant processedAt) {
+		status = EmploymentOfferStatus.REJECTED;
+		endReason = EmploymentOfferEndReason.STUDENT_REJECTED;
+		respondedAt = processedAt;
+		endedAt = processedAt;
+	}
 }
