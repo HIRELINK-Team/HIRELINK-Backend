@@ -92,6 +92,7 @@ class EmploymentOfferFlowIntegrationTest {
 		Fixture fixture = createApplication("WAITING_RESPONSE");
 		long otherPosting = createPosting(fixture.employerId());
 		long otherApplication = createApplication(fixture.studentId(), otherPosting, "WAITING_RESPONSE");
+		int reviewCountBeforeOffer = reviewCount(fixture.applicationId());
 
 		HttpResponse<String> createResponse = createOffer(token(fixture.employerId(), "EMPLOYER"),
 				Long.toString(fixture.applicationId()));
@@ -106,6 +107,7 @@ class EmploymentOfferFlowIntegrationTest {
 		assertThat(Instant.parse(created.path("offeredAt").asString())).isEqualTo(PROCESSING_TIME);
 		assertThat(Instant.parse(created.path("studentResponseDeadline").asString()))
 				.isEqualTo(PROCESSING_TIME.plusSeconds(86400));
+		assertThat(reviewCount(fixture.applicationId())).isEqualTo(reviewCountBeforeOffer);
 
 		long offerId = created.path("offerId").asLong();
 		HttpResponse<String> acceptResponse = acceptOffer(token(fixture.studentId(), "STUDENT"),
@@ -263,6 +265,14 @@ class EmploymentOfferFlowIntegrationTest {
 				insert into employment_offer(application_id, status, student_response_deadline, offered_at)
 				values (?, 'PENDING', ?, now()) returning id
 				""", Long.class, applicationId, OffsetDateTime.ofInstant(deadline, ZoneOffset.UTC));
+	}
+
+	private int reviewCount(long applicationId) {
+		return jdbc.queryForObject("""
+				select count(*) from application
+				where job_posting_id = (select job_posting_id from application where id = ?)
+				and status in ('WAITING_RESPONSE', 'OFFERED')
+				""", Integer.class, applicationId);
 	}
 
 	private long createStudent() {

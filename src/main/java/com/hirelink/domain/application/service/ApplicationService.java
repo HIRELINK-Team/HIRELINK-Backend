@@ -53,7 +53,7 @@ public class ApplicationService {
 	private static final short SNAPSHOT_VERSION = 1;
 	private static final ZoneId KOREA_ZONE = ZoneId.of("Asia/Seoul");
 	private static final List<ApplicationStatus> ACTIVE_APPLICATION_STATUSES = List.of(
-			ApplicationStatus.WAITING_RESPONSE);
+			ApplicationStatus.WAITING_RESPONSE, ApplicationStatus.OFFERED);
 
 	private final UserAccountRepository userAccountRepository;
 	private final ApplicationRepository applicationRepository;

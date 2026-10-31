@@ -215,11 +215,11 @@ class ApplicationCreateIntegrationTest {
 	}
 
 	@Test
-	void rejectsSixthWaitingApplicationButDoesNotCountOfferedOrEndedHistory() throws Exception {
+	void rejectsSixthActiveApplicationWhenFourAreWaitingAndOneIsOffered() throws Exception {
 		long employer = createUser("EMPLOYER", "사업주");
 		long posting = createPosting(employer, "RECRUITING", LocalDate.now(KOREA_ZONE).plusDays(1),
 				LocalDate.now(KOREA_ZONE));
-		for (int index = 0; index < 5; index++) {
+		for (int index = 0; index < 4; index++) {
 			long activeStudent = createStudent("활성 " + index);
 			long recommendation = createRecommendation(activeStudent, posting, false);
 			insertApplication(recommendation, activeStudent, posting, "WAITING_RESPONSE");
@@ -233,7 +233,30 @@ class ApplicationCreateIntegrationTest {
 
 		assertError(create(token(applicant, "STUDENT"), recommendation, LocalDate.now(KOREA_ZONE).plusDays(1)),
 				409, "APPLICATION_CAPACITY_EXCEEDED");
-		assertThat(applicationCount()).isEqualTo(7);
+		assertThat(applicationCount()).isEqualTo(6);
+	}
+
+	@Test
+	void allowsFifthActiveApplicationWhenThreeAreWaitingAndOneIsOffered() throws Exception {
+		long employer = createUser("EMPLOYER", "사업주");
+		long posting = createPosting(employer, "RECRUITING", LocalDate.now(KOREA_ZONE).plusDays(1),
+				LocalDate.now(KOREA_ZONE));
+		for (int index = 0; index < 3; index++) {
+			long waitingStudent = createStudent("대기 " + index);
+			insertApplication(createRecommendation(waitingStudent, posting, false), waitingStudent, posting,
+					"WAITING_RESPONSE");
+		}
+		long offeredStudent = createStudent("제안 지원자");
+		insertApplication(createRecommendation(offeredStudent, posting, false), offeredStudent, posting, "OFFERED");
+		long applicant = createStudent("다섯 번째 지원자");
+		long recommendation = createRecommendation(applicant, posting, false);
+
+		assertThat(create(token(applicant, "STUDENT"), recommendation,
+				LocalDate.now(KOREA_ZONE).plusDays(1)).statusCode()).isEqualTo(201);
+		assertThat(jdbc.queryForObject("""
+				select count(*) from application where job_posting_id = ?
+				and status in ('WAITING_RESPONSE', 'OFFERED')
+				""", Integer.class, posting)).isEqualTo(5);
 	}
 
 	@Test
@@ -277,7 +300,8 @@ class ApplicationCreateIntegrationTest {
 		responses.stream().filter(response -> response.statusCode() == 409).findFirst()
 				.ifPresent(response -> assertError(response, 409, "APPLICATION_CAPACITY_EXCEEDED"));
 		assertThat(jdbc.queryForObject("""
-				select count(*) from application where job_posting_id = ? and status = 'WAITING_RESPONSE'
+				select count(*) from application where job_posting_id = ?
+				and status in ('WAITING_RESPONSE', 'OFFERED')
 				""", Integer.class, posting)).isEqualTo(5);
 	}
 
