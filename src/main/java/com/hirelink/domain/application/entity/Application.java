@@ -152,4 +152,14 @@ public class Application {
 		this.endedAt = endedAt;
 		return true;
 	}
+
+	public boolean reject(Instant endedAt) {
+		if (status != ApplicationStatus.WAITING_RESPONSE) {
+			return false;
+		}
+		status = ApplicationStatus.ENDED;
+		endReason = ApplicationEndReason.EMPLOYER_REJECTED;
+		this.endedAt = endedAt;
+		return true;
+	}
 }
