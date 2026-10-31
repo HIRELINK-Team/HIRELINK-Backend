@@ -21,6 +21,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(EmploymentMatchNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleEmploymentMatchNotFound(EmploymentMatchNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("EMPLOYMENT_MATCH_NOT_FOUND", exception.getMessage()));
+	}
+
 	@ExceptionHandler(ApplicationCapacityExceededException.class)
 	public ResponseEntity<ErrorResponse> handleApplicationCapacityExceeded(
 			ApplicationCapacityExceededException exception) {
