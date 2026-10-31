@@ -103,4 +103,9 @@ public class EmploymentOffer {
 		respondedAt = processedAt;
 		endedAt = processedAt;
 	}
+
+	public void accept(Instant processedAt) {
+		status = EmploymentOfferStatus.ACCEPTED;
+		respondedAt = processedAt;
+	}
 }

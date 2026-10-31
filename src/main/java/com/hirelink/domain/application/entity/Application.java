@@ -163,6 +163,18 @@ public class Application {
 		return true;
 	}
 
+	public boolean offer() {
+		if (status != ApplicationStatus.WAITING_RESPONSE) {
+			return false;
+		}
+		status = ApplicationStatus.OFFERED;
+		return true;
+	}
+
+	public void completeOffer() {
+		status = ApplicationStatus.COMPLETED;
+	}
+
 	public void rejectOffer(Instant endedAt) {
 		status = ApplicationStatus.ENDED;
 		endReason = ApplicationEndReason.STUDENT_REJECTED;

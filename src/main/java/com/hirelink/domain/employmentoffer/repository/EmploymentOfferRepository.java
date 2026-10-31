@@ -19,4 +19,6 @@ public interface EmploymentOfferRepository extends JpaRepository<EmploymentOffer
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select offer from EmploymentOffer offer where offer.id = :id")
 	Optional<EmploymentOffer> findByIdForUpdate(@Param("id") Long id);
+
+	boolean existsByApplicationId(Long applicationId);
 }
