@@ -21,6 +21,37 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(ApplicationCapacityExceededException.class)
+	public ResponseEntity<ErrorResponse> handleApplicationCapacityExceeded(
+			ApplicationCapacityExceededException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ErrorResponse("APPLICATION_CAPACITY_EXCEEDED", exception.getMessage()));
+	}
+
+	@ExceptionHandler(DuplicateApplicationException.class)
+	public ResponseEntity<ErrorResponse> handleDuplicateApplication(DuplicateApplicationException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ErrorResponse("DUPLICATE_APPLICATION", exception.getMessage()));
+	}
+
+	@ExceptionHandler(RecommendationStateConflictException.class)
+	public ResponseEntity<ErrorResponse> handleRecommendationStateConflict(
+			RecommendationStateConflictException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ErrorResponse("RECOMMENDATION_STATE_CONFLICT", exception.getMessage()));
+	}
+
+	@ExceptionHandler(RecommendationNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleRecommendationNotFound(RecommendationNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("RECOMMENDATION_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(InvalidApplicationException.class)
+	public ResponseEntity<ErrorResponse> handleInvalidApplication(InvalidApplicationException exception) {
+		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", exception.getMessage()));
+	}
+
 	@ExceptionHandler(EmploymentOfferStateConflictException.class)
 	public ResponseEntity<ErrorResponse> handleEmploymentOfferStateConflict(EmploymentOfferStateConflictException exception) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)
