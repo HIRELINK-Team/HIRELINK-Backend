@@ -215,15 +215,17 @@ class ApplicationCreateIntegrationTest {
 	}
 
 	@Test
-	void rejectsSixthActiveApplicationButDoesNotCountEndedHistory() throws Exception {
+	void rejectsSixthWaitingApplicationButDoesNotCountOfferedOrEndedHistory() throws Exception {
 		long employer = createUser("EMPLOYER", "사업주");
 		long posting = createPosting(employer, "RECRUITING", LocalDate.now(KOREA_ZONE).plusDays(1),
 				LocalDate.now(KOREA_ZONE));
 		for (int index = 0; index < 5; index++) {
 			long activeStudent = createStudent("활성 " + index);
 			long recommendation = createRecommendation(activeStudent, posting, false);
-			insertApplication(recommendation, activeStudent, posting, index == 0 ? "OFFERED" : "WAITING_RESPONSE");
+			insertApplication(recommendation, activeStudent, posting, "WAITING_RESPONSE");
 		}
+		long offeredStudent = createStudent("제안 지원자");
+		insertApplication(createRecommendation(offeredStudent, posting, false), offeredStudent, posting, "OFFERED");
 		long endedStudent = createStudent("종료 지원자");
 		insertApplication(createRecommendation(endedStudent, posting, false), endedStudent, posting, "ENDED");
 		long applicant = createStudent("여섯 번째 지원자");
@@ -231,7 +233,7 @@ class ApplicationCreateIntegrationTest {
 
 		assertError(create(token(applicant, "STUDENT"), recommendation, LocalDate.now(KOREA_ZONE).plusDays(1)),
 				409, "APPLICATION_CAPACITY_EXCEEDED");
-		assertThat(applicationCount()).isEqualTo(6);
+		assertThat(applicationCount()).isEqualTo(7);
 	}
 
 	@Test
@@ -275,7 +277,7 @@ class ApplicationCreateIntegrationTest {
 		responses.stream().filter(response -> response.statusCode() == 409).findFirst()
 				.ifPresent(response -> assertError(response, 409, "APPLICATION_CAPACITY_EXCEEDED"));
 		assertThat(jdbc.queryForObject("""
-				select count(*) from application where job_posting_id = ? and status in ('WAITING_RESPONSE', 'OFFERED')
+				select count(*) from application where job_posting_id = ? and status = 'WAITING_RESPONSE'
 				""", Integer.class, posting)).isEqualTo(5);
 	}
 
