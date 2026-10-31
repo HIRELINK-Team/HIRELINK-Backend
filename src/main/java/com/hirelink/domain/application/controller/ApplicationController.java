@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.hirelink.domain.application.dto.ApplicationRejectResponse;
 import com.hirelink.domain.application.dto.ApplicationWithdrawResponse;
 import com.hirelink.domain.application.service.ApplicationService;
 
@@ -24,6 +25,14 @@ public class ApplicationController {
 	public ResponseEntity<ApplicationWithdrawResponse> withdrawApplication(@AuthenticationPrincipal Jwt jwt,
 			@PathVariable Long applicationId) {
 		ApplicationWithdrawResponse response = applicationService.withdrawApplication(
+				Long.valueOf(jwt.getSubject()), applicationId);
+		return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store").body(response);
+	}
+
+	@PatchMapping("/api/applications/{applicationId}/reject")
+	public ResponseEntity<ApplicationRejectResponse> rejectApplication(@AuthenticationPrincipal Jwt jwt,
+			@PathVariable Long applicationId) {
+		ApplicationRejectResponse response = applicationService.rejectApplication(
 				Long.valueOf(jwt.getSubject()), applicationId);
 		return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store").body(response);
 	}
