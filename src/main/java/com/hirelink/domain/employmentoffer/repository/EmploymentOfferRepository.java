@@ -21,4 +21,6 @@ public interface EmploymentOfferRepository extends JpaRepository<EmploymentOffer
 	Optional<EmploymentOffer> findByIdForUpdate(@Param("id") Long id);
 
 	boolean existsByApplicationId(Long applicationId);
+
+	Optional<EmploymentOffer> findByApplicationId(Long applicationId);
 }

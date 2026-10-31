@@ -1,6 +1,7 @@
 package com.hirelink.domain.application.repository;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import jakarta.persistence.LockModeType;
@@ -22,4 +23,18 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
 	boolean existsByStudentProfileIdAndJobPostingId(Long studentProfileId, Long jobPostingId);
 
 	long countByJobPostingIdAndStatusIn(Long jobPostingId, Collection<ApplicationStatus> statuses);
+
+	long countByJobPostingIdAndStatus(Long jobPostingId, ApplicationStatus status);
+
+	List<Application> findAllByJobPostingIdAndStatusInOrderByAppliedAtDescIdDesc(Long jobPostingId,
+			Collection<ApplicationStatus> statuses);
+
+	List<Application> findAllByJobPostingIdAndStatusOrderByAppliedAtDescIdDesc(Long jobPostingId,
+			ApplicationStatus status);
+
+	List<Application> findAllByStudentProfileIdAndStatusInOrderByAppliedAtDescIdDesc(Long studentProfileId,
+			Collection<ApplicationStatus> statuses);
+
+	List<Application> findAllByStudentProfileIdAndStatusOrderByAppliedAtDescIdDesc(Long studentProfileId,
+			ApplicationStatus status);
 }
