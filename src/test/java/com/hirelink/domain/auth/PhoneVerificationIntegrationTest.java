@@ -67,6 +67,9 @@ class PhoneVerificationIntegrationTest {
 		registry.add("spring.datasource.username", postgres::getUsername);
 		registry.add("spring.datasource.password", postgres::getPassword);
 		registry.add("jwt.secret", () -> TEST_JWT_SECRET);
+		registry.add("sms.solapi.api-key", () -> "");
+		registry.add("sms.solapi.api-secret", () -> "");
+		registry.add("sms.solapi.sender-number", () -> "");
 	}
 
 	@LocalServerPort

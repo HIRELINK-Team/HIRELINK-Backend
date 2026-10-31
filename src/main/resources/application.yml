@@ -29,3 +29,9 @@ storage:
 business-registration:
   nts:
     service-key: ${NTS_SERVICE_KEY:}
+
+sms:
+  solapi:
+    api-key: ${SOLAPI_API_KEY:}
+    api-secret: ${SOLAPI_API_SECRET:}
+    sender-number: ${SOLAPI_SENDER_NUMBER:}
