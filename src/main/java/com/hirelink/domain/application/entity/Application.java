@@ -162,4 +162,10 @@ public class Application {
 		this.endedAt = endedAt;
 		return true;
 	}
+
+	public void rejectOffer(Instant endedAt) {
+		status = ApplicationStatus.ENDED;
+		endReason = ApplicationEndReason.STUDENT_REJECTED;
+		this.endedAt = endedAt;
+	}
 }

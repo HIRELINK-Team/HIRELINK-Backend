@@ -21,6 +21,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(EmploymentOfferStateConflictException.class)
+	public ResponseEntity<ErrorResponse> handleEmploymentOfferStateConflict(EmploymentOfferStateConflictException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ErrorResponse("EMPLOYMENT_OFFER_STATE_CONFLICT", exception.getMessage()));
+	}
+
+	@ExceptionHandler(EmploymentOfferNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleEmploymentOfferNotFound(EmploymentOfferNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("EMPLOYMENT_OFFER_NOT_FOUND", exception.getMessage()));
+	}
+
 	@ExceptionHandler(ApplicationStateConflictException.class)
 	public ResponseEntity<ErrorResponse> handleApplicationStateConflict(ApplicationStateConflictException exception) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)
