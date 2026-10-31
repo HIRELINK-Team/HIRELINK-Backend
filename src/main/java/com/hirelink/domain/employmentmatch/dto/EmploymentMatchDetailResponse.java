@@ -5,6 +5,8 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+
 public record EmploymentMatchDetailResponse(
 		Long matchId,
 		Long applicationId,
@@ -21,13 +23,16 @@ public record EmploymentMatchDetailResponse(
 		Contact contact,
 		Student student) {
 
-	public record WorkTime(String dayOfWeek, LocalTime startTime, LocalTime endTime) {
+	public record WorkTime(
+			String dayOfWeek,
+			@JsonFormat(pattern = "HH:mm") LocalTime startTime,
+			@JsonFormat(pattern = "HH:mm") LocalTime endTime) {
 	}
 
 	public record Contact(String name, String phoneNumber) {
 	}
 
-	public record Student(String name, String profileImageUrl, String nationality, String visaCode,
+	public record Student(String name, String profileImageUrl, String nationality, String visaType,
 			Short topikLevel) {
 	}
 }
