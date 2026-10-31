@@ -77,7 +77,8 @@ class StudentProfileUpdateIntegrationTest {
 
 	@BeforeEach
 	void clearTestDatabase() {
-		jdbc.execute("TRUNCATE TABLE job_posting, workplace, student_career, student_profile, user_term_agreement, phone_verification, "
+		jdbc.execute("TRUNCATE TABLE employment_match, employment_offer, application, recommendation, recommendation_batch, "
+				+ "job_posting, workplace, student_career, student_profile, user_term_agreement, phone_verification, "
 				+ "phone_verification_send_attempt, refresh_token, auth_account, user_account, study_program RESTART IDENTITY");
 	}
 
