@@ -16,5 +16,27 @@ services:
       timeout: 5s
       retries: 10
 
+  ocr:
+    profiles: ["ocr"]
+    build: ./ocr
+    ports:
+      - "127.0.0.1:8091:8000"
+    networks:
+      - ocr-local
+    cpus: 2
+    mem_limit: 2g
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: "none"
+
+networks:
+  ocr-local:
+    driver: bridge
+
 volumes:
   hirelink-postgres-data:

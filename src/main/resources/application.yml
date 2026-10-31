@@ -11,6 +11,11 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
+      file-size-threshold: 6MB
 
 jwt:
   secret: ${JWT_SECRET}
@@ -29,6 +34,8 @@ storage:
 business-registration:
   nts:
     service-key: ${NTS_SERVICE_KEY:}
+  paddle:
+    url: ${PADDLE_OCR_URL:http://localhost:8091/recognize}
 
 sms:
   solapi:
