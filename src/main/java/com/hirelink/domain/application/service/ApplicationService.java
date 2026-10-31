@@ -1,6 +1,7 @@
 package com.hirelink.domain.application.service;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
@@ -46,7 +47,7 @@ public class ApplicationService {
 			throw new AccessDeniedException("본인의 지원만 취소할 수 있습니다.");
 		}
 
-		Instant endedAt = Instant.now();
+		Instant endedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
 		if (!application.withdraw(endedAt)) {
 			throw new ApplicationStateConflictException();
 		}

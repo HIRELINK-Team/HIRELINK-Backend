@@ -101,6 +101,7 @@ class ApplicationWithdrawIntegrationTest {
 		assertThat(body.path("endReason").asString()).isEqualTo("WITHDRAWN");
 		Instant endedAt = Instant.parse(body.path("endedAt").asString());
 		assertThat(endedAt).isBetween(started, Instant.now());
+		assertThat(endedAt.getNano() % 1_000).isZero();
 
 		Map<String, Object> saved = application(fixture.applicationId());
 		assertThat(saved).containsEntry("status", "ENDED").containsEntry("end_reason", "WITHDRAWN");
