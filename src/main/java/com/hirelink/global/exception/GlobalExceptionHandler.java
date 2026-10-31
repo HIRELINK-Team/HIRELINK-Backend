@@ -21,6 +21,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(ApplicationStateConflictException.class)
+	public ResponseEntity<ErrorResponse> handleApplicationStateConflict(ApplicationStateConflictException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ErrorResponse("APPLICATION_STATE_CONFLICT", exception.getMessage()));
+	}
+
+	@ExceptionHandler(ApplicationNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleApplicationNotFound(ApplicationNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("APPLICATION_NOT_FOUND", exception.getMessage()));
+	}
+
 	@ExceptionHandler(DuplicateBusinessRegistrationException.class)
 	public ResponseEntity<ErrorResponse> handleDuplicateBusinessRegistration(DuplicateBusinessRegistrationException exception) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)
