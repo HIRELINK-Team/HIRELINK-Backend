@@ -105,9 +105,9 @@ class EmploymentMatchDetailIntegrationTest {
 		assertThat(body.path("wageType").asString()).isEqualTo("HOURLY");
 		assertThat(body.path("wageAmount").asInt()).isEqualTo(12500);
 		assertThat(body.path("workTimes").size()).isEqualTo(1);
-		assertThat(body.path("workTimes").get(0).path("dayOfWeek").asString()).isEqualTo("MONDAY");
-		assertThat(body.path("workTimes").get(0).path("startTime").asString()).isEqualTo("09:00:00");
-		assertThat(body.path("workTimes").get(0).path("endTime").asString()).isEqualTo("18:00:00");
+		assertThat(body.path("workTimes").get(0).path("dayOfWeek").asString()).isEqualTo("MON");
+		assertThat(body.path("workTimes").get(0).path("startTime").asString()).isEqualTo("09:00");
+		assertThat(body.path("workTimes").get(0).path("endTime").asString()).isEqualTo("18:00");
 		assertThat(body.path("desiredStartDate").asString()).isEqualTo("2026-11-10");
 		assertThat(Instant.parse(body.path("matchedAt").asString())).isEqualTo(MATCHED_AT);
 		assertThat(body.path("contact").path("name").asString()).isEqualTo("현재 사업주");
@@ -133,11 +133,11 @@ class EmploymentMatchDetailIntegrationTest {
 		assertThat(body.path("contact").path("phoneNumber").asString()).isEqualTo("010-1111-1111");
 		JsonNode student = body.path("student");
 		assertThat(student.propertyNames()).containsExactlyInAnyOrder("name", "profileImageUrl", "nationality",
-				"visaCode", "topikLevel");
+				"visaType", "topikLevel");
 		assertThat(student.path("name").asString()).isEqualTo("지원 당시 유학생");
 		assertThat(student.path("profileImageUrl").asString()).isEqualTo(imageUrl);
 		assertThat(student.path("nationality").asString()).isEqualTo("VN");
-		assertThat(student.path("visaCode").asString()).isEqualTo("D-2-2");
+		assertThat(student.path("visaType").asString()).isEqualTo("D-2-2");
 		assertThat(student.path("topikLevel").asInt()).isEqualTo(4);
 	}
 
@@ -216,7 +216,7 @@ class EmploymentMatchDetailIntegrationTest {
 				"jobPosting", Map.of("jobPostingId", posting, "title", "지원 당시 공고",
 						"workplaceName", "지원 당시 사업장", "workplaceAddress", "서울 마포구 지원로 1",
 						"wageType", "HOURLY", "wageAmount", 12500,
-						"workTimes", List.of(Map.of("dayOfWeek", "MONDAY", "startTime", "09:00",
+						"workTimes", List.of(Map.of("dayOfWeek", "MON", "startTime", "09:00",
 								"endTime", "18:00"))),
 				"recommendation", Map.of("recommendationId", recommendation)));
 		long application = jdbc.queryForObject("""
