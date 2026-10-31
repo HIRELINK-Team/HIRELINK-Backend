@@ -142,4 +142,14 @@ public class Application {
 	public Instant getEndedAt() {
 		return endedAt;
 	}
+
+	public boolean withdraw(Instant endedAt) {
+		if (status != ApplicationStatus.WAITING_RESPONSE) {
+			return false;
+		}
+		status = ApplicationStatus.ENDED;
+		endReason = ApplicationEndReason.WITHDRAWN;
+		this.endedAt = endedAt;
+		return true;
+	}
 }
