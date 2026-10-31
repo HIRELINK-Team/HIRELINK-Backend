@@ -44,3 +44,10 @@ jobs:
 
       - name: Build and test
         run: ./gradlew build --no-daemon
+
+      - name: Test OCR request handling and field extraction
+        run: |
+          python3 -m venv /tmp/ocr-test-venv
+          /tmp/ocr-test-venv/bin/pip install -r ocr/requirements-test.txt
+          cd ocr
+          /tmp/ocr-test-venv/bin/python -m unittest discover -s tests

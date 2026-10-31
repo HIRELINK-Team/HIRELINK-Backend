@@ -15,6 +15,8 @@ import com.hirelink.domain.workplace.entity.Workplace;
 
 public interface WorkplaceRepository extends JpaRepository<Workplace, Long> {
 
+	boolean existsByBusinessRegistrationNumberIn(List<String> numbers);
+
 	@EntityGraph(attributePaths = "businessType")
 	List<Workplace> findAllByEmployerUserIdOrderByIdAsc(Long employerUserId);
 

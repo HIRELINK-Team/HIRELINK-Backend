@@ -12,6 +12,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 @RestControllerAdvice
@@ -29,6 +31,41 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 	public ResponseEntity<ErrorResponse> handleApplicationNotFound(ApplicationNotFoundException exception) {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)
 				.body(new ErrorResponse("APPLICATION_NOT_FOUND", exception.getMessage()));
+	}
+
+	@ExceptionHandler(DuplicateBusinessRegistrationException.class)
+	public ResponseEntity<ErrorResponse> handleDuplicateBusinessRegistration(DuplicateBusinessRegistrationException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ErrorResponse("DUPLICATE_BUSINESS_REGISTRATION_NUMBER", exception.getMessage()));
+	}
+
+	@ExceptionHandler(BusinessRegistrationOcrException.class)
+	public ResponseEntity<ErrorResponse> handleBusinessRegistrationOcr(BusinessRegistrationOcrException exception) {
+		return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+				.body(new ErrorResponse("BUSINESS_REGISTRATION_OCR_FAILED", exception.getMessage()));
+	}
+
+	@ExceptionHandler(UnreadableBusinessRegistrationException.class)
+	public ResponseEntity<ErrorResponse> handleUnreadableBusinessRegistration(UnreadableBusinessRegistrationException exception) {
+		return ResponseEntity.status(422)
+				.body(new ErrorResponse("UNREADABLE_BUSINESS_REGISTRATION", exception.getMessage()));
+	}
+
+	@ExceptionHandler(UnsupportedBusinessRegistrationFileException.class)
+	public ResponseEntity<ErrorResponse> handleUnsupportedBusinessRegistrationFile(UnsupportedBusinessRegistrationFileException exception) {
+		return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+				.body(new ErrorResponse("UNSUPPORTED_FILE_TYPE", exception.getMessage()));
+	}
+
+	@ExceptionHandler(MultipartException.class)
+	public ResponseEntity<ErrorResponse> handleInvalidMultipart(MultipartException exception) {
+		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_INPUT", "파일 전송 형식이 올바르지 않습니다."));
+	}
+
+	@Override
+	protected ResponseEntity<Object> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException exception,
+			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+		return new ResponseEntity<>(new ErrorResponse("FILE_TOO_LARGE", "사업자등록증 파일은 5MB 이하여야 합니다."), headers, status);
 	}
 
 	@ExceptionHandler(JobPostingStateConflictException.class)

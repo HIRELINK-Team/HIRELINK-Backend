@@ -5,7 +5,6 @@ import java.math.BigDecimal;
 public record WorkplaceDetailResponse(
 		Long workplaceId,
 		String workplaceName,
-		String representativeName,
 		String businessRegistrationNumber,
 		Long businessTypeId,
 		String businessTypeName,
