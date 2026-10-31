@@ -32,10 +32,10 @@ public class Workplace {
 	@Column(name = "workplace_name", nullable = false, length = 150)
 	private String workplaceName;
 
-	@Column(name = "representative_name", nullable = false, length = 100)
+	@Column(name = "representative_name", length = 100)
 	private String representativeName;
 
-	@Column(name = "business_registration_file_key", nullable = false, length = 500)
+	@Column(name = "business_registration_file_key", length = 500)
 	private String businessRegistrationFileKey;
 
 	@Column(name = "business_registration_number", nullable = false, length = 20)

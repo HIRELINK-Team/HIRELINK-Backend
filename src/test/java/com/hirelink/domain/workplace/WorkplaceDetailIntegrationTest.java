@@ -79,12 +79,11 @@ class WorkplaceDetailIntegrationTest {
 			assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
 			assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
 			JsonNode body = mapper.readTree(response.body());
-			assertThat(body.propertyNames()).containsExactlyInAnyOrder("workplaceId", "workplaceName", "representativeName",
+			assertThat(body.propertyNames()).containsExactlyInAnyOrder("workplaceId", "workplaceName",
 					"businessRegistrationNumber", "businessTypeId", "businessTypeName", "employeeCountRange",
 					"workplaceAddress", "latitude", "longitude");
 			assertThat(body.path("workplaceId").asLong()).isEqualTo(workplaceId);
 			assertThat(body.path("workplaceName").asString()).isEqualTo("테스트 사업장");
-			assertThat(body.path("representativeName").asString()).isEqualTo("등록증 대표자");
 			assertThat(body.path("businessRegistrationNumber").asString()).isEqualTo("012-34-56789");
 			assertThat(body.path("businessTypeId").asLong()).isEqualTo(8L);
 			assertThat(body.path("businessTypeName").asString()).isEqualTo("OTHER");

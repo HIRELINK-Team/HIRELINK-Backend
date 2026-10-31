@@ -91,12 +91,11 @@ class WorkplaceUpdateIntegrationTest {
 		expected.put("workplace_name", "수정된 사업장");
 		assertThat(workplace(id)).isEqualTo(expected);
 		JsonNode body = mapper.readTree(response.body());
-		assertThat(body.propertyNames()).containsExactlyInAnyOrder("workplaceId", "workplaceName", "representativeName",
+		assertThat(body.propertyNames()).containsExactlyInAnyOrder("workplaceId", "workplaceName",
 				"businessRegistrationNumber", "businessTypeId", "businessTypeName", "employeeCountRange",
 				"workplaceAddress", "latitude", "longitude");
 		assertThat(body.path("workplaceId").asLong()).isEqualTo(id);
 		assertThat(body.path("workplaceName").asString()).isEqualTo("수정된 사업장");
-		assertThat(body.path("representativeName").asString()).isEqualTo("테스트 대표자");
 		assertThat(body.path("businessRegistrationNumber").asString()).isEqualTo("012-34-56789");
 		assertThat(body.path("employeeCountRange").asString()).isEqualTo("UNDER_5");
 

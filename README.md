@@ -27,6 +27,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - 사업주 본인 공고의 부분 수정과 임시저장 공고의 모집 시작
 - 사업주 본인 공고의 모집 마감과 실제 마감 시각 기록
 - 국세청 상태조회 API를 통한 사업자등록번호 확인
+- PaddleOCR을 통한 사업자등록번호·주소 인식과 사용자가 확인한 정보로 사업장 등록
 - 유학생 본인의 프로필·경력 조회 및 비공개 프로필 사진의 임시 URL 발급
 - 유학생 프로필 부분 수정 및 비자별 학업 상태 검증
 - 유학생 본인의 근무 경력 추가·수정·삭제
@@ -240,7 +241,7 @@ Authorization: Bearer <Access Token>
 
 `GET /api/workplaces/{workplaceId}`는 로그인한 사업주가 본인 소유 사업장의 상세 정보를 조회합니다. 요청 본문과 Query Parameter는 사용하지 않으며 Path Parameter로 사업장 ID를 받습니다.
 
-- 성공하면 `200`과 `workplaceId`, `workplaceName`, `representativeName`, `businessRegistrationNumber`, `businessTypeId`, `businessTypeName`, `employeeCountRange`, `workplaceAddress`, `latitude`, `longitude`를 반환합니다.
+- 성공하면 `200`과 `workplaceId`, `workplaceName`, `businessRegistrationNumber`, `businessTypeId`, `businessTypeName`, `employeeCountRange`, `workplaceAddress`, `latitude`, `longitude`를 반환합니다.
 - 사업자등록번호는 `123-45-67890` 형식으로 표시하며 저장된 값은 변경하지 않습니다. 위도·경도는 숫자로 반환하고 `businessTypeName`은 업종 코드입니다.
 - 등록증 원본·파일 경로·파일 URL은 반환하지 않으며, 응답에는 `Cache-Control: no-store`를 적용합니다.
 - 인증 오류는 `401 UNAUTHORIZED`, 사업주가 아닌 계정이나 타인 소유 사업장 접근은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다.
@@ -256,7 +257,7 @@ Authorization: Bearer <Access Token>
 - 주소·위도·경도 중 하나라도 수정하려면 세 항목을 함께 보냅니다. 위도는 -90~90, 경도는 -180~180이며 좌표는 소수점 이하 7자리까지 허용합니다. 주소 검색과 지도 선택은 프론트엔드에서 처리합니다.
 - 모든 항목의 명시적 `null`, 빈 요청, 잘못된 타입·길이·좌표, 알 수 없는 항목은 `400 INVALID_INPUT`입니다. 업종 ID는 JSON 정수, 좌표는 JSON 숫자로 보내야 합니다.
 - 사업자등록번호·대표자명·직원 수·등록증 파일은 변경하지 않습니다. `OTHER` 업종에도 별도의 기타 업종명을 입력받지 않습니다.
-- 성공하면 `200`과 상세 조회 API와 같은 10개 항목을 반환합니다. 사업자등록번호 표시 형식과 `Cache-Control: no-store`도 동일합니다.
+- 성공하면 `200`과 상세 조회 API와 같은 9개 항목을 반환합니다. 사업자등록번호 표시 형식과 `Cache-Control: no-store`도 동일합니다.
 - 인증 오류는 `401 UNAUTHORIZED`, 사업주가 아닌 계정이나 타인 소유 사업장 접근은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다.
 - 없는 사업장은 `404 WORKPLACE_NOT_FOUND`, 없는 업종은 `404 BUSINESS_TYPE_NOT_FOUND`입니다. 사업장 ID를 Long으로 변환할 수 없으면 `400 INVALID_INPUT`, 예상하지 못한 내부 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류는 기존 `{ code, message }` 형식을 사용합니다.
 - 하나의 트랜잭션으로 저장하며 중간에 실패하면 이번 수정 전체를 취소합니다. 수정할 사업장 행을 잠가 동시에 다른 항목을 수정할 때 기존 값이 덮어써지지 않도록 합니다.
@@ -311,7 +312,7 @@ Authorization: Bearer <Access Token>
 - 성공하면 `201`과 `jobPostingId`, `workplaceId`, `workplaceName`, `title`, `businessTypeId`, `businessTypeName`, `jobRole`, `recruitmentCount`, `wageType`, `wageAmount`, `workStartDate`, `requiredKoreanLevel`, `preferredExperience`, `applicationDeadlineDate`, `workTimeNegotiable`, `status`, `workTimes`, `createdAt`을 반환합니다. 미입력 값은 `null`, 근무시간이 없으면 `[]`이며 근무시간은 기존 조회 API와 동일한 순서·형식입니다. 응답에 `Cache-Control: no-store`를 적용합니다.
 - 잘못된 입력은 `400 INVALID_INPUT`, 인증 오류는 `401 UNAUTHORIZED`, 사업주가 아닌 계정·타인 사업장 접근은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다. 없는 사업장은 `404 WORKPLACE_NOT_FOUND`, 없는 업종은 `404 BUSINESS_TYPE_NOT_FOUND`, 예상하지 못한 저장 오류는 `500 INTERNAL_SERVER_ERROR`입니다. 오류 응답은 기존 `{ code, message }` 형식을 사용합니다.
 - 공고와 모든 근무시간은 함께 성공하거나 함께 취소됩니다. 동일한 POST 요청을 다시 보내면 별도의 새 공고를 생성합니다. 기존 공고 불러오기는 조회한 값을 프론트 입력 폼에 채운 뒤 새 POST 요청으로 등록하는 흐름입니다.
-- 기존 V8·V10·V13을 사용하며 새 마이그레이션·환경변수·Redis 설정은 없습니다. 실제 사용에는 미리 등록된 본인 사업장이 필요하며, 사업장 등록 API와 OCR 연동은 별도 작업입니다.
+- 기존 V8·V10·V13을 사용하며 새 마이그레이션·환경변수·Redis 설정은 없습니다. 실제 사용에는 미리 등록된 본인 사업장이 필요합니다.
 
 ### 채용공고 수정 API
 
@@ -364,6 +365,98 @@ Authorization: Bearer <Access Token>
 실제 연동에는 [국세청 사업자등록정보 진위확인 및 상태조회 서비스](https://www.data.go.kr/data/15081808/openapi.do)의 활용 신청과 인증키가 필요합니다. 공공데이터포털의 **일반 인증키(Decoding) 원문**을 서버 환경변수 `NTS_SERVICE_KEY`로 설정합니다. URL 인코딩은 서버가 수행하므로 사전에 인코딩하지 않습니다. 키를 프론트엔드나 저장소에 포함하지 않습니다.
 
 로컬 테스트는 테스트용 HTTP 서버를 사용합니다. 실제 국세청 조회는 인증키 설정 후 별도로 확인해야 합니다. 이 기능에는 Supabase 스키마 변경이나 Redis 설정이 필요하지 않습니다.
+
+### 사업자등록증 OCR API
+
+`POST /api/workplaces/business-registration/ocr`는 로그인한 사업주가 올린 등록증에서 사업자등록번호와 사업장 주소를 추출합니다. `multipart/form-data`를 사용합니다.
+
+| key | 설명 | value 타입 | 옵션 | Nullable |
+| --- | --- | --- | --- | --- |
+| businessRegistrationFile | 사업자등록증 파일 | File | PDF / JPG / PNG, 최대 5MB, 파일 하나 | X |
+
+성공하면 `200 OK`와 다음 응답을 반환합니다.
+
+| key | 설명 | value 타입 | 옵션 | Nullable |
+| --- | --- | --- | --- | --- |
+| businessRegistrationNumber | 인식한 사업자등록번호 | String | 123-45-67890 형식 | X |
+| workplaceAddress | 인식한 사업장 주소 | String | 사용자 확인·수정, 미인식·후보 충돌 시 null | O |
+
+```json
+{
+  "businessRegistrationNumber": "123-45-67890",
+  "workplaceAddress": "서울 마포구 월드컵북로 00"
+}
+```
+
+| status | response content |
+| --- | --- |
+| 200 | 번호 인식 성공, 주소는 미인식 시 null |
+| 400 | 파일 누락·빈 파일·추가 요청 항목·잘못된 전송 형식 |
+| 401 | 로그인 필요 |
+| 403 | 사업주가 아니거나 탈퇴 계정 |
+| 413 | 파일 또는 전체 업로드 요청 크기 초과 |
+| 415 | 지원하지 않는 파일 형식 또는 Content-Type과 파일 헤더 불일치 |
+| 422 | 번호 미인식 또는 서로 다른 번호 후보를 하나로 결정할 수 없음 |
+| 502 | OCR 프로그램 연결 실패·처리 실패·시간 초과·잘못된 응답 |
+| 500 | 예상하지 못한 서버 오류 |
+
+- OCR은 입력 보조 기능입니다. 프론트엔드는 번호와 주소를 미리 채우고 사용자가 확인·수정하도록 합니다. 주소를 못 읽으면 빈 칸으로 표시하여 직접 입력하게 합니다. 최종 주소는 주소 검색·지도에서 확인하고 좌표와 함께 등록합니다.
+- 같은 호스트의 Python OCR 프로그램에서 PaddleOCR을 CPU로 실행합니다. 사업자번호와 주소만 반환하며 대표자명·전체 인식 결과는 응답하지 않습니다. 원본은 외부 OCR 서비스로 전송하지 않습니다.
+- 파일명·확장자만 신뢰하지 않고 Content-Type과 PDF/JPG/PNG 파일 헤더를 확인합니다. 손상되거나 인식되지 않는 문서는 실패할 수 있습니다.
+- 파일은 요청 처리 중 메모리에서 다룹니다. 파일당 5MB, 전체 multipart 요청 6MB, 디스크 저장 전환 기준 6MB로 구성하여 허용된 업로드를 디스크에 쓰지 않습니다. 요청 종료 후 원본을 보관하지 않으며 DB·Storage에 업로드 원본, 파일 경로, 전체 OCR 결과를 저장하지 않습니다.
+- 내부 OCR 호출은 연결 제한 3초·응답 제한 40초이며 리다이렉트나 자동 재시도를 사용하지 않습니다. Python 프로그램은 한 번에 한 문서를 처리하고, 처리 중인 경우 새 요청을 빠르게 실패시킵니다. 원본·인식 결과·오류 원문은 로그에 기록하지 않습니다.
+- 성공 응답에는 `Cache-Control: no-store`를 적용합니다. 모든 오류는 기존 `{code, message}` 형식을 사용합니다.
+- OCR 실행 방법은 아래 로컬 실행 안내를 참고합니다. 모델은 이미지 빌드 시 내려받으며 인식은 내려받은 모델로 처리합니다. 원본 보관용 볼륨이나 Storage 버킷은 만들지 않습니다.
+
+### 사업장 등록 API
+
+`POST /api/workplaces`는 로그인한 사업주가 확인한 정보를 받아 사업장을 생성합니다. 요청은 `application/json`이며 파일은 포함하지 않습니다.
+
+| key | 설명 | value 타입 | 옵션 | Nullable |
+| --- | --- | --- | --- | --- |
+| workplaceName | 사업장명 | String | 공백 불가, 최대 150자 | X |
+| businessRegistrationNumber | 확정한 사업자등록번호 | String | 숫자 10자리 또는 123-45-67890, 앞뒤 공백 제거 | X |
+| businessTypeId | 업종 ID | Long | 기존 업종 ID | X |
+| employeeCountRange | 직원 수 구간 | String | UNDER_5 / FIVE_OR_MORE | X |
+| workplaceAddress | 사업장 전체 주소 | String | 공백 불가, 최대 500자 | X |
+| latitude | 위도 | Decimal | -90~90, 소수점 이하 7자리 | X |
+| longitude | 경도 | Decimal | -180~180, 소수점 이하 7자리 | X |
+
+```json
+{
+  "workplaceName": "모모카페 연남점",
+  "businessRegistrationNumber": "123-45-67890",
+  "businessTypeId": 1,
+  "employeeCountRange": "UNDER_5",
+  "workplaceAddress": "서울 마포구 월드컵북로 00",
+  "latitude": 37.5665000,
+  "longitude": 126.9780000
+}
+```
+
+성공하면 `201 Created`와 사업장 상세 조회와 동일한 9개 항목(`workplaceId`, `workplaceName`, `businessRegistrationNumber`, `businessTypeId`, `businessTypeName`, `employeeCountRange`, `workplaceAddress`, `latitude`, `longitude`)을 반환합니다. 모두 NULL이 아니며, 번호는 하이픈 포함 형식입니다.
+
+| status | response content |
+| --- | --- |
+| 201 | 사업장 등록 성공 |
+| 400 | 필수값 누락·NULL·잘못된 타입/값·알 수 없는 항목, 휴업·폐업·미등록 번호 |
+| 401 | 로그인 필요 |
+| 403 | 사업주가 아니거나 탈퇴 계정 |
+| 404 | 존재하지 않는 업종 |
+| 409 | 이미 등록된 사업자등록번호 |
+| 415 | application/json이 아닌 요청 형식 |
+| 502 | 국세청 설정 누락·조회 실패 |
+| 500 | 예상하지 못한 서버 오류 |
+
+- Access Token과 DB의 현재 회원 상태로 요청자를 확인하며, `employerUserId`는 받지 않습니다. 한 사업주는 여러 사업장을 등록할 수 있습니다.
+- 최종 요청의 번호로 국세청 상태를 다시 조회하며, 계속사업자만 등록합니다. OCR 결과나 사전 확인 버튼의 결과를 영업 상태 확인으로 대신하지 않습니다.
+- OCR 호출 이력은 저장하지 않으며, 등록 요청은 사용자가 확정한 값을 받습니다. 이 흐름은 등록증 진위나 요청자의 사업자 소유권을 증명하지 않습니다.
+- 번호는 하이픈 없이 저장하며, DB UNIQUE 제약으로 동시 중복 등록도 차단합니다. 중복은 `409 DUPLICATE_BUSINESS_REGISTRATION_NUMBER`입니다.
+- 주소와 좌표는 프론트엔드에서 확인한 값을 저장합니다. OCR 주소는 수정할 수 있는 후보이며 좌표를 생성하지 않습니다. 대표자명과 OTHER 업종의 별도 업종명은 받지 않습니다.
+- 등록은 하나의 트랜잭션으로 처리합니다. 국세청 조회나 DB 저장에 실패하면 사업장을 생성하지 않습니다.
+- `V15__allow_workplace_without_registration_file.sql`은 기존 파일 경로 컬럼의 NOT NULL만 해제하며 기존 값은 보존합니다. 새 등록에서는 파일 경로를 NULL로 저장합니다. 등록증용 Storage 버킷이나 Redis는 사용하지 않습니다.
+- `V16__allow_workplace_without_representative_name.sql`은 대표자명 컬럼의 NOT NULL만 해제합니다. 기존 값은 보존하고 새 등록에서는 NULL로 저장하며, 사업장 등록·상세 조회·수정 응답에 대표자명을 포함하지 않습니다.
+- 성공 응답에는 `Cache-Control: no-store`를 적용합니다. 실제 국세청 조회에는 서버의 `NTS_SERVICE_KEY` 설정이 필요합니다.
 
 ### 유학생 프로필 등록 API
 
@@ -708,6 +801,7 @@ Gradle은 저장소의 Wrapper를 사용하므로 별도 설치가 필요하지 
 | `SUPABASE_SECRET_KEY` | 사진 조회 시 필수 | 서버 전용 Secret key. 프론트엔드·소스 코드에 포함 금지 |
 | `SUPABASE_STORAGE_BUCKET` | 선택 | 기본값 `profile-images`. 실제 비공개 버킷 이름 |
 | `NTS_SERVICE_KEY` | 사업자등록번호 확인 시 필수 | 국세청 API 일반 인증키(Decoding) 원문. 미설정 시 확인 요청은 502 |
+| `PADDLE_OCR_URL` | 선택 | 기본값 `http://localhost:8091/recognize`. 로컬 OCR 주소이며 인증키 불필요 |
 | `SOLAPI_API_KEY` | 인증 문자 발송 시 필수 | 솔라피 API Key. 미설정 시 발송 요청은 500 |
 | `SOLAPI_API_SECRET` | 인증 문자 발송 시 필수 | 솔라피 API Secret. 미설정 시 발송 요청은 500 |
 | `SOLAPI_SENDER_NUMBER` | 인증 문자 발송 시 필수 | 솔라피에 등록·인증한 발신번호. 하이픈 없이 입력 |
@@ -768,6 +862,21 @@ Windows PowerShell:
 
 Swagger UI나 OpenAPI 문서 엔드포인트는 현재 구성되어 있지 않습니다. 구현된 인증 API는 이 README의 [현재 인증 API](#현재-인증-api)를 참고합니다.
 
+### 로컬 OCR 실행
+
+Docker가 실행 중인 상태에서 다음 명령으로 OCR 프로그램을 별도로 시작합니다.
+
+```bash
+docker compose --profile ocr up -d --build ocr
+```
+
+- 최초 빌드는 Python 패키지와 한국어 모델 다운로드가 필요합니다. 이후에는 빌드된 이미지를 재사용합니다.
+- Java 서버를 호스트에서 실행하면 기본 `PADDLE_OCR_URL`을 그대로 사용합니다. Docker 내부에서 실행하는 경우 같은 내부 네트워크에 연결하고 `http://ocr:8000/recognize`를 사용합니다.
+- OCR 포트는 호스트의 `127.0.0.1:8091`에만 연결하며 외부에 공개하지 않습니다. 문서 인식에 외부 API나 인터넷 연결은 필요하지 않습니다.
+- CPU 2개·메모리 2GB 한도를 설정하며 한 프로세스에서 한 문서씩 처리합니다. 긴 문서나 시간 초과는 502로 처리될 수 있습니다.
+- 컨테이너는 일반 사용자와 읽기 전용 파일 시스템으로 실행합니다. 임시 시스템 파일용 `/tmp`만 메모리에 두며 업로드 문서는 파일로 저장하지 않습니다.
+- 중지하려면 `docker compose --profile ocr stop ocr`를 실행합니다.
+
 ### 테스트 실행
 
 Docker가 실행 중인 환경에서 다음 명령을 사용합니다.
@@ -797,6 +906,8 @@ Windows PowerShell:
 `EmployerProfileUpdateIntegrationTest`는 부분 수정과 조회 연동, 직책 삭제, 입력·권한·미등록 오류, 다른 회원과 수정 대상이 아닌 정보의 보존, 저장 실패 시 전체 롤백과 동시 부분 수정을 검증합니다.
 
 `BusinessRegistrationIntegrationTest`는 번호 정규화, 성공·실패 응답, 입력·권한 검사와 DB 데이터 보존을 확인합니다. `NtsBusinessRegistrationClientTest`는 테스트용 HTTP 서버로 요청 형식과 인증키 인코딩, 사업자 상태 판정, 설정 누락·응답 오류·연결 실패·시간 초과·리다이렉트 차단을 검증합니다. 실제 인증키나 국세청 조회는 사용하지 않습니다.
+
+`WorkplaceRegistrationIntegrationTest`는 OCR 결과 확인 후 등록, 파일 제한·원본 미보관, 권한·입력·동시 중복 등록·롤백을 확인합니다. `PaddleOcrClientTest`는 테스트용 HTTP 서버로 바이너리 요청·응답과 실패 처리를 검증합니다. `ocr/tests`는 모델 다운로드 없이 필드 추출과 요청·오류 처리를 검증합니다. 테스트는 가상 입력만 사용합니다.
 
 `WorkplaceListIntegrationTest`는 본인 사업장만 반환하는지, 응답 항목과 ID 정렬, 빈 목록, 조회 전후 데이터 보존, 인증·권한 검사와 DB 조회 실패 시 안전한 오류 응답을 검증합니다. 일회용 PostgreSQL에 테스트용 사업장을 만들며 실제 Supabase 데이터는 변경하지 않습니다.
 

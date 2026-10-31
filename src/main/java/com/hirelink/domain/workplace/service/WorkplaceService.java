@@ -5,12 +5,16 @@ import java.util.List;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
+import org.hibernate.exception.ConstraintViolationException;
 
 import com.hirelink.domain.member.entity.MemberRole;
 import com.hirelink.domain.member.entity.UserAccount;
 import com.hirelink.domain.member.repository.UserAccountRepository;
 import com.hirelink.domain.workplace.dto.WorkplaceDetailResponse;
+import com.hirelink.domain.workplace.dto.WorkplaceCreateRequest;
+import com.hirelink.domain.workplace.client.NtsBusinessRegistrationClient;
 import com.hirelink.domain.workplace.dto.WorkplaceListResponse;
 import com.hirelink.domain.workplace.dto.WorkplaceListResponse.WorkplaceSummary;
 import com.hirelink.domain.workplace.dto.WorkplaceUpdateRequest;
@@ -19,6 +23,7 @@ import com.hirelink.domain.workplace.entity.Workplace;
 import com.hirelink.domain.workplace.repository.BusinessTypeRepository;
 import com.hirelink.domain.workplace.repository.WorkplaceRepository;
 import com.hirelink.global.exception.BusinessTypeNotFoundException;
+import com.hirelink.global.exception.DuplicateBusinessRegistrationException;
 import com.hirelink.global.exception.InvalidWorkplaceException;
 import com.hirelink.global.exception.WithdrawnAccountException;
 import com.hirelink.global.exception.WorkplaceNotFoundException;
@@ -29,12 +34,43 @@ public class WorkplaceService {
 	private final UserAccountRepository userAccountRepository;
 	private final WorkplaceRepository workplaceRepository;
 	private final BusinessTypeRepository businessTypeRepository;
+	private final NtsBusinessRegistrationClient ntsClient;
 
 	public WorkplaceService(UserAccountRepository userAccountRepository, WorkplaceRepository workplaceRepository,
-			BusinessTypeRepository businessTypeRepository) {
+			BusinessTypeRepository businessTypeRepository, NtsBusinessRegistrationClient ntsClient) {
 		this.userAccountRepository = userAccountRepository;
 		this.workplaceRepository = workplaceRepository;
 		this.businessTypeRepository = businessTypeRepository;
+		this.ntsClient = ntsClient;
+	}
+
+	@Transactional
+	public WorkplaceDetailResponse createWorkplace(Long userId, WorkplaceCreateRequest request) {
+		UserAccount user = validateEmployer(userId);
+		String number = request.getBusinessRegistrationNumber().replace("-", "");
+		if (workplaceRepository.existsByBusinessRegistrationNumberIn(List.of(number, formatBusinessRegistrationNumber(number)))) {
+			throw new DuplicateBusinessRegistrationException();
+		}
+		BusinessType businessType = businessTypeRepository.findById(request.getBusinessTypeId())
+				.orElseThrow(BusinessTypeNotFoundException::new);
+		if (!ntsClient.isActiveBusiness(number)) {
+			throw new InvalidWorkplaceException("현재 영업 중인 사업자등록번호만 등록할 수 있습니다.");
+		}
+		Workplace workplace = new Workplace(user, request.getWorkplaceName(), null,
+				null, number, businessType, request.getWorkplaceAddress(), request.getLatitude(), request.getLongitude(),
+				request.getEmployeeCountRange());
+		try {
+			workplaceRepository.saveAndFlush(workplace);
+		} catch (DataIntegrityViolationException exception) {
+			for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+				if (cause instanceof ConstraintViolationException violation
+						&& "uk_workplace_business_registration_number".equals(violation.getConstraintName())) {
+					throw new DuplicateBusinessRegistrationException();
+				}
+			}
+			throw new IllegalStateException("사업장 저장에 실패했습니다.");
+		}
+		return toDetailResponse(workplace);
 	}
 
 	@Transactional(readOnly = true)
@@ -90,7 +126,7 @@ public class WorkplaceService {
 		return toDetailResponse(workplace);
 	}
 
-	private void validateEmployer(Long userId) {
+	private UserAccount validateEmployer(Long userId) {
 		UserAccount user = userAccountRepository.findById(userId)
 				.orElseThrow(() -> new AuthenticationCredentialsNotFoundException("로그인이 필요합니다."));
 		if (user.isWithdrawn()) {
@@ -99,11 +135,12 @@ public class WorkplaceService {
 		if (user.getRole() != MemberRole.EMPLOYER) {
 			throw new AccessDeniedException("사업주 계정만 사업장을 관리할 수 있습니다.");
 		}
+		return user;
 	}
 
 	private WorkplaceDetailResponse toDetailResponse(Workplace workplace) {
 		return new WorkplaceDetailResponse(workplace.getId(), workplace.getWorkplaceName(),
-				workplace.getRepresentativeName(), formatBusinessRegistrationNumber(workplace.getBusinessRegistrationNumber()),
+				formatBusinessRegistrationNumber(workplace.getBusinessRegistrationNumber()),
 				workplace.getBusinessType().getId(), workplace.getBusinessType().getName(),
 				workplace.getEmployeeCountRange(), workplace.getWorkplaceAddress(),
 				workplace.getLatitude(), workplace.getLongitude());
