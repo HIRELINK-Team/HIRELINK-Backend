@@ -139,6 +139,175 @@ class RecommendationApiIntegrationTest {
 	}
 
 	@Test
+	void refreshReturnsExistingBatchWhenContextHasNotChanged() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		createPosting(employer, "기존 공고", 13000, "RECRUITING");
+		JsonNode created = body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+
+		JsonNode refreshed = body(post(token(student, "STUDENT"), "/api/recommendations/refresh"), 200);
+
+		assertThat(refreshed.propertyNames()).containsExactlyInAnyOrder(
+				"batchId", "generatedAt", "recommendationCount", "refreshed");
+		assertThat(refreshed.path("batchId").asLong()).isEqualTo(created.path("batchId").asLong());
+		assertThat(refreshed.path("recommendationCount").asInt()).isEqualTo(1);
+		assertThat(refreshed.path("refreshed").asBoolean()).isFalse();
+		assertThat(count("recommendation_batch")).isOne();
+	}
+
+	@Test
+	void refreshCreatesNewBatchAndPreservesInvalidatedHistoryEvenWhenResultBecomesEmpty() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		long posting = createPosting(employer, "마감될 공고", 13000, "RECRUITING");
+		JsonNode created = body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+		long oldRecommendation = jdbc.queryForObject(
+				"select id from recommendation where batch_id = ?", Long.class, created.path("batchId").asLong());
+		jdbc.update("update job_posting set status = 'CLOSED' where id = ?", posting);
+
+		JsonNode refreshed = body(post(token(student, "STUDENT"), "/api/recommendations/refresh"), 200);
+
+		assertThat(refreshed.path("refreshed").asBoolean()).isTrue();
+		assertThat(refreshed.path("batchId").asLong()).isNotEqualTo(created.path("batchId").asLong());
+		assertThat(refreshed.path("recommendationCount").asInt()).isZero();
+		assertThat(count("recommendation_batch")).isEqualTo(2);
+		assertThat(count("recommendation")).isOne();
+		assertThat(jdbc.queryForObject("select invalidated_at is not null from recommendation_batch where id = ?",
+				Boolean.class, created.path("batchId").asLong())).isTrue();
+		assertThat(jdbc.queryForObject("select count(*) from recommendation where id = ?", Integer.class,
+				oldRecommendation)).isOne();
+	}
+
+	@Test
+	void matchingConditionAndPriorityChangesUseSameValidityDecisionForGetAndRefresh() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		long posting = createPosting(employer, "조건 감지 공고", 13000, "RECRUITING");
+		body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+		long recommendation = jdbc.queryForObject(
+				"select id from recommendation where job_posting_id = ?", Long.class, posting);
+
+		jdbc.update("update student_job_preference set minimum_hourly_wage = 14000 where user_id = ?", student);
+		assertRefreshRequiredForListAndDetail(student, recommendation);
+		assertThat(body(post(token(student, "STUDENT"), "/api/recommendations/refresh"), 200)
+				.path("refreshed").asBoolean()).isTrue();
+
+		jdbc.update("update student_priority set priority_order = priority_order + 10 where user_id = ?", student);
+		jdbc.update("update student_priority set priority_order = 5 - (priority_order - 10) where user_id = ?", student);
+		JsonNode list = body(get(token(student, "STUDENT"), "/api/recommendations"), 200);
+		assertThat(list.path("refreshRequired").asBoolean()).isTrue();
+		assertThat(body(post(token(student, "STUDENT"), "/api/recommendations/refresh"), 200)
+				.path("refreshed").asBoolean()).isTrue();
+	}
+
+	@Test
+	void detectsPostingConditionStatusDeadlineAndWorkplaceLocationChanges() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		long posting = createPosting(employer, "공고 변경 감지", 13000, "RECRUITING");
+		body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+
+		jdbc.update("update job_posting set wage_amount = 15000 where id = ?", posting);
+		assertRefreshed(student);
+		jdbc.update("update job_posting set status = 'CLOSED' where id = ?", posting);
+		assertRefreshed(student);
+		jdbc.update("update job_posting set status = 'RECRUITING', application_deadline_date = current_date - 1 where id = ?",
+				posting);
+		assertRefreshed(student);
+		jdbc.update("update job_posting set application_deadline_date = current_date + 7 where id = ?", posting);
+		assertRefreshed(student);
+		jdbc.update("update workplace set latitude = latitude + 0.01 where id = "
+				+ "(select workplace_id from job_posting where id = ?)", posting);
+		assertRefreshed(student);
+	}
+
+	@Test
+	void detectsActiveReviewCountAndStudentApplicationHistoryChanges() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		long posting = createPosting(employer, "지원 변경 감지", 13000, "RECRUITING");
+		body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+
+		insertApplicationForNewStudent(posting, "WAITING_RESPONSE");
+		assertRefreshed(student);
+
+		long recommendation = jdbc.queryForObject("""
+				select id from recommendation where batch_id = (
+				select id from recommendation_batch where student_profile_id = ? order by created_at desc, id desc limit 1)
+				and job_posting_id = ?
+				""", Long.class, student, posting);
+		insertApplication(student, recommendation, posting, "WAITING_RESPONSE");
+		assertThat(body(get(token(student, "STUDENT"), "/api/recommendations"), 200)
+				.path("refreshRequired").asBoolean()).isTrue();
+		assertRefreshed(student);
+	}
+
+	@Test
+	void detectsNewPostingFromEmptyBatchAndReturnedReviewSeat() throws Exception {
+		long emptyStudent = createStudent(true);
+		body(post(token(emptyStudent, "STUDENT"), "/api/recommendations"), 201);
+		long employer = createUser("EMPLOYER");
+		long newPosting = createPosting(employer, "새 공고", 13000, "RECRUITING");
+
+		JsonNode newCandidateRefresh = body(post(token(emptyStudent, "STUDENT"),
+				"/api/recommendations/refresh"), 200);
+		assertThat(newCandidateRefresh.path("refreshed").asBoolean()).isTrue();
+		assertThat(newCandidateRefresh.path("recommendationCount").asInt()).isEqualTo(1);
+
+		for (int count = 0; count < 5; count++) {
+			insertApplicationForNewStudent(newPosting, count == 0 ? "OFFERED" : "WAITING_RESPONSE");
+		}
+		long capacityStudent = createStudent(true);
+		JsonNode emptyAtCapacity = body(post(token(capacityStudent, "STUDENT"), "/api/recommendations"), 201);
+		assertThat(emptyAtCapacity.path("recommendationCount").asInt()).isZero();
+		jdbc.update("update application set status = 'ENDED', end_reason = 'STUDENT_REJECTED', ended_at = now() "
+				+ "where id = (select id from application where job_posting_id = ? and status = 'OFFERED' limit 1)",
+				newPosting);
+
+		JsonNode returnedSeatRefresh = body(post(token(capacityStudent, "STUDENT"),
+				"/api/recommendations/refresh"), 200);
+		assertThat(returnedSeatRefresh.path("refreshed").asBoolean()).isTrue();
+		assertThat(returnedSeatRefresh.path("recommendationCount").asInt()).isEqualTo(1);
+	}
+
+	@Test
+	void concurrentRefreshCreatesOnlyOneBatchForTheSameChange() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		long posting = createPosting(employer, "동시 갱신", 13000, "RECRUITING");
+		body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+		jdbc.update("update job_posting set wage_amount = 14000 where id = ?", posting);
+		String studentToken = token(student, "STUDENT");
+
+		List<JsonNode> responses = List.of(
+				postAsync(studentToken, "/api/recommendations/refresh"),
+				postAsync(studentToken, "/api/recommendations/refresh"))
+				.stream().map(CompletableFuture::join)
+				.peek(response -> assertThat(response.statusCode()).as(response.body()).isEqualTo(200))
+				.map(response -> {
+					try {
+						return mapper.readTree(response.body());
+					} catch (Exception exception) {
+						throw new IllegalStateException(exception);
+					}
+				})
+				.toList();
+
+		assertThat(responses.stream().map(response -> response.path("refreshed").asBoolean()).toList())
+				.containsExactlyInAnyOrder(true, false);
+		assertThat(jdbc.queryForObject("select count(*) from recommendation_batch where student_profile_id = ?",
+				Integer.class, student)).isEqualTo(2);
+	}
+
+	@Test
+	void refreshWithoutExistingBatchReturnsNotFound() throws Exception {
+		long student = createStudent(true);
+
+		assertError(post(token(student, "STUDENT"), "/api/recommendations/refresh"),
+				404, "RECOMMENDATION_NOT_FOUND");
+	}
+
+	@Test
 	void listsLatestValidRecommendationsInRankOrderWithCurrentPostingData() throws Exception {
 		long student = createStudent(true);
 		long employer = createUser("EMPLOYER");
@@ -270,6 +439,41 @@ class RecommendationApiIntegrationTest {
 				insert into user_account(name, role, email, preferred_language, created_at, updated_at)
 				values ('테스트 사용자', ?, ?, 'KO', now(), now()) returning id
 				""", Long.class, role, UUID.randomUUID() + "@example.com");
+	}
+
+	private void assertRefreshRequiredForListAndDetail(long student, long recommendation) throws Exception {
+		JsonNode list = body(get(token(student, "STUDENT"), "/api/recommendations"), 200);
+		assertThat(list.path("refreshRequired").asBoolean()).isTrue();
+		assertThat(list.path("recommendations").isEmpty()).isTrue();
+		assertError(get(token(student, "STUDENT"), "/api/recommendations/" + recommendation),
+				409, "RECOMMENDATION_STATE_CONFLICT");
+	}
+
+	private void assertRefreshed(long student) throws Exception {
+		JsonNode list = body(get(token(student, "STUDENT"), "/api/recommendations"), 200);
+		assertThat(list.path("refreshRequired").asBoolean()).isTrue();
+		assertThat(body(post(token(student, "STUDENT"), "/api/recommendations/refresh"), 200)
+				.path("refreshed").asBoolean()).isTrue();
+	}
+
+	private void insertApplicationForNewStudent(long posting, String status) throws Exception {
+		long student = createStudent(true);
+		body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+		long recommendation = jdbc.queryForObject("""
+				select recommendation.id from recommendation
+				join recommendation_batch on recommendation_batch.id = recommendation.batch_id
+				where recommendation_batch.student_profile_id = ? and recommendation.job_posting_id = ?
+				order by recommendation_batch.created_at desc, recommendation_batch.id desc limit 1
+				""", Long.class, student, posting);
+		insertApplication(student, recommendation, posting, status);
+	}
+
+	private void insertApplication(long student, long recommendation, long posting, String status) {
+		jdbc.update("""
+				insert into application(recommendation_id, student_profile_id, job_posting_id, desired_start_date,
+				snapshot_version, application_snapshot, status, employer_response_deadline, applied_at)
+				values (?, ?, ?, current_date + 1, 1, '{}'::jsonb, ?, now() + interval '1 day', now())
+				""", recommendation, student, posting, status);
 	}
 
 	private long createPosting(long employer, String title, int wageAmount, String status) {
