@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.hirelink.domain.recommendation.dto.RecommendationCreateResponse;
 import com.hirelink.domain.recommendation.dto.RecommendationDetailResponse;
 import com.hirelink.domain.recommendation.dto.RecommendationListResponse;
+import com.hirelink.domain.recommendation.dto.RecommendationRefreshResponse;
 import com.hirelink.domain.recommendation.service.RecommendationService;
 
 @RestController
@@ -31,6 +32,13 @@ public class RecommendationController {
 		RecommendationCreateResponse response = recommendationService.createInitialRecommendations(
 				Long.valueOf(jwt.getSubject()));
 		return ResponseEntity.status(HttpStatus.CREATED).header(HttpHeaders.CACHE_CONTROL, "no-store").body(response);
+	}
+
+	@PostMapping("/api/recommendations/refresh")
+	public ResponseEntity<RecommendationRefreshResponse> refreshRecommendations(@AuthenticationPrincipal Jwt jwt) {
+		RecommendationRefreshResponse response = recommendationService.refreshRecommendations(
+				Long.valueOf(jwt.getSubject()));
+		return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store").body(response);
 	}
 
 	@GetMapping("/api/recommendations")

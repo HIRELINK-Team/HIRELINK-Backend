@@ -78,4 +78,10 @@ public class RecommendationBatch {
 	public Instant getCreatedAt() {
 		return createdAt;
 	}
+
+	public void invalidate(Instant invalidatedAt) {
+		if (this.invalidatedAt == null) {
+			this.invalidatedAt = invalidatedAt;
+		}
+	}
 }
