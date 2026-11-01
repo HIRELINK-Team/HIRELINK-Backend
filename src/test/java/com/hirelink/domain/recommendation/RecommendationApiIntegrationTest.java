@@ -1,0 +1,345 @@
+package com.hirelink.domain.recommendation;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
+import org.springframework.security.oauth2.jwt.JwsHeader;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@Testcontainers
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+class RecommendationApiIntegrationTest {
+
+	private static final String TEST_JWT_SECRET = createTestSigningKey();
+
+	@Container
+	static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine");
+
+	@DynamicPropertySource
+	static void properties(DynamicPropertyRegistry registry) {
+		registry.add("spring.datasource.url", postgres::getJdbcUrl);
+		registry.add("spring.datasource.username", postgres::getUsername);
+		registry.add("spring.datasource.password", postgres::getPassword);
+		registry.add("jwt.secret", () -> TEST_JWT_SECRET);
+	}
+
+	@LocalServerPort
+	private int port;
+	@Autowired
+	private JdbcTemplate jdbc;
+	@Autowired
+	private ObjectMapper mapper;
+	@Autowired
+	private JwtEncoder jwtEncoder;
+	private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+
+	@BeforeEach
+	void clearTestDatabase() {
+		jdbc.execute("TRUNCATE TABLE employment_match, employment_offer, application, recommendation, recommendation_batch, "
+				+ "employer_profile, student_preferred_job, student_preferred_work_time, student_preferred_location, "
+				+ "student_job_preference, student_priority, job_posting_work_time, job_posting, workplace, student_career, "
+				+ "student_profile, user_term_agreement, phone_verification, phone_verification_send_attempt, "
+				+ "refresh_token, auth_account, user_account RESTART IDENTITY");
+	}
+
+	@Test
+	void createsAtMostThreeRecommendationsAndPersistsV1SnapshotAndReasons() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		for (int index = 0; index < 4; index++) {
+			createPosting(employer, "공고 " + index, 13000 + index, "RECRUITING");
+		}
+
+		JsonNode body = body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+
+		assertThat(body.propertyNames()).containsExactlyInAnyOrder(
+				"batchId", "generatedAt", "recommendationCount");
+		assertThat(body.path("recommendationCount").asInt()).isEqualTo(3);
+		Long batchId = body.path("batchId").asLong();
+		assertThat(jdbc.queryForObject("select algorithm_version from recommendation_batch where id = ?",
+				String.class, batchId)).isEqualTo("v1");
+		JsonNode snapshot = mapper.readTree(jdbc.queryForObject(
+				"select input_snapshot::text from recommendation_batch where id = ?", String.class, batchId));
+		assertThat(snapshot.path("priorities").size()).isEqualTo(4);
+		assertThat(snapshot.path("preferredLocation").path("radiusM").asString()).isEqualTo("3000");
+		assertThat(jdbc.queryForList(
+				"select rank from recommendation where batch_id = ? order by rank", Short.class, batchId))
+				.containsExactly((short)1, (short)2, (short)3);
+		JsonNode reason = mapper.readTree(jdbc.queryForObject(
+				"select reason_json::text from recommendation where batch_id = ? and rank = 1",
+				String.class, batchId));
+		assertThat(reason.path("recommendationReasons").isArray()).isTrue();
+		assertThat(reason.path("criterionScores").isObject()).isTrue();
+	}
+
+	@Test
+	void createsEmptyBatchAndRejectsEveryLaterInitialCreation() throws Exception {
+		long student = createStudent(true);
+
+		JsonNode created = body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+
+		assertThat(created.path("recommendationCount").asInt()).isZero();
+		assertThat(count("recommendation_batch")).isOne();
+		assertThat(count("recommendation")).isZero();
+		assertError(post(token(student, "STUDENT"), "/api/recommendations"),
+				409, "RECOMMENDATION_STATE_CONFLICT");
+		assertThat(count("recommendation_batch")).isOne();
+	}
+
+	@Test
+	void rejectsMissingRecommendationPrerequisites() throws Exception {
+		long student = createStudent(false);
+
+		assertError(post(token(student, "STUDENT"), "/api/recommendations"),
+				409, "RECOMMENDATION_STATE_CONFLICT");
+		assertThat(count("recommendation_batch")).isZero();
+	}
+
+	@Test
+	void concurrentInitialCreationStoresOnlyOneBatch() {
+		long student = createStudent(true);
+		String token = token(student, "STUDENT");
+		List<CompletableFuture<HttpResponse<String>>> requests = List.of(
+				postAsync(token, "/api/recommendations"), postAsync(token, "/api/recommendations"));
+
+		List<Integer> statuses = requests.stream().map(CompletableFuture::join)
+				.map(HttpResponse::statusCode).sorted().toList();
+
+		assertThat(statuses).containsExactly(201, 409);
+		assertThat(count("recommendation_batch")).isOne();
+	}
+
+	@Test
+	void listsLatestValidRecommendationsInRankOrderWithCurrentPostingData() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		long firstPosting = createPosting(employer, "변경 전 제목", 14000, "RECRUITING");
+		createPosting(employer, "두 번째 공고", 12000, "RECRUITING");
+		body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+		jdbc.update("update job_posting set title = '현재 제목' where id = ?", firstPosting);
+
+		JsonNode body = body(get(token(student, "STUDENT"), "/api/recommendations"), 200);
+
+		assertThat(body.path("refreshRequired").asBoolean()).isFalse();
+		assertThat(body.path("recommendations").size()).isEqualTo(2);
+		assertThat(body.path("recommendations").get(0).path("rank").asInt()).isEqualTo(1);
+		assertThat(body.path("recommendations").get(1).path("rank").asInt()).isEqualTo(2);
+		List<String> titles = new ArrayList<>();
+		body.path("recommendations").forEach(item -> titles.add(item.path("jobTitle").asString()));
+		assertThat(titles).contains("현재 제목");
+		assertThat(body.toString()).doesNotContain("phone", "representative", "businessRegistration");
+	}
+
+	@Test
+	void distinguishesEmptyBatchFromMissingBatch() throws Exception {
+		long emptyStudent = createStudent(true);
+		long noBatchStudent = createStudent(true);
+		body(post(token(emptyStudent, "STUDENT"), "/api/recommendations"), 201);
+
+		JsonNode empty = body(get(token(emptyStudent, "STUDENT"), "/api/recommendations"), 200);
+		assertThat(empty.path("refreshRequired").asBoolean()).isFalse();
+		assertThat(empty.path("recommendations").isEmpty()).isTrue();
+		long employer = createUser("EMPLOYER");
+		createPosting(employer, "새로 등록된 공고", 13000, "RECRUITING");
+		JsonNode changed = body(get(token(emptyStudent, "STUDENT"), "/api/recommendations"), 200);
+		assertThat(changed.path("refreshRequired").asBoolean()).isTrue();
+		assertThat(changed.path("recommendations").isEmpty()).isTrue();
+		assertError(get(token(noBatchStudent, "STUDENT"), "/api/recommendations"),
+				404, "RECOMMENDATION_NOT_FOUND");
+	}
+
+	@Test
+	void returnsDetailFromStoredScoreAndReasonsAndBlocksAnotherStudent() throws Exception {
+		long owner = createStudent(true);
+		long other = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		long posting = createPosting(employer, "상세 공고", 15000, "RECRUITING");
+		body(post(token(owner, "STUDENT"), "/api/recommendations"), 201);
+		long recommendation = jdbc.queryForObject(
+				"select id from recommendation where job_posting_id = ?", Long.class, posting);
+		String storedScore = jdbc.queryForObject("select score::text from recommendation where id = ?",
+				String.class, recommendation);
+
+		JsonNode detail = body(get(token(owner, "STUDENT"), "/api/recommendations/" + recommendation), 200);
+
+		assertThat(detail.path("recommendationId").asLong()).isEqualTo(recommendation);
+		assertThat(detail.path("matchScore").decimalValue()).isEqualByComparingTo(storedScore);
+		assertThat(detail.path("recommendationReasons").isArray()).isTrue();
+		assertThat(detail.path("workplaceName").asString()).isEqualTo("테스트 사업장");
+		assertThat(detail.toString()).doesNotContain("phone", "representative", "businessRegistration");
+		assertError(get(token(other, "STUDENT"), "/api/recommendations/" + recommendation),
+				403, "FORBIDDEN");
+	}
+
+	@Test
+	void requiresRefreshForChangedMatchingStateAndRejectsInvalidDetail() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		long posting = createPosting(employer, "급여 변경 공고", 13000, "RECRUITING");
+		body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+		long recommendation = jdbc.queryForObject(
+				"select id from recommendation where job_posting_id = ?", Long.class, posting);
+		jdbc.update("update job_posting set wage_amount = 9000 where id = ?", posting);
+
+		JsonNode list = body(get(token(student, "STUDENT"), "/api/recommendations"), 200);
+
+		assertThat(list.path("refreshRequired").asBoolean()).isTrue();
+		assertThat(list.path("recommendations").isEmpty()).isTrue();
+		assertError(get(token(student, "STUDENT"), "/api/recommendations/" + recommendation),
+				409, "RECOMMENDATION_STATE_CONFLICT");
+	}
+
+	@Test
+	void rejectsRecommendationFromOlderBatch() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		long posting = createPosting(employer, "이전 추천", 13000, "RECRUITING");
+		JsonNode created = body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+		long recommendation = jdbc.queryForObject(
+				"select id from recommendation where job_posting_id = ?", Long.class, posting);
+		jdbc.update("""
+				insert into recommendation_batch(student_profile_id, algorithm_version, input_snapshot, created_at)
+				select student_profile_id, algorithm_version, input_snapshot, created_at + interval '1 second'
+				from recommendation_batch where id = ?
+				""", created.path("batchId").asLong());
+
+		assertError(get(token(student, "STUDENT"), "/api/recommendations/" + recommendation),
+				409, "RECOMMENDATION_STATE_CONFLICT");
+	}
+
+	private long createStudent(boolean completePreferences) {
+		long user = createUser("STUDENT");
+		jdbc.update("""
+				insert into student_profile(id, birth_date, nationality, current_region, korean_level)
+				values (?, '2000-01-01', 'VN', '서울', 'INTERMEDIATE')
+				""", user);
+		if (!completePreferences) {
+			return user;
+		}
+		jdbc.update("insert into student_job_preference(user_id, minimum_hourly_wage, business_type_flexible) "
+				+ "values (?, 12000, false)", user);
+		jdbc.update("insert into student_preferred_job(user_id, business_type_id) values (?, 1)", user);
+		jdbc.update("""
+				insert into student_preferred_work_time(user_id, day_of_week, start_time, end_time)
+				values (?, 'MON', '09:00', '18:00')
+				""", user);
+		jdbc.update("""
+				insert into student_preferred_location(user_id, location_name, latitude, longitude, radius_m)
+				values (?, '테스트 위치', 37.5000000, 127.0000000, 3000)
+				""", user);
+		for (int criterion = 1; criterion <= 4; criterion++) {
+			jdbc.update("""
+					insert into student_priority(user_id, criterion_id, priority_order, weight)
+					values (?, ?, ?, null)
+					""", user, criterion, criterion);
+		}
+		return user;
+	}
+
+	private long createUser(String role) {
+		return jdbc.queryForObject("""
+				insert into user_account(name, role, email, preferred_language, created_at, updated_at)
+				values ('테스트 사용자', ?, ?, 'KO', now(), now()) returning id
+				""", Long.class, role, UUID.randomUUID() + "@example.com");
+	}
+
+	private long createPosting(long employer, String title, int wageAmount, String status) {
+		Long workplace = jdbc.queryForObject("""
+				insert into workplace(employer_user_id, workplace_name, business_type_id, workplace_address,
+				latitude, longitude, business_registration_number, employee_count_range)
+				values (?, '테스트 사업장', 1, '서울 테스트로 1', 37.5010000, 127.0010000, ?, '1_4') returning id
+				""", Long.class, employer, UUID.randomUUID().toString().substring(0, 20));
+		Long posting = jdbc.queryForObject("""
+				insert into job_posting(workplace_id, business_type_id, title, wage_type, wage_amount, status,
+				application_deadline_date, created_at, updated_at)
+				values (?, 1, ?, 'HOURLY', ?, ?, ?, now(), now()) returning id
+				""", Long.class, workplace, title, wageAmount, status, LocalDate.now().plusDays(7));
+		jdbc.update("""
+				insert into job_posting_work_time(job_posting_id, day_of_week, start_time, end_time)
+				values (?, 'MON', '10:00', '17:00')
+				""", posting);
+		return posting;
+	}
+
+	private HttpResponse<String> post(String token, String path) throws Exception {
+		return client.send(request(token, path).POST(HttpRequest.BodyPublishers.noBody()).build(),
+				HttpResponse.BodyHandlers.ofString());
+	}
+
+	private CompletableFuture<HttpResponse<String>> postAsync(String token, String path) {
+		return client.sendAsync(request(token, path).POST(HttpRequest.BodyPublishers.noBody()).build(),
+				HttpResponse.BodyHandlers.ofString());
+	}
+
+	private HttpResponse<String> get(String token, String path) throws Exception {
+		return client.send(request(token, path).GET().build(), HttpResponse.BodyHandlers.ofString());
+	}
+
+	private HttpRequest.Builder request(String token, String path) {
+		HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+				.timeout(Duration.ofSeconds(15));
+		if (token != null) {
+			request.header("Authorization", "Bearer " + token);
+		}
+		return request;
+	}
+
+	private JsonNode body(HttpResponse<String> response, int status) throws Exception {
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(status);
+		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+		return mapper.readTree(response.body());
+	}
+
+	private void assertError(HttpResponse<String> response, int status, String code) throws Exception {
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(status);
+		assertThat(mapper.readTree(response.body()).path("code").asString()).isEqualTo(code);
+	}
+
+	private int count(String table) {
+		return jdbc.queryForObject("select count(*) from " + table, Integer.class);
+	}
+
+	private String token(long userId, String role) {
+		Instant now = Instant.now();
+		JwtClaimsSet claims = JwtClaimsSet.builder().issuer("hirelink").subject(String.valueOf(userId)).issuedAt(now)
+				.notBefore(now).expiresAt(now.plusSeconds(3600)).id(UUID.randomUUID().toString())
+				.claim("role", role).claim("token_type", "access").build();
+		return jwtEncoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims))
+				.getTokenValue();
+	}
+
+	private static String createTestSigningKey() {
+		byte[] key = new byte[32];
+		new SecureRandom().nextBytes(key);
+		return Base64.getEncoder().encodeToString(key);
+	}
+}
