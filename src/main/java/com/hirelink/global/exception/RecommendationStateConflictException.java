@@ -5,4 +5,8 @@ public class RecommendationStateConflictException extends RuntimeException {
 	public RecommendationStateConflictException() {
 		super("유효한 추천으로만 지원할 수 있습니다.");
 	}
+
+	public RecommendationStateConflictException(String message) {
+		super(message);
+	}
 }

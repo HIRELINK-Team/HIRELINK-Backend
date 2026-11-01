@@ -16,6 +16,17 @@ import com.hirelink.domain.application.entity.ApplicationStatus;
 
 public interface ApplicationRepository extends JpaRepository<Application, Long> {
 
+	@Query("select application.jobPosting.id from Application application where application.studentProfile.id = :studentProfileId")
+	List<Long> findAppliedJobPostingIds(@Param("studentProfileId") Long studentProfileId);
+
+	@Query("""
+			select application.jobPosting.id, count(application)
+			from Application application
+			where application.status in :statuses
+			group by application.jobPosting.id
+			""")
+	List<Object[]> countActiveReviewsByJobPosting(@Param("statuses") Collection<ApplicationStatus> statuses);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select application from Application application where application.id = :id")
 	Optional<Application> findByIdForUpdate(@Param("id") Long id);

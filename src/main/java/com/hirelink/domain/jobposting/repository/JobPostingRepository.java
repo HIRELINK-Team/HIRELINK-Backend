@@ -6,6 +6,7 @@ import java.util.Optional;
 import jakarta.persistence.LockModeType;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -14,6 +15,10 @@ import com.hirelink.domain.jobposting.entity.JobPosting;
 import com.hirelink.domain.jobposting.entity.JobPostingStatus;
 
 public interface JobPostingRepository extends JpaRepository<JobPosting, Long> {
+
+	@EntityGraph(attributePaths = {"workplace", "businessType"})
+	@Query("select posting from JobPosting posting")
+	List<JobPosting> findAllForRecommendation();
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select posting from JobPosting posting where posting.id = :id")
