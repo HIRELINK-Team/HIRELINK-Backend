@@ -14,6 +14,12 @@ import org.springframework.security.authentication.AuthenticationCredentialsNotF
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hirelink.domain.application.entity.Application;
+import com.hirelink.domain.application.entity.ApplicationStatus;
+import com.hirelink.domain.application.repository.ApplicationRepository;
+import com.hirelink.domain.employmentoffer.entity.EmploymentOffer;
+import com.hirelink.domain.employmentoffer.entity.EmploymentOfferStatus;
+import com.hirelink.domain.employmentoffer.repository.EmploymentOfferRepository;
 import com.hirelink.domain.jobposting.dto.JobPostingCloseResponse;
 import com.hirelink.domain.jobposting.dto.JobPostingCreateRequest;
 import com.hirelink.domain.jobposting.dto.JobPostingCreateResponse;
@@ -54,15 +60,20 @@ public class JobPostingService {
 	private final JobPostingWorkTimeRepository workTimeRepository;
 	private final WorkplaceRepository workplaceRepository;
 	private final BusinessTypeRepository businessTypeRepository;
+	private final ApplicationRepository applicationRepository;
+	private final EmploymentOfferRepository employmentOfferRepository;
 
 	public JobPostingService(UserAccountRepository userAccountRepository, JobPostingRepository jobPostingRepository,
 			JobPostingWorkTimeRepository workTimeRepository, WorkplaceRepository workplaceRepository,
-			BusinessTypeRepository businessTypeRepository) {
+			BusinessTypeRepository businessTypeRepository, ApplicationRepository applicationRepository,
+			EmploymentOfferRepository employmentOfferRepository) {
 		this.userAccountRepository = userAccountRepository;
 		this.jobPostingRepository = jobPostingRepository;
 		this.workTimeRepository = workTimeRepository;
 		this.workplaceRepository = workplaceRepository;
 		this.businessTypeRepository = businessTypeRepository;
+		this.applicationRepository = applicationRepository;
+		this.employmentOfferRepository = employmentOfferRepository;
 	}
 
 	@Transactional
@@ -182,6 +193,18 @@ public class JobPostingService {
 			throw new JobPostingStateConflictException("모집 중인 공고만 마감할 수 있습니다.");
 		}
 		posting.closeRecruitment();
+		List<Application> activeApplications = applicationRepository.findAllByJobPostingIdAndStatusInForUpdate(
+				jobPostingId, List.of(ApplicationStatus.WAITING_RESPONSE, ApplicationStatus.OFFERED));
+		List<Long> offeredApplicationIds = activeApplications.stream()
+				.filter(application -> application.getStatus() == ApplicationStatus.OFFERED)
+				.map(Application::getId)
+				.toList();
+		if (!offeredApplicationIds.isEmpty()) {
+			List<EmploymentOffer> pendingOffers = employmentOfferRepository
+					.findAllByApplicationIdInAndStatusForUpdate(offeredApplicationIds, EmploymentOfferStatus.PENDING);
+			pendingOffers.forEach(offer -> offer.closeBecauseJobPostingClosed(posting.getClosedAt()));
+		}
+		activeApplications.forEach(application -> application.closeBecauseJobPostingClosed(posting.getClosedAt()));
 		jobPostingRepository.flush();
 		return new JobPostingCloseResponse(posting.getId(), posting.getStatus(), posting.getClosedAt());
 	}

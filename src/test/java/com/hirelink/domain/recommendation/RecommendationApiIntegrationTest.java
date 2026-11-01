@@ -405,6 +405,71 @@ class RecommendationApiIntegrationTest {
 				409, "RECOMMENDATION_STATE_CONFLICT");
 	}
 
+	@Test
+	void connectsRecommendationApplicationOfferAcceptanceAndMatchQueries() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		jdbc.update("update user_account set name = '통합 유학생', phone_number = '01011111111', "
+				+ "phone_verified_at = now() where id = ?", student);
+		jdbc.update("update user_account set name = '통합 사업주', phone_number = '01022222222', "
+				+ "phone_verified_at = now() where id = ?", employer);
+		long posting = createPosting(employer, "연결 검증 공고", 13000, "RECRUITING");
+		String studentToken = token(student, "STUDENT");
+		String employerToken = token(employer, "EMPLOYER");
+
+		JsonNode createdBatch = body(post(studentToken, "/api/recommendations"), 201);
+		assertThat(createdBatch.path("recommendationCount").asInt()).isOne();
+		JsonNode recommendationList = body(get(studentToken, "/api/recommendations"), 200);
+		long recommendationId = recommendationList.path("recommendations").get(0)
+				.path("recommendationId").asLong();
+		assertThat(recommendationList.path("refreshRequired").asBoolean()).isFalse();
+		assertThat(body(get(studentToken, "/api/recommendations/" + recommendationId), 200)
+				.path("jobPostingId").asLong()).isEqualTo(posting);
+
+		String applicationRequest = "{\"recommendationId\":" + recommendationId
+				+ ",\"desiredStartDate\":\"" + LocalDate.now().plusDays(1) + "\"}";
+		JsonNode createdApplication = body(send("POST", "/api/applications", studentToken, applicationRequest), 201);
+		long applicationId = createdApplication.path("applicationId").asLong();
+		assertThat(createdApplication.path("status").asString()).isEqualTo("WAITING_RESPONSE");
+		assertThat(body(get(studentToken, "/api/applications/me"), 200)
+				.path("applications").get(0).path("applicationId").asLong()).isEqualTo(applicationId);
+
+		JsonNode employerApplications = body(get(employerToken,
+				"/api/job-postings/" + posting + "/applications"), 200);
+		assertThat(employerApplications.path("occupiedCount").asInt()).isOne();
+		assertThat(employerApplications.path("applications").get(0).path("applicationId").asLong())
+				.isEqualTo(applicationId);
+		JsonNode employerApplicationDetail = body(get(employerToken,
+				"/api/employer/applications/" + applicationId), 200);
+		assertThat(employerApplicationDetail.path("applicant").path("name").asString()).isEqualTo("통합 유학생");
+		assertThat(employerApplicationDetail.toString()).doesNotContain("phone", "contact");
+
+		JsonNode createdOffer = body(send("POST", "/api/applications/" + applicationId + "/offers",
+				employerToken, null), 201);
+		long offerId = createdOffer.path("offerId").asLong();
+		assertThat(createdOffer.path("applicationStatus").asString()).isEqualTo("OFFERED");
+		assertThat(body(get(studentToken, "/api/applications/" + applicationId), 200)
+				.path("offerId").asLong()).isEqualTo(offerId);
+
+		JsonNode accepted = body(send("PATCH", "/api/offers/" + offerId + "/accept", studentToken, null), 200);
+		long matchId = accepted.path("employmentMatchId").asLong();
+		assertThat(accepted.path("applicationStatus").asString()).isEqualTo("COMPLETED");
+		assertThat(body(get(studentToken, "/api/matches/me"), 200)
+				.path("matches").get(0).path("matchId").asLong()).isEqualTo(matchId);
+		JsonNode studentMatchDetail = body(get(studentToken, "/api/matches/" + matchId), 200);
+		assertThat(studentMatchDetail.path("contact").path("name").asString()).isEqualTo("통합 사업주");
+		assertThat(studentMatchDetail.path("contact").path("phoneNumber").asString()).isEqualTo("010-2222-2222");
+
+		assertThat(body(get(employerToken, "/api/matches/me"), 200)
+				.path("matches").get(0).path("matchId").asLong()).isEqualTo(matchId);
+		JsonNode employerMatchDetail = body(get(employerToken, "/api/matches/" + matchId), 200);
+		assertThat(employerMatchDetail.path("contact").path("name").asString()).isEqualTo("통합 유학생");
+		assertThat(employerMatchDetail.path("contact").path("phoneNumber").asString()).isEqualTo("010-1111-1111");
+		assertThat(jdbc.queryForObject("select status from application where id = ?", String.class, applicationId))
+				.isEqualTo("COMPLETED");
+		assertThat(count("employment_match")).isOne();
+	}
+
 	private long createStudent(boolean completePreferences) {
 		long user = createUser("STUDENT");
 		jdbc.update("""
@@ -506,6 +571,17 @@ class RecommendationApiIntegrationTest {
 
 	private HttpResponse<String> get(String token, String path) throws Exception {
 		return client.send(request(token, path).GET().build(), HttpResponse.BodyHandlers.ofString());
+	}
+
+	private HttpResponse<String> send(String method, String path, String token, String json) throws Exception {
+		HttpRequest.Builder request = request(token, path);
+		if (json == null) {
+			request.method(method, HttpRequest.BodyPublishers.noBody());
+		} else {
+			request.header("Content-Type", "application/json")
+					.method(method, HttpRequest.BodyPublishers.ofString(json));
+		}
+		return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
 	}
 
 	private HttpRequest.Builder request(String token, String path) {

@@ -180,4 +180,14 @@ public class Application {
 		endReason = ApplicationEndReason.STUDENT_REJECTED;
 		this.endedAt = endedAt;
 	}
+
+	public boolean closeBecauseJobPostingClosed(Instant endedAt) {
+		if (status != ApplicationStatus.WAITING_RESPONSE && status != ApplicationStatus.OFFERED) {
+			return false;
+		}
+		status = ApplicationStatus.ENDED;
+		endReason = ApplicationEndReason.JOB_POSTING_CLOSED;
+		this.endedAt = endedAt;
+		return true;
+	}
 }

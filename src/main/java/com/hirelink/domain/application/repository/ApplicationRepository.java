@@ -43,6 +43,15 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
 	List<Application> findAllByJobPostingIdAndStatusOrderByAppliedAtDescIdDesc(Long jobPostingId,
 			ApplicationStatus status);
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+			select application from Application application
+			where application.jobPosting.id = :jobPostingId and application.status in :statuses
+			order by application.id
+			""")
+	List<Application> findAllByJobPostingIdAndStatusInForUpdate(@Param("jobPostingId") Long jobPostingId,
+			@Param("statuses") Collection<ApplicationStatus> statuses);
+
 	List<Application> findAllByStudentProfileIdAndStatusInOrderByAppliedAtDescIdDesc(Long studentProfileId,
 			Collection<ApplicationStatus> statuses);
 

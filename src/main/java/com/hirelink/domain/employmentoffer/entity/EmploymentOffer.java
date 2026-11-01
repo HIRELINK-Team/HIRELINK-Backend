@@ -108,4 +108,14 @@ public class EmploymentOffer {
 		status = EmploymentOfferStatus.ACCEPTED;
 		respondedAt = processedAt;
 	}
+
+	public boolean closeBecauseJobPostingClosed(Instant endedAt) {
+		if (status != EmploymentOfferStatus.PENDING) {
+			return false;
+		}
+		status = EmploymentOfferStatus.EXPIRED;
+		endReason = EmploymentOfferEndReason.JOB_POSTING_CLOSED;
+		this.endedAt = endedAt;
+		return true;
+	}
 }
