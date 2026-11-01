@@ -19,6 +19,7 @@ import com.hirelink.domain.member.repository.UserAccountRepository;
 import com.hirelink.domain.recommendation.dto.RecommendationCreateResponse;
 import com.hirelink.domain.recommendation.dto.RecommendationDetailResponse;
 import com.hirelink.domain.recommendation.dto.RecommendationListResponse;
+import com.hirelink.domain.recommendation.dto.RecommendationRefreshResponse;
 import com.hirelink.domain.recommendation.dto.RecommendationWorkTimeResponse;
 import com.hirelink.domain.recommendation.entity.Recommendation;
 import com.hirelink.domain.recommendation.entity.RecommendationBatch;
@@ -70,19 +71,30 @@ public class RecommendationService {
 				.orElseThrow(() -> new RecommendationStateConflictException(
 						"추천에 필요한 프로필, 매칭 조건, 우선순위를 모두 등록해주세요."));
 		RecommendationCalculationService.Calculation calculation = calculationService.calculate(userId);
-		Instant generatedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
-		RecommendationBatch batch = batchRepository.save(new RecommendationBatch(
-				profile, ALGORITHM_VERSION, calculation.inputSnapshot(), null, generatedAt));
-		List<Recommendation> recommendations = new java.util.ArrayList<>();
-		for (int index = 0; index < calculation.results().size(); index++) {
-			RecommendationResult result = calculation.results().get(index);
-			JobPosting posting = calculation.postings().get(result.jobPostingId());
-			recommendations.add(new Recommendation(batch, posting, (short)(index + 1), result.matchScore(),
-					validityChecker.reasonSnapshot(result), generatedAt));
+		SavedBatch saved = saveBatch(profile, calculation);
+		return new RecommendationCreateResponse(saved.batch().getId(), saved.batch().getCreatedAt(),
+				saved.recommendationCount());
+	}
+
+	@Transactional
+	public RecommendationRefreshResponse refreshRecommendations(Long userId) {
+		UserAccount student = userAccountRepository.findByIdForUpdate(userId)
+				.orElseThrow(() -> new AuthenticationCredentialsNotFoundException("로그인이 필요합니다."));
+		validateStudent(student);
+		RecommendationBatch currentBatch = latestBatch(userId);
+		List<Recommendation> currentRecommendations = recommendationRepository
+				.findAllByBatchIdOrderByRankAsc(currentBatch.getId());
+		RecommendationCalculationService.Calculation calculation = calculationService.calculate(userId);
+		if (!validityChecker.isRefreshRequired(currentBatch, currentRecommendations, calculation)) {
+			return new RecommendationRefreshResponse(currentBatch.getId(), currentBatch.getCreatedAt(),
+					currentRecommendations.size(), false);
 		}
-		recommendationRepository.saveAll(recommendations);
-		batchRepository.flush();
-		return new RecommendationCreateResponse(batch.getId(), batch.getCreatedAt(), recommendations.size());
+
+		Instant invalidatedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		currentBatch.invalidate(invalidatedAt);
+		SavedBatch saved = saveBatch(currentBatch.getStudentProfile(), calculation);
+		return new RecommendationRefreshResponse(saved.batch().getId(), saved.batch().getCreatedAt(),
+				saved.recommendationCount(), true);
 	}
 
 	@Transactional(readOnly = true)
@@ -129,6 +141,22 @@ public class RecommendationService {
 				validityChecker.recommendationReasons(recommendation.getReasonJson()));
 	}
 
+	private SavedBatch saveBatch(StudentProfile profile, RecommendationCalculationService.Calculation calculation) {
+		Instant generatedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		RecommendationBatch batch = batchRepository.save(new RecommendationBatch(
+				profile, ALGORITHM_VERSION, calculation.inputSnapshot(), null, generatedAt));
+		List<Recommendation> recommendations = new java.util.ArrayList<>();
+		for (int index = 0; index < calculation.results().size(); index++) {
+			RecommendationResult result = calculation.results().get(index);
+			JobPosting posting = calculation.postings().get(result.jobPostingId());
+			recommendations.add(new Recommendation(batch, posting, (short)(index + 1), result.matchScore(),
+					validityChecker.reasonSnapshot(result), generatedAt));
+		}
+		recommendationRepository.saveAll(recommendations);
+		batchRepository.flush();
+		return new SavedBatch(batch, recommendations.size());
+	}
+
 	private RecommendationDetailResponse detail(Recommendation recommendation) {
 		JobPosting posting = recommendation.getJobPosting();
 		RecommendationBatch batch = recommendation.getBatch();
@@ -166,5 +194,8 @@ public class RecommendationService {
 		if (user.getRole() != MemberRole.STUDENT) {
 			throw new AccessDeniedException("유학생 계정만 추천을 이용할 수 있습니다.");
 		}
+	}
+
+	private record SavedBatch(RecommendationBatch batch, int recommendationCount) {
 	}
 }

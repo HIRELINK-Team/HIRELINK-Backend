@@ -78,13 +78,16 @@ public class RecommendationCalculationService {
 
 	public Calculation calculate(Long studentProfileId) {
 		RecommendationPreference preference = loadPreference(studentProfileId);
-		Map<String, Object> inputSnapshot = createInputSnapshot(studentProfileId, preference);
 		Map<Long, JobPosting> postings = jobPostingRepository.findAllForRecommendation().stream()
+				.sorted(Comparator.comparing(JobPosting::getId))
 				.collect(Collectors.toMap(JobPosting::getId, Function.identity(), (first, second) -> first,
 						LinkedHashMap::new));
-		List<RecommendationCandidate> candidates = createCandidates(studentProfileId, postings);
+		CandidateContext candidateContext = createCandidateContext(studentProfileId, postings);
+		List<RecommendationCandidate> candidates = candidateContext.candidates();
 		List<RecommendationResult> results = recommendationGenerator.generate(
 				candidates, preference, LocalDate.now(KOREA_ZONE));
+		Map<String, Object> inputSnapshot = createInputSnapshot(studentProfileId, preference, postings,
+				candidateContext);
 		return new Calculation(inputSnapshot, results, postings);
 	}
 
@@ -94,7 +97,10 @@ public class RecommendationCalculationService {
 		}
 		StudentJobPreference jobPreference = jobPreferenceRepository.findById(studentProfileId)
 				.orElseThrow(this::incompleteProfile);
-		List<StudentPreferredJob> preferredJobs = preferredJobRepository.findAllByUserId(studentProfileId);
+		List<StudentPreferredJob> preferredJobs = preferredJobRepository.findAllByUserId(studentProfileId).stream()
+				.sorted(Comparator.comparing((StudentPreferredJob job) -> job.getBusinessType().getId())
+						.thenComparing(job -> job.getOtherJobName() == null ? "" : job.getOtherJobName()))
+				.toList();
 		List<StudentPreferredWorkTime> preferredWorkTimes = preferredWorkTimeRepository
 				.findAllByUserId(studentProfileId).stream()
 				.sorted(Comparator.comparing(StudentPreferredWorkTime::getDayOfWeek)
@@ -139,7 +145,7 @@ public class RecommendationCalculationService {
 				jobPreference.isBusinessTypeFlexible(), businessTypes, criteria);
 	}
 
-	private List<RecommendationCandidate> createCandidates(Long studentProfileId, Map<Long, JobPosting> postings) {
+	private CandidateContext createCandidateContext(Long studentProfileId, Map<Long, JobPosting> postings) {
 		List<Long> postingIds = new ArrayList<>(postings.keySet());
 		Map<Long, List<RecommendationTimeRange>> workTimesByPosting = new HashMap<>();
 		if (!postingIds.isEmpty()) {
@@ -154,7 +160,7 @@ public class RecommendationCalculationService {
 		for (Object[] row : applicationRepository.countActiveReviewsByJobPosting(ACTIVE_REVIEW_STATUSES)) {
 			activeReviewCounts.put(((Number)row[0]).longValue(), ((Number)row[1]).longValue());
 		}
-		return postings.values().stream()
+		List<RecommendationCandidate> candidates = postings.values().stream()
 				.map(posting -> new RecommendationCandidate(posting.getId(), posting.getStatus(),
 						posting.getApplicationDeadlineDate(), activeReviewCounts.getOrDefault(posting.getId(), 0L),
 						appliedPostingIds.contains(posting.getId()), posting.getWorkplace().getLatitude(),
@@ -162,11 +168,13 @@ public class RecommendationCalculationService {
 						posting.getBusinessType() == null ? null : posting.getBusinessType().getName(),
 						posting.getOtherJobName(), workTimesByPosting.getOrDefault(posting.getId(), List.of())))
 				.toList();
+		return new CandidateContext(candidates, workTimesByPosting, appliedPostingIds, activeReviewCounts);
 	}
 
-	private Map<String, Object> createInputSnapshot(Long studentProfileId, RecommendationPreference preference) {
+	private Map<String, Object> createInputSnapshot(Long studentProfileId, RecommendationPreference preference,
+			Map<Long, JobPosting> postings, CandidateContext candidateContext) {
 		Map<String, Object> snapshot = new LinkedHashMap<>();
-		snapshot.put("version", "1");
+		snapshot.put("version", "2");
 		snapshot.put("studentProfileId", studentProfileId.toString());
 		snapshot.put("businessTypeFlexible", preference.businessTypeFlexible());
 		snapshot.put("preferredJobs", preference.preferredBusinessTypes().stream()
@@ -188,7 +196,49 @@ public class RecommendationCalculationService {
 		snapshot.put("minimumHourlyWage", preference.minimumHourlyWage() == null
 				? null : preference.minimumHourlyWage().toString());
 		snapshot.put("priorities", preference.priorities().stream().map(Enum::name).toList());
+		snapshot.put("priorityWeights", java.util.stream.IntStream.range(0, preference.priorities().size())
+				.mapToObj(index -> {
+					Map<String, Object> value = new LinkedHashMap<>();
+					value.put("criterion", preference.priorities().get(index).name());
+					value.put("priorityOrder", Integer.toString(index + 1));
+					value.put("weight", RecommendationPolicyV1.priorityWeight(index + 1).toPlainString());
+					return value;
+				})
+				.toList());
+		snapshot.put("jobPostings", postings.values().stream()
+				.map(posting -> postingSnapshot(posting, candidateContext))
+				.toList());
+		snapshot.put("appliedJobPostingIds", candidateContext.appliedPostingIds().stream().sorted().map(String::valueOf)
+				.toList());
 		return snapshot;
+	}
+
+	private Map<String, Object> postingSnapshot(JobPosting posting, CandidateContext candidateContext) {
+		Map<String, Object> value = new LinkedHashMap<>();
+		value.put("jobPostingId", posting.getId().toString());
+		value.put("updatedAt", posting.getUpdatedAt().toString());
+		value.put("status", posting.getStatus().name());
+		value.put("applicationDeadlineDate", posting.getApplicationDeadlineDate() == null
+				? null : posting.getApplicationDeadlineDate().toString());
+		value.put("deadlineClosed", posting.getApplicationDeadlineDate() != null
+				&& posting.getApplicationDeadlineDate().isBefore(LocalDate.now(KOREA_ZONE)));
+		value.put("activeReviewCount", candidateContext.activeReviewCounts().getOrDefault(posting.getId(), 0L).toString());
+		value.put("wageType", posting.getWageType());
+		value.put("wageAmount", posting.getWageAmount() == null ? null : posting.getWageAmount().toString());
+		value.put("businessType", posting.getBusinessType() == null ? null : posting.getBusinessType().getName());
+		value.put("otherJobName", posting.getOtherJobName());
+		Map<String, Object> workplace = new LinkedHashMap<>();
+		workplace.put("workplaceId", posting.getWorkplace().getId().toString());
+		workplace.put("latitude", decimalSnapshot(posting.getWorkplace().getLatitude()));
+		workplace.put("longitude", decimalSnapshot(posting.getWorkplace().getLongitude()));
+		value.put("workplace", workplace);
+		value.put("workTimes", candidateContext.workTimesByPosting().getOrDefault(posting.getId(), List.of()).stream()
+				.sorted(Comparator.comparing(RecommendationTimeRange::dayOfWeek)
+						.thenComparing(RecommendationTimeRange::startTime)
+						.thenComparing(RecommendationTimeRange::endTime))
+				.map(time -> workTimeSnapshot(time.dayOfWeek(), time.startTime().toString(), time.endTime().toString()))
+				.toList());
+		return value;
 	}
 
 	private Map<String, Object> workTimeSnapshot(String dayOfWeek, String startTime, String endTime) {
@@ -211,5 +261,12 @@ public class RecommendationCalculationService {
 			Map<String, Object> inputSnapshot,
 			List<RecommendationResult> results,
 			Map<Long, JobPosting> postings) {
+	}
+
+	private record CandidateContext(
+			List<RecommendationCandidate> candidates,
+			Map<Long, List<RecommendationTimeRange>> workTimesByPosting,
+			Set<Long> appliedPostingIds,
+			Map<Long, Long> activeReviewCounts) {
 	}
 }

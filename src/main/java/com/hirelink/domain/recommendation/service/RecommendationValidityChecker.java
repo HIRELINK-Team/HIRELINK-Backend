@@ -20,10 +20,14 @@ public class RecommendationValidityChecker {
 
 	public boolean isRefreshRequired(Long studentProfileId, RecommendationBatch batch,
 			List<Recommendation> storedRecommendations) {
+		return isRefreshRequired(batch, storedRecommendations, calculationService.calculate(studentProfileId));
+	}
+
+	public boolean isRefreshRequired(RecommendationBatch batch, List<Recommendation> storedRecommendations,
+			RecommendationCalculationService.Calculation current) {
 		if (batch.getInvalidatedAt() != null) {
 			return true;
 		}
-		RecommendationCalculationService.Calculation current = calculationService.calculate(studentProfileId);
 		if (!current.inputSnapshot().equals(batch.getInputSnapshot())) {
 			return true;
 		}
