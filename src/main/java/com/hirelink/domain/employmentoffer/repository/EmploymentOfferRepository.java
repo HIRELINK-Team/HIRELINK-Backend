@@ -1,5 +1,7 @@
 package com.hirelink.domain.employmentoffer.repository;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import jakarta.persistence.LockModeType;
@@ -10,6 +12,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.hirelink.domain.employmentoffer.entity.EmploymentOffer;
+import com.hirelink.domain.employmentoffer.entity.EmploymentOfferStatus;
 
 public interface EmploymentOfferRepository extends JpaRepository<EmploymentOffer, Long> {
 
@@ -23,4 +26,14 @@ public interface EmploymentOfferRepository extends JpaRepository<EmploymentOffer
 	boolean existsByApplicationId(Long applicationId);
 
 	Optional<EmploymentOffer> findByApplicationId(Long applicationId);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+			select offer from EmploymentOffer offer
+			where offer.application.id in :applicationIds and offer.status = :status
+			order by offer.id
+			""")
+	List<EmploymentOffer> findAllByApplicationIdInAndStatusForUpdate(
+			@Param("applicationIds") Collection<Long> applicationIds,
+			@Param("status") EmploymentOfferStatus status);
 }
