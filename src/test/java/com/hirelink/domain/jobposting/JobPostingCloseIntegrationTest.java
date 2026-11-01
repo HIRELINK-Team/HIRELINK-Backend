@@ -143,6 +143,41 @@ class JobPostingCloseIntegrationTest {
 	}
 
 	@Test
+	void closesActiveApplicationsAndPendingOffersWhilePreservingCompletedMatch() throws Exception {
+		CloseFixture waiting = createApplication("WAITING_RESPONSE", null, false);
+		CloseFixture offered = createApplication("OFFERED", "PENDING", false);
+		CloseFixture completed = createApplication("COMPLETED", "ACCEPTED", true);
+
+		JsonNode closed = mapper.readTree(close(accessToken, Long.toString(posting)).body());
+		Instant closedAt = Instant.parse(closed.path("closedAt").asString());
+
+		assertClosedApplication(waiting.applicationId(), closedAt);
+		assertClosedApplication(offered.applicationId(), closedAt);
+		Map<String, Object> pendingOffer = jdbc.queryForMap("select * from employment_offer where id = ?",
+				offered.offerId());
+		assertThat(pendingOffer.get("status")).isEqualTo("EXPIRED");
+		assertThat(pendingOffer.get("end_reason")).isEqualTo("JOB_POSTING_CLOSED");
+		assertThat(pendingOffer.get("responded_at")).isNull();
+		Instant offerEndedAt = jdbc.queryForObject("select ended_at from employment_offer where id = ?",
+				OffsetDateTime.class, offered.offerId()).toInstant();
+		assertThat(Duration.between(closedAt, offerEndedAt).abs())
+				.isLessThan(Duration.ofMillis(1));
+
+		assertThat(jdbc.queryForMap("select status, end_reason, ended_at from application where id = ?",
+				completed.applicationId()))
+				.containsEntry("status", "COMPLETED")
+				.containsEntry("end_reason", null)
+				.containsEntry("ended_at", null);
+		assertThat(jdbc.queryForMap("select status, end_reason, ended_at from employment_offer where id = ?",
+				completed.offerId()))
+				.containsEntry("status", "ACCEPTED")
+				.containsEntry("end_reason", null)
+				.containsEntry("ended_at", null);
+		assertThat(jdbc.queryForObject("select count(*) from employment_match where id = ?", Integer.class,
+				completed.matchId())).isOne();
+	}
+
+	@Test
 	void rejectsDraftRepeatAndReopeningWithoutChangingSavedValues() throws Exception {
 		jdbc.update("update job_posting set status = 'DRAFT' where id = ?", posting);
 		Map<String, List<Map<String, Object>>> before = snapshot();
@@ -235,6 +270,49 @@ class JobPostingCloseIntegrationTest {
 				Long.class, UUID.randomUUID() + "@example.com", role);
 	}
 
+	private CloseFixture createApplication(String applicationStatus, String offerStatus, boolean createMatch) {
+		long student = createUser("STUDENT");
+		jdbc.update("""
+				insert into student_profile(id, birth_date, nationality, current_region, korean_level)
+				values (?, '2000-01-01', 'VN', '서울', 'INTERMEDIATE')
+				""", student);
+		long batch = jdbc.queryForObject("""
+				insert into recommendation_batch(student_profile_id, algorithm_version, input_snapshot, created_at)
+				values (?, 'v1', '{}'::jsonb, now()) returning id
+				""", Long.class, student);
+		long recommendation = jdbc.queryForObject("""
+				insert into recommendation(batch_id, job_posting_id, rank, score, reason_json, created_at)
+				values (?, ?, 1, 90.00, '{}'::jsonb, now()) returning id
+				""", Long.class, batch, posting);
+		long application = jdbc.queryForObject("""
+				insert into application(recommendation_id, student_profile_id, job_posting_id, desired_start_date,
+				snapshot_version, application_snapshot, status, employer_response_deadline, applied_at)
+				values (?, ?, ?, current_date + 1, 1, '{}'::jsonb, ?, now() + interval '1 day', now()) returning id
+				""", Long.class, recommendation, student, posting, applicationStatus);
+		if (offerStatus == null) {
+			return new CloseFixture(application, null, null);
+		}
+		long offer = jdbc.queryForObject("""
+				insert into employment_offer(application_id, status, student_response_deadline, offered_at, responded_at)
+				values (?, ?, now() + interval '1 day', now(), case when ? = 'ACCEPTED' then now() else null end)
+				returning id
+				""", Long.class, application, offerStatus, offerStatus);
+		Long match = createMatch ? jdbc.queryForObject("""
+				insert into employment_match(employment_offer_id, completed_at) values (?, now()) returning id
+				""", Long.class, offer) : null;
+		return new CloseFixture(application, offer, match);
+	}
+
+	private void assertClosedApplication(long applicationId, Instant closedAt) {
+		Map<String, Object> application = jdbc.queryForMap("select * from application where id = ?", applicationId);
+		assertThat(application.get("status")).isEqualTo("ENDED");
+		assertThat(application.get("end_reason")).isEqualTo("JOB_POSTING_CLOSED");
+		Instant endedAt = jdbc.queryForObject("select ended_at from application where id = ?",
+				OffsetDateTime.class, applicationId).toInstant();
+		assertThat(Duration.between(closedAt, endedAt).abs())
+				.isLessThan(Duration.ofMillis(1));
+	}
+
 	private Instant savedClosedAt() {
 		return jdbc.queryForObject("select closed_at from job_posting where id = ?", OffsetDateTime.class, posting).toInstant();
 	}
@@ -286,5 +364,8 @@ class JobPostingCloseIntegrationTest {
 		byte[] bytes = new byte[32];
 		new SecureRandom().nextBytes(bytes);
 		return Base64.getEncoder().encodeToString(bytes);
+	}
+
+	private record CloseFixture(long applicationId, Long offerId, Long matchId) {
 	}
 }
