@@ -1,5 +1,7 @@
 package com.hirelink.domain.employmentoffer;
 
+import com.hirelink.support.PostgreSQLIntegrationTest;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -36,31 +38,21 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-@Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(EmploymentOfferFlowIntegrationTest.TestClockConfiguration.class)
-class EmploymentOfferFlowIntegrationTest {
+class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private static final String TEST_JWT_SECRET = createTestSigningKey();
 	private static final Instant PROCESSING_TIME = Instant.parse("2026-11-01T03:00:00.123456Z");
 
-	@Container
-	static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine");
-
 	@DynamicPropertySource
 	static void properties(DynamicPropertyRegistry registry) {
-		registry.add("spring.datasource.url", postgres::getJdbcUrl);
-		registry.add("spring.datasource.username", postgres::getUsername);
-		registry.add("spring.datasource.password", postgres::getPassword);
 		registry.add("jwt.secret", () -> TEST_JWT_SECRET);
 	}
 

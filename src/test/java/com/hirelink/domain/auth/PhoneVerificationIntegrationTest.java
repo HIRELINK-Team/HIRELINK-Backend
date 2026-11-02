@@ -1,5 +1,7 @@
 package com.hirelink.domain.auth;
 
+import com.hirelink.support.PostgreSQLIntegrationTest;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -33,9 +35,6 @@ import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.ObjectMapper;
 
 import com.hirelink.domain.auth.service.SmsSender;
@@ -52,20 +51,13 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-@Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class PhoneVerificationIntegrationTest {
+class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private static final String PHONE = "01000000000";
 	private static final String TEST_JWT_SECRET = createTestSigningKey();
-	@Container
-	static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine");
-
 	@DynamicPropertySource
 	static void properties(DynamicPropertyRegistry registry) {
-		registry.add("spring.datasource.url", postgres::getJdbcUrl);
-		registry.add("spring.datasource.username", postgres::getUsername);
-		registry.add("spring.datasource.password", postgres::getPassword);
 		registry.add("jwt.secret", () -> TEST_JWT_SECRET);
 		registry.add("sms.solapi.api-key", () -> "");
 		registry.add("sms.solapi.api-secret", () -> "");
