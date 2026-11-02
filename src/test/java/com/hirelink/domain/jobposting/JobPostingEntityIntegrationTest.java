@@ -1,5 +1,7 @@
 package com.hirelink.domain.jobposting;
 
+import com.hirelink.support.PostgreSQLIntegrationTest;
+
 import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.sql.Timestamp;
@@ -21,9 +23,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import com.hirelink.domain.jobposting.entity.JobPosting;
 import com.hirelink.domain.jobposting.entity.JobPostingStatus;
@@ -36,20 +35,13 @@ import com.hirelink.domain.workplace.entity.Workplace;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@Testcontainers
 @SpringBootTest
-class JobPostingEntityIntegrationTest {
+class JobPostingEntityIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private static final String TEST_JWT_SECRET = createTestSigningKey();
 
-	@Container
-	static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine");
-
 	@DynamicPropertySource
 	static void properties(DynamicPropertyRegistry registry) {
-		registry.add("spring.datasource.url", postgres::getJdbcUrl);
-		registry.add("spring.datasource.username", postgres::getUsername);
-		registry.add("spring.datasource.password", postgres::getPassword);
 		registry.add("jwt.secret", () -> TEST_JWT_SECRET);
 	}
 

@@ -1,5 +1,7 @@
 package com.hirelink.domain.student;
 
+import com.hirelink.support.PostgreSQLIntegrationTest;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -26,9 +28,6 @@ import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -41,19 +40,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-@Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class StudentProfileReadIntegrationTest {
+class StudentProfileReadIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private static final String TEST_JWT_SECRET = createTestSigningKey();
-	@Container
-	static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine");
-
 	@DynamicPropertySource
 	static void properties(DynamicPropertyRegistry registry) {
-		registry.add("spring.datasource.url", postgres::getJdbcUrl);
-		registry.add("spring.datasource.username", postgres::getUsername);
-		registry.add("spring.datasource.password", postgres::getPassword);
 		registry.add("jwt.secret", () -> TEST_JWT_SECRET);
 	}
 

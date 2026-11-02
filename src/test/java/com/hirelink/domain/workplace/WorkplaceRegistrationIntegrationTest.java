@@ -1,5 +1,7 @@
 package com.hirelink.domain.workplace;
 
+import com.hirelink.support.PostgreSQLIntegrationTest;
+
 import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -34,9 +36,6 @@ import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -55,23 +54,17 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-@Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class WorkplaceRegistrationIntegrationTest {
+class WorkplaceRegistrationIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private static final String TEST_JWT_SECRET = createTestSigningKey();
 	private static final byte[] PNG = Base64.getDecoder().decode(
 			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII=");
-	@Container
-	static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine");
 	@TempDir
 	static Path uploadDirectory;
 
 	@DynamicPropertySource
 	static void properties(DynamicPropertyRegistry registry) {
-		registry.add("spring.datasource.url", postgres::getJdbcUrl);
-		registry.add("spring.datasource.username", postgres::getUsername);
-		registry.add("spring.datasource.password", postgres::getPassword);
 		registry.add("jwt.secret", () -> TEST_JWT_SECRET);
 		registry.add("spring.servlet.multipart.location", () -> uploadDirectory.toString());
 		registry.add("business-registration.paddle.url", () -> "");
