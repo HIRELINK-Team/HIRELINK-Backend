@@ -28,7 +28,7 @@ services:
 
   backend:
     build: .
-    image: hirelink-backend:${IMAGE_TAG:-local}
+    image: ${BACKEND_IMAGE:-hirelink-backend}:${IMAGE_TAG:-local}
     restart: unless-stopped
     env_file:
       - path: ${BACKEND_ENV_FILE:-/etc/hirelink/backend.env}
@@ -68,7 +68,7 @@ services:
 
   ocr:
     build: ./ocr
-    image: hirelink-ocr:${IMAGE_TAG:-local}
+    image: ${OCR_IMAGE:-hirelink-ocr}:${IMAGE_TAG:-local}
     restart: unless-stopped
     networks: [ocr]
     cpus: 2
