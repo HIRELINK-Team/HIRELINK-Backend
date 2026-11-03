@@ -249,6 +249,19 @@ class AuthIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(response.headers().firstValue("Location")).isEmpty();
 	}
 
+	@Test
+	void healthCheckIsPublicWithoutCreatingCookiesOrExposingConfiguration() throws Exception {
+		HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/health"))
+				.timeout(Duration.ofSeconds(10)).GET().build();
+		HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+		assertThat(response.statusCode()).isEqualTo(200);
+		assertThat(objectMapper.readTree(response.body())).isEqualTo(objectMapper.readTree("{\"status\":\"UP\"}"));
+		assertThat(response.headers().allValues("Set-Cookie")).isEmpty();
+		HttpRequest post = HttpRequest.newBuilder(request.uri()).timeout(Duration.ofSeconds(10))
+				.POST(HttpRequest.BodyPublishers.noBody()).build();
+		assertError(httpClient.send(post, HttpResponse.BodyHandlers.ofString()), 401, "UNAUTHORIZED");
+	}
+
 	@ParameterizedTest
 	@ValueSource(strings = {"STUDENT", "EMPLOYER"})
 	void loginReturnsTokensAndAuthenticatesRequests(String role) throws Exception {

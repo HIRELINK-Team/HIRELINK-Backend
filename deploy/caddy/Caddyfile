@@ -1,0 +1,15 @@
+{
+	servers {
+		protocols h1 h2
+	}
+}
+
+{$API_DOMAIN} {
+	request_body {
+		max_size 6MB
+	}
+	header -Server
+	@api path /api/*
+	header @api Cache-Control "no-store"
+	reverse_proxy backend:8080
+}
