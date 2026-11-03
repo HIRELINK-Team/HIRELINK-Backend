@@ -1,0 +1,93 @@
+name: hirelink
+
+services:
+  caddy:
+    image: caddy:2.11.2-alpine@sha256:834468128c7696cec0ceea6172f7d692daf645ae51983ca76e39da54a97c570d
+    restart: unless-stopped
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?Set API_DOMAIN in the deployment environment file}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/caddy:/etc/caddy:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [web]
+    depends_on:
+      backend:
+        condition: service_healthy
+    mem_limit: 128m
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  backend:
+    build: .
+    image: hirelink-backend:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    env_file:
+      - path: ${BACKEND_ENV_FILE:-/etc/hirelink/backend.env}
+        format: raw
+    environment:
+      SERVER_PORT: "8080"
+      AUTH_COOKIE_SECURE: "true"
+      PADDLE_OCR_URL: http://ocr:8000/recognize
+      JAVA_TOOL_OPTIONS: "-Xms128m -Xmx384m -XX:ActiveProcessorCount=2"
+    volumes:
+      - type: bind
+        source: ${SUPABASE_CA_FILE:-/etc/hirelink/supabase-ca.crt}
+        target: /app/certs/supabase-ca.crt
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [web, ocr]
+    mem_limit: 768m
+    memswap_limit: 768m
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: [CMD, curl, -fsS, --max-time, "3", http://127.0.0.1:8080/health]
+      interval: 15s
+      timeout: 5s
+      start_period: 90s
+      retries: 5
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  ocr:
+    build: ./ocr
+    image: hirelink-ocr:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    networks: [ocr]
+    cpus: 2
+    mem_limit: 2g
+    memswap_limit: 2g
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: none
+
+networks:
+  web:
+  ocr:
+    internal: true
+
+volumes:
+  caddy-data:
+  caddy-config:

@@ -40,6 +40,10 @@ out/
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.p12
+*.jks
 
 ### Python ###
 __pycache__/
