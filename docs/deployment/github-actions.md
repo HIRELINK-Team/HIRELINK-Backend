@@ -47,6 +47,11 @@ IAM에 GitHub OIDC 공급자가 없다면 다음 값으로 등록한다.
 
 GitHub 배포 전용 IAM 역할을 만들고 아래 신뢰 정책을 사용한다.
 `ACCOUNT_ID`는 사용하는 AWS 계정 ID로 바꾼다. `main`만 이 역할을 사용할 수 있도록 제한한다.
+`SUBJECT_FOR_MAIN`은 아래 조회 결과로 바꾼다. 이 저장소는 조직·저장소 ID를 포함하는 immutable subject를 사용하므로 이름만으로 subject를 만들지 않는다.
+
+```bash
+gh api repos/HIRELINK-Team/HIRELINK-Backend/actions/oidc/customization/sub --jq '.sub_claim_prefix + ":ref:refs/heads/main"'
+```
 
 ```json
 {
@@ -60,7 +65,7 @@ GitHub 배포 전용 IAM 역할을 만들고 아래 신뢰 정책을 사용한�
     "Condition": {
       "StringEquals": {
         "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-        "token.actions.githubusercontent.com:sub": "repo:HIRELINK-Team/HIRELINK-Backend:ref:refs/heads/main"
+        "token.actions.githubusercontent.com:sub": "SUBJECT_FOR_MAIN"
       }
     }
   }]
