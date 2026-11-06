@@ -65,6 +65,7 @@ import com.hirelink.global.storage.SupabaseStorageClient;
 @Service
 public class ApplicationService {
 	private static final int MAX_ACTIVE_APPLICATIONS = 5;
+	private static final int MAX_STUDENT_ACTIVE_APPLICATIONS = 3;
 	private static final List<ApplicationStatus> LIST_APPLICATION_STATUSES = List.of(
 			ApplicationStatus.WAITING_RESPONSE, ApplicationStatus.OFFERED, ApplicationStatus.COMPLETED);
 	private static final List<ApplicationStatus> FILTER_APPLICATION_STATUSES = List.of(
@@ -132,6 +133,11 @@ public class ApplicationService {
 		}
 		if (applicationRepository.existsByStudentProfileIdAndJobPostingId(userId, jobPostingId)) {
 			throw new DuplicateApplicationException();
+		}
+		long studentActiveApplicationCount = applicationRepository.countByStudentProfileIdAndStatusIn(
+				userId, ACTIVE_APPLICATION_STATUSES);
+		if (studentActiveApplicationCount >= MAX_STUDENT_ACTIVE_APPLICATIONS) {
+			throw new ApplicationCapacityExceededException("진행 중인 지원은 최대 3건까지 가능합니다.");
 		}
 		long activeApplicationCount = applicationRepository.countByJobPostingIdAndStatusIn(
 				jobPostingId, ACTIVE_APPLICATION_STATUSES);
@@ -606,7 +612,7 @@ public class ApplicationService {
 	}
 
 	private UserAccount getStudentUser(Long userId) {
-		UserAccount user = userAccountRepository.findById(userId)
+		UserAccount user = userAccountRepository.findByIdForUpdate(userId)
 				.orElseThrow(() -> new AuthenticationCredentialsNotFoundException("로그인이 필요합니다."));
 		if (user.isWithdrawn()) {
 			throw new WithdrawnAccountException();

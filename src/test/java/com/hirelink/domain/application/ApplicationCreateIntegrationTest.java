@@ -252,6 +252,44 @@ class ApplicationCreateIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
+	void rejectsFourthStudentApplicationWhenTwoAreWaitingAndOneIsOffered() throws Exception {
+		long employer = createUser("EMPLOYER", "사업주");
+		long student = createStudent("지원자");
+		for (String status : List.of("WAITING_RESPONSE", "WAITING_RESPONSE", "OFFERED", "ENDED", "COMPLETED")) {
+			long posting = createPosting(employer, "RECRUITING", LocalDate.now(KOREA_ZONE).plusDays(1),
+					LocalDate.now(KOREA_ZONE));
+			insertApplication(createRecommendation(student, posting, false), student, posting, status);
+		}
+		long targetPosting = createPosting(employer, "RECRUITING", LocalDate.now(KOREA_ZONE).plusDays(1),
+				LocalDate.now(KOREA_ZONE));
+		long recommendation = createRecommendation(student, targetPosting, false);
+
+		assertError(create(token(student, "STUDENT"), recommendation, LocalDate.now(KOREA_ZONE).plusDays(1)),
+				409, "APPLICATION_CAPACITY_EXCEEDED");
+		assertThat(activeApplicationCount(student)).isEqualTo(3);
+		assertThat(applicationCount()).isEqualTo(5);
+	}
+
+	@Test
+	void allowsThirdStudentApplicationExcludingEndedAndCompleted() throws Exception {
+		long employer = createUser("EMPLOYER", "사업주");
+		long student = createStudent("지원자");
+		for (String status : List.of("WAITING_RESPONSE", "OFFERED", "ENDED", "COMPLETED")) {
+			long posting = createPosting(employer, "RECRUITING", LocalDate.now(KOREA_ZONE).plusDays(1),
+					LocalDate.now(KOREA_ZONE));
+			insertApplication(createRecommendation(student, posting, false), student, posting, status);
+		}
+		long targetPosting = createPosting(employer, "RECRUITING", LocalDate.now(KOREA_ZONE).plusDays(1),
+				LocalDate.now(KOREA_ZONE));
+		long recommendation = createRecommendation(student, targetPosting, false);
+
+		assertThat(create(token(student, "STUDENT"), recommendation,
+				LocalDate.now(KOREA_ZONE).plusDays(1)).statusCode()).isEqualTo(201);
+		assertThat(activeApplicationCount(student)).isEqualTo(3);
+		assertThat(applicationCount()).isEqualTo(5);
+	}
+
+	@Test
 	void concurrentApplicationsCannotExceedFiveActiveReviews() throws Exception {
 		long employer = createUser("EMPLOYER", "사업주");
 		long posting = createPosting(employer, "RECRUITING", LocalDate.now(KOREA_ZONE).plusDays(1),
@@ -295,6 +333,51 @@ class ApplicationCreateIntegrationTest extends PostgreSQLIntegrationTest {
 				select count(*) from application where job_posting_id = ?
 				and status in ('WAITING_RESPONSE', 'OFFERED')
 				""", Integer.class, posting)).isEqualTo(5);
+	}
+
+	@Test
+	void concurrentApplicationsToDifferentPostingsCannotExceedStudentLimit() throws Exception {
+		long employer = createUser("EMPLOYER", "사업주");
+		long student = createStudent("동시 지원자");
+		for (int index = 0; index < 2; index++) {
+			long posting = createPosting(employer, "RECRUITING", LocalDate.now(KOREA_ZONE).plusDays(1),
+					LocalDate.now(KOREA_ZONE));
+			insertApplication(createRecommendation(student, posting, false), student, posting, "WAITING_RESPONSE");
+		}
+		long firstPosting = createPosting(employer, "RECRUITING", LocalDate.now(KOREA_ZONE).plusDays(1),
+				LocalDate.now(KOREA_ZONE));
+		long secondPosting = createPosting(employer, "RECRUITING", LocalDate.now(KOREA_ZONE).plusDays(1),
+				LocalDate.now(KOREA_ZONE));
+		long firstRecommendation = createRecommendation(student, firstPosting, false);
+		long secondRecommendation = createRecommendation(student, secondPosting, false);
+		CompletableFuture<HttpResponse<String>> first;
+		CompletableFuture<HttpResponse<String>> second;
+		try (Connection connection = dataSource.getConnection()) {
+			connection.setAutoCommit(false);
+			try (var statement = connection.prepareStatement("select id from user_account where id = ? for update")) {
+				statement.setLong(1, student);
+				statement.executeQuery().close();
+			}
+			try {
+				first = client.sendAsync(request(token(student, "STUDENT"), firstRecommendation,
+						LocalDate.now(KOREA_ZONE).plusDays(1)), HttpResponse.BodyHandlers.ofString());
+				second = client.sendAsync(request(token(student, "STUDENT"), secondRecommendation,
+						LocalDate.now(KOREA_ZONE).plusDays(1)), HttpResponse.BodyHandlers.ofString());
+				await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(jdbc.queryForObject("""
+						select count(*) from pg_stat_activity where datname = current_database()
+						and wait_event_type = 'Lock' and query like '%user_account%'
+						""", Integer.class)).isGreaterThanOrEqualTo(2));
+			}
+			finally {
+				connection.rollback();
+			}
+		}
+
+		List<HttpResponse<String>> responses = List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
+		assertThat(responses).extracting(HttpResponse::statusCode).containsExactlyInAnyOrder(201, 409);
+		responses.stream().filter(response -> response.statusCode() == 409).findFirst()
+				.ifPresent(response -> assertError(response, 409, "APPLICATION_CAPACITY_EXCEEDED"));
+		assertThat(activeApplicationCount(student)).isEqualTo(3);
 	}
 
 	private long createStudent(String name) {
@@ -366,6 +449,13 @@ class ApplicationCreateIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private int applicationCount() {
 		return jdbc.queryForObject("select count(*) from application", Integer.class);
+	}
+
+	private int activeApplicationCount(long student) {
+		return jdbc.queryForObject("""
+				select count(*) from application where student_profile_id = ?
+				and status in ('WAITING_RESPONSE', 'OFFERED')
+				""", Integer.class, student);
 	}
 
 	private HttpResponse<String> create(String token, long recommendationId, LocalDate desiredStartDate)
