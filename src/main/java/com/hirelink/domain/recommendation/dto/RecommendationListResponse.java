@@ -4,6 +4,8 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
+import com.hirelink.domain.application.entity.ApplicationStatus;
+
 public record RecommendationListResponse(
 		Long batchId,
 		Instant generatedAt,
@@ -13,6 +15,8 @@ public record RecommendationListResponse(
 	public record Item(
 			Long recommendationId,
 			Long jobPostingId,
+			Long applicationId,
+			ApplicationStatus applicationStatus,
 			int rank,
 			String jobTitle,
 			String workplaceName,

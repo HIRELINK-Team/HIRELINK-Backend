@@ -18,6 +18,8 @@ import java.util.concurrent.CompletableFuture;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -214,7 +216,7 @@ class RecommendationApiIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
-	void detectsActiveReviewCountAndStudentApplicationHistoryChanges() throws Exception {
+	void detectsAnotherStudentsActiveReviewCountChange() throws Exception {
 		long student = createStudent(true);
 		long employer = createUser("EMPLOYER");
 		long posting = createPosting(employer, "지원 변경 감지", 13000, "RECRUITING");
@@ -222,16 +224,58 @@ class RecommendationApiIntegrationTest extends PostgreSQLIntegrationTest {
 
 		insertApplicationForNewStudent(posting, "WAITING_RESPONSE");
 		assertRefreshed(student);
+	}
 
-		long recommendation = jdbc.queryForObject("""
-				select id from recommendation where batch_id = (
-				select id from recommendation_batch where student_profile_id = ? order by created_at desc, id desc limit 1)
-				and job_posting_id = ?
-				""", Long.class, student, posting);
-		insertApplication(student, recommendation, posting, "WAITING_RESPONSE");
-		assertThat(body(get(token(student, "STUDENT"), "/api/recommendations"), 200)
-				.path("refreshRequired").asBoolean()).isTrue();
-		assertRefreshed(student);
+	@ParameterizedTest
+	@ValueSource(strings = {"WAITING_RESPONSE", "OFFERED"})
+	void keepsLatestRecommendationsWhileApplicationIsActive(String status) throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		long posting = createPosting(employer, "진행 중 지원 공고", 13000, "RECRUITING");
+		JsonNode created = body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+		long recommendation = jdbc.queryForObject(
+				"select id from recommendation where job_posting_id = ?", Long.class, posting);
+		insertApplication(student, recommendation, posting, status);
+		long application = jdbc.queryForObject(
+				"select id from application where recommendation_id = ?", Long.class, recommendation);
+
+		JsonNode list = body(get(token(student, "STUDENT"), "/api/recommendations"), 200);
+		JsonNode item = list.path("recommendations").get(0);
+		assertThat(list.path("refreshRequired").asBoolean()).isFalse();
+		assertThat(item.path("applicationId").asLong()).isEqualTo(application);
+		assertThat(item.path("applicationStatus").asString()).isEqualTo(status);
+		assertThat(body(get(token(student, "STUDENT"), "/api/recommendations/" + recommendation), 200)
+				.path("recommendationId").asLong()).isEqualTo(recommendation);
+
+		JsonNode refreshed = body(post(token(student, "STUDENT"), "/api/recommendations/refresh"), 200);
+		assertThat(refreshed.path("refreshed").asBoolean()).isFalse();
+		assertThat(refreshed.path("batchId").asLong()).isEqualTo(created.path("batchId").asLong());
+		assertThat(count("recommendation_batch")).isOne();
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"ENDED", "COMPLETED"})
+	void refreshesAndExcludesAppliedPostingWhenApplicationIsTerminal(String status) throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		long posting = createPosting(employer, "종료된 지원 공고", 13000, "RECRUITING");
+		JsonNode created = body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+		long recommendation = jdbc.queryForObject(
+				"select id from recommendation where job_posting_id = ?", Long.class, posting);
+		insertApplication(student, recommendation, posting, status);
+
+		JsonNode list = body(get(token(student, "STUDENT"), "/api/recommendations"), 200);
+		assertThat(list.path("refreshRequired").asBoolean()).isTrue();
+		assertThat(list.path("recommendations").isEmpty()).isTrue();
+		assertError(get(token(student, "STUDENT"), "/api/recommendations/" + recommendation),
+				409, "RECOMMENDATION_STATE_CONFLICT");
+
+		JsonNode refreshed = body(post(token(student, "STUDENT"), "/api/recommendations/refresh"), 200);
+		assertThat(refreshed.path("refreshed").asBoolean()).isTrue();
+		assertThat(refreshed.path("batchId").asLong()).isNotEqualTo(created.path("batchId").asLong());
+		assertThat(refreshed.path("recommendationCount").asInt()).isZero();
+		assertThat(jdbc.queryForObject("select count(*) from recommendation where batch_id = ? and job_posting_id = ?",
+				Integer.class, refreshed.path("batchId").asLong(), posting)).isZero();
 	}
 
 	@Test
@@ -314,6 +358,8 @@ class RecommendationApiIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(body.path("recommendations").size()).isEqualTo(2);
 		assertThat(body.path("recommendations").get(0).path("rank").asInt()).isEqualTo(1);
 		assertThat(body.path("recommendations").get(1).path("rank").asInt()).isEqualTo(2);
+		assertThat(body.path("recommendations").get(0).path("applicationId").isNull()).isTrue();
+		assertThat(body.path("recommendations").get(0).path("applicationStatus").isNull()).isTrue();
 		List<String> titles = new ArrayList<>();
 		body.path("recommendations").forEach(item -> titles.add(item.path("jobTitle").asString()));
 		assertThat(titles).contains("현재 제목");

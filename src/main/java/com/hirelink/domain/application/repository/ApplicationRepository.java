@@ -61,6 +61,9 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
 	List<Application> findAllByStudentProfileIdAndStatusOrderByAppliedAtDescIdDesc(Long studentProfileId,
 			ApplicationStatus status);
 
+	List<Application> findAllByStudentProfileIdAndJobPostingIdIn(Long studentProfileId,
+			Collection<Long> jobPostingIds);
+
 	@Query("""
 			select application.id from Application application
 			where application.status = :status and application.employerResponseDeadline <= :now
