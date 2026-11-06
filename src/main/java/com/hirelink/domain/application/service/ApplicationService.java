@@ -1,6 +1,7 @@
 package com.hirelink.domain.application.service;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -66,6 +67,9 @@ public class ApplicationService {
 	private static final int MAX_ACTIVE_APPLICATIONS = 5;
 	private static final List<ApplicationStatus> LIST_APPLICATION_STATUSES = List.of(
 			ApplicationStatus.WAITING_RESPONSE, ApplicationStatus.OFFERED, ApplicationStatus.COMPLETED);
+	private static final List<ApplicationStatus> FILTER_APPLICATION_STATUSES = List.of(
+			ApplicationStatus.WAITING_RESPONSE, ApplicationStatus.OFFERED,
+			ApplicationStatus.COMPLETED, ApplicationStatus.ENDED);
 	private static final short SNAPSHOT_VERSION = 1;
 	private static final ZoneId KOREA_ZONE = ZoneId.of("Asia/Seoul");
 	private static final List<ApplicationStatus> ACTIVE_APPLICATION_STATUSES = List.of(
@@ -81,6 +85,7 @@ public class ApplicationService {
 	private final EmploymentOfferRepository employmentOfferRepository;
 	private final EmploymentMatchRepository employmentMatchRepository;
 	private final SupabaseStorageClient storageClient;
+	private final Clock clock;
 
 	public ApplicationService(UserAccountRepository userAccountRepository,
 			ApplicationRepository applicationRepository, RecommendationRepository recommendationRepository,
@@ -88,7 +93,7 @@ public class ApplicationService {
 			StudentCareerRepository studentCareerRepository,
 			StudentPreferredWorkTimeRepository studentPreferredWorkTimeRepository,
 			EmploymentOfferRepository employmentOfferRepository,
-			EmploymentMatchRepository employmentMatchRepository, SupabaseStorageClient storageClient) {
+			EmploymentMatchRepository employmentMatchRepository, SupabaseStorageClient storageClient, Clock clock) {
 		this.userAccountRepository = userAccountRepository;
 		this.applicationRepository = applicationRepository;
 		this.recommendationRepository = recommendationRepository;
@@ -99,6 +104,7 @@ public class ApplicationService {
 		this.employmentOfferRepository = employmentOfferRepository;
 		this.employmentMatchRepository = employmentMatchRepository;
 		this.storageClient = storageClient;
+		this.clock = clock;
 	}
 
 	@Transactional
@@ -133,7 +139,7 @@ public class ApplicationService {
 			throw new ApplicationCapacityExceededException();
 		}
 
-		Instant appliedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		Instant appliedAt = now();
 		Map<String, Object> snapshot = createApplicationSnapshot(user, studentProfile, recommendation, jobPosting);
 		Application application = new Application(recommendation, studentProfile, jobPosting,
 				request.desiredStartDate(), SNAPSHOT_VERSION, snapshot, ApplicationStatus.WAITING_RESPONSE,
@@ -161,7 +167,7 @@ public class ApplicationService {
 			throw new AccessDeniedException("본인의 지원만 취소할 수 있습니다.");
 		}
 
-		Instant endedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		Instant endedAt = now();
 		if (!application.withdraw(endedAt)) {
 			throw new ApplicationStateConflictException();
 		}
@@ -187,7 +193,10 @@ public class ApplicationService {
 			throw new AccessDeniedException("본인의 채용공고에 접수된 지원만 거절할 수 있습니다.");
 		}
 
-		Instant endedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		Instant endedAt = now();
+		if (!application.getEmployerResponseDeadline().isAfter(endedAt)) {
+			throw new ApplicationStateConflictException();
+		}
 		if (!application.reject(endedAt)) {
 			throw new ApplicationStateConflictException();
 		}
@@ -424,7 +433,9 @@ public class ApplicationService {
 				decimalValue(recommendation, "score"), application.getDesiredStartDate(), application.getAppliedAt(),
 				employerResponseDeadline(application), links.offer() == null ? null : links.offer().getId(),
 				links.offer() == null ? null : links.offer().getStudentResponseDeadline(),
-				links.match() == null ? null : links.match().getId());
+				links.match() == null ? null : links.match().getId(),
+				application.getStatus() == ApplicationStatus.ENDED ? application.getEndReason() : null,
+				application.getStatus() == ApplicationStatus.ENDED ? application.getEndedAt() : null);
 	}
 
 	private StudentApplicationDetailResponse studentApplicationDetail(Application application) {
@@ -458,7 +469,9 @@ public class ApplicationService {
 				offer == null ? null : offer.getId(), offer == null ? null : offer.getStatus(),
 				offer == null ? null : offer.getOfferedAt(),
 				offer == null ? null : offer.getStudentResponseDeadline(),
-				links.match() == null ? null : links.match().getId());
+				links.match() == null ? null : links.match().getId(),
+				application.getStatus() == ApplicationStatus.ENDED ? application.getEndReason() : null,
+				application.getStatus() == ApplicationStatus.ENDED ? application.getEndedAt() : null);
 	}
 
 	private List<StudentApplicationDetailResponse.WorkTime> studentWorkTimes(Map<String, Object> posting) {
@@ -516,7 +529,7 @@ public class ApplicationService {
 		}
 		try {
 			ApplicationStatus status = ApplicationStatus.valueOf(value);
-			if (!LIST_APPLICATION_STATUSES.contains(status)) {
+			if (!FILTER_APPLICATION_STATUSES.contains(status)) {
 				throw new InvalidApplicationException("지원 상태 필터가 올바르지 않습니다.");
 			}
 			return status;
@@ -524,6 +537,10 @@ public class ApplicationService {
 		catch (IllegalArgumentException exception) {
 			throw new InvalidApplicationException("지원 상태 필터가 올바르지 않습니다.");
 		}
+	}
+
+	private Instant now() {
+		return Instant.now(clock).truncatedTo(ChronoUnit.MICROS);
 	}
 
 	private String profileImageUrl(Map<String, Object> student) {

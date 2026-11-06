@@ -144,7 +144,8 @@ class ApplicationQueryIntegrationTest extends PostgreSQLIntegrationTest {
 				"OFFERED", BASE_TIME.plusSeconds(60), "제안 스냅샷");
 		ApplicationFixture completed = createApplication(createStudent("완료"), posting,
 				"COMPLETED", BASE_TIME.plusSeconds(120), "완료 스냅샷");
-		createApplication(createStudent("종료"), posting, "ENDED", BASE_TIME.plusSeconds(180), "종료 스냅샷");
+		ApplicationFixture ended = createApplication(createStudent("종료"), posting,
+				"ENDED", BASE_TIME.plusSeconds(180), "종료 스냅샷");
 
 		JsonNode body = body(get(token(employer, "EMPLOYER"),
 				"/api/job-postings/" + posting + "/applications"), 200);
@@ -167,6 +168,13 @@ class ApplicationQueryIntegrationTest extends PostgreSQLIntegrationTest {
 				"/api/job-postings/" + posting + "/applications?status=WAITING_RESPONSE"), 200);
 		assertThat(filtered.path("applications").size()).isEqualTo(1);
 		assertThat(filtered.path("occupiedCount").asInt()).isEqualTo(2);
+
+		JsonNode endedApplications = body(get(token(employer, "EMPLOYER"),
+				"/api/job-postings/" + posting + "/applications?status=ENDED"), 200).path("applications");
+		assertThat(endedApplications.size()).isEqualTo(1);
+		assertThat(endedApplications.get(0).path("applicationId").asLong()).isEqualTo(ended.applicationId());
+		assertThat(endedApplications.get(0).path("endReason").asString()).isEqualTo("WITHDRAWN");
+		assertThat(endedApplications.get(0).path("endedAt").isTextual()).isTrue();
 	}
 
 	@Test
@@ -183,8 +191,6 @@ class ApplicationQueryIntegrationTest extends PostgreSQLIntegrationTest {
 				"/api/job-postings/" + posting + "/applications"), 403, "FORBIDDEN");
 		assertError(get(token(employer, "EMPLOYER"),
 				"/api/job-postings/99999/applications"), 404, "JOB_POSTING_NOT_FOUND");
-		assertError(get(token(employer, "EMPLOYER"),
-				"/api/job-postings/" + posting + "/applications?status=ENDED"), 400, "INVALID_INPUT");
 		assertError(get(token(createStudent("다른 유학생"), "STUDENT"),
 				"/api/applications/" + fixture.applicationId()), 403, "FORBIDDEN");
 		assertError(get(null, "/api/applications/me"), 401, "UNAUTHORIZED");
@@ -221,7 +227,7 @@ class ApplicationQueryIntegrationTest extends PostgreSQLIntegrationTest {
 				"OFFERED", BASE_TIME.plusSeconds(60), "제안 이름");
 		ApplicationFixture completed = createApplication(student, createPosting(employer, "완료 공고"),
 				"COMPLETED", BASE_TIME.plusSeconds(120), "완료 이름");
-		createApplication(student, createPosting(employer, "종료 공고"),
+		ApplicationFixture ended = createApplication(student, createPosting(employer, "종료 공고"),
 				"ENDED", BASE_TIME.plusSeconds(180), "종료 이름");
 
 		JsonNode body = body(get(token(student, "STUDENT"), "/api/applications/me"), 200);
@@ -238,8 +244,12 @@ class ApplicationQueryIntegrationTest extends PostgreSQLIntegrationTest {
 		JsonNode filtered = body(get(token(student, "STUDENT"),
 				"/api/applications/me?status=COMPLETED"), 200);
 		assertThat(filtered.path("applications").size()).isEqualTo(1);
-		assertError(get(token(student, "STUDENT"),
-				"/api/applications/me?status=ENDED"), 400, "INVALID_INPUT");
+		JsonNode endedApplications = body(get(token(student, "STUDENT"),
+				"/api/applications/me?status=ENDED"), 200).path("applications");
+		assertThat(endedApplications.size()).isEqualTo(1);
+		assertThat(endedApplications.get(0).path("applicationId").asLong()).isEqualTo(ended.applicationId());
+		assertThat(endedApplications.get(0).path("endReason").asString()).isEqualTo("WITHDRAWN");
+		assertThat(endedApplications.get(0).path("endedAt").isTextual()).isTrue();
 	}
 
 	private ApplicationFixture createApplication(long student, long posting, String status, Instant appliedAt,

@@ -109,6 +109,16 @@ public class EmploymentOffer {
 		respondedAt = processedAt;
 	}
 
+	public boolean expireStudentResponse(Instant endedAt) {
+		if (status != EmploymentOfferStatus.PENDING) {
+			return false;
+		}
+		status = EmploymentOfferStatus.EXPIRED;
+		endReason = EmploymentOfferEndReason.STUDENT_RESPONSE_EXPIRED;
+		this.endedAt = endedAt;
+		return true;
+	}
+
 	public boolean closeBecauseJobPostingClosed(Instant endedAt) {
 		if (status != EmploymentOfferStatus.PENDING) {
 			return false;

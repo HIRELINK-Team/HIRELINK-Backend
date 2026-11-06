@@ -163,6 +163,16 @@ public class Application {
 		return true;
 	}
 
+	public boolean expireEmployerResponse(Instant endedAt) {
+		if (status != ApplicationStatus.WAITING_RESPONSE) {
+			return false;
+		}
+		status = ApplicationStatus.ENDED;
+		endReason = ApplicationEndReason.EMPLOYER_RESPONSE_EXPIRED;
+		this.endedAt = endedAt;
+		return true;
+	}
+
 	public boolean offer() {
 		if (status != ApplicationStatus.WAITING_RESPONSE) {
 			return false;
@@ -179,6 +189,16 @@ public class Application {
 		status = ApplicationStatus.ENDED;
 		endReason = ApplicationEndReason.STUDENT_REJECTED;
 		this.endedAt = endedAt;
+	}
+
+	public boolean expireStudentResponse(Instant endedAt) {
+		if (status != ApplicationStatus.OFFERED) {
+			return false;
+		}
+		status = ApplicationStatus.ENDED;
+		endReason = ApplicationEndReason.STUDENT_RESPONSE_EXPIRED;
+		this.endedAt = endedAt;
+		return true;
 	}
 
 	public boolean closeBecauseJobPostingClosed(Instant endedAt) {

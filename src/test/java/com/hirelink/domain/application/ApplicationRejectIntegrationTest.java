@@ -40,6 +40,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import com.hirelink.domain.application.entity.ApplicationStatus;
+import com.hirelink.domain.application.service.ApplicationExpirationProcessor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -64,6 +65,8 @@ class ApplicationRejectIntegrationTest extends PostgreSQLIntegrationTest {
 	private ObjectMapper mapper;
 	@Autowired
 	private JwtEncoder jwtEncoder;
+	@Autowired
+	private ApplicationExpirationProcessor expirationProcessor;
 	private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
 	@BeforeEach
@@ -165,6 +168,18 @@ class ApplicationRejectIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
+	void rejectsEmployerResponseAfterDeadlineWithoutChangingApplication() throws Exception {
+		Fixture fixture = createApplication(ApplicationStatus.WAITING_RESPONSE);
+		jdbc.update("update application set employer_response_deadline = now() - interval '1 second' where id = ?",
+				fixture.applicationId());
+		Map<String, Object> before = application(fixture.applicationId());
+
+		assertError(reject(token(fixture.employerId(), "EMPLOYER"), Long.toString(fixture.applicationId())),
+				409, "APPLICATION_STATE_CONFLICT");
+		assertThat(application(fixture.applicationId())).isEqualTo(before);
+	}
+
+	@Test
 	void rejectsRepeatedRejectionAndKeepsFirstEndedAt() throws Exception {
 		Fixture fixture = createApplication(ApplicationStatus.WAITING_RESPONSE);
 		String accessToken = token(fixture.employerId(), "EMPLOYER");
@@ -231,6 +246,42 @@ class ApplicationRejectIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(application(fixture.applicationId()))
 				.containsEntry("status", "ENDED").containsEntry("end_reason", expectedReason);
 		assertThat(endedAt(fixture.applicationId())).isEqualTo(successfulEndedAt);
+	}
+
+	@Test
+	void concurrentExpiredResponseAndRejectionKeepExpirationResult() throws Exception {
+		Fixture fixture = createApplication(ApplicationStatus.WAITING_RESPONSE);
+		Instant expiredAt = Instant.now().minusSeconds(1);
+		jdbc.update("update application set employer_response_deadline = ? where id = ?",
+				OffsetDateTime.ofInstant(expiredAt, java.time.ZoneOffset.UTC), fixture.applicationId());
+		CompletableFuture<HttpResponse<String>> rejection;
+		CompletableFuture<Void> expiration;
+		try (Connection connection = dataSource.getConnection()) {
+			connection.setAutoCommit(false);
+			try (var statement = connection.prepareStatement("select id from application where id = ? for update")) {
+				statement.setLong(1, fixture.applicationId());
+				statement.executeQuery().close();
+			}
+			try {
+				rejection = client.sendAsync(rejectRequest(token(fixture.employerId(), "EMPLOYER"),
+						Long.toString(fixture.applicationId())), HttpResponse.BodyHandlers.ofString());
+				expiration = CompletableFuture.runAsync(() -> expirationProcessor.expireEmployerResponse(
+						fixture.applicationId(), Instant.now()));
+				await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(jdbc.queryForObject("""
+						select count(*) from pg_stat_activity where datname = current_database()
+						and wait_event_type = 'Lock' and query like '%application%'
+						""", Integer.class)).isGreaterThanOrEqualTo(2));
+			}
+			finally {
+				connection.rollback();
+			}
+		}
+
+		assertError(rejection.get(10, TimeUnit.SECONDS), 409, "APPLICATION_STATE_CONFLICT");
+		expiration.get(10, TimeUnit.SECONDS);
+		assertThat(application(fixture.applicationId()))
+				.containsEntry("status", "ENDED")
+				.containsEntry("end_reason", "EMPLOYER_RESPONSE_EXPIRED");
 	}
 
 	private Fixture createApplication(ApplicationStatus status) {

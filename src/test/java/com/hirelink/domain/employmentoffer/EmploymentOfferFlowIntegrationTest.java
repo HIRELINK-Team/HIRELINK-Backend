@@ -41,6 +41,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import com.hirelink.domain.application.service.ApplicationExpirationProcessor;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -66,6 +68,8 @@ class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 	private ObjectMapper mapper;
 	@Autowired
 	private JwtEncoder jwtEncoder;
+	@Autowired
+	private ApplicationExpirationProcessor expirationProcessor;
 	private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
 	@BeforeEach
@@ -140,6 +144,19 @@ class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
+	void rejectsOfferCreationAtEmployerResponseDeadline() throws Exception {
+		Fixture fixture = createApplication("WAITING_RESPONSE");
+		jdbc.update("update application set employer_response_deadline = ? where id = ?",
+				OffsetDateTime.ofInstant(PROCESSING_TIME, ZoneOffset.UTC), fixture.applicationId());
+
+		assertError(createOffer(token(fixture.employerId(), "EMPLOYER"),
+				Long.toString(fixture.applicationId())), 409, "EMPLOYMENT_OFFER_STATE_CONFLICT");
+		assertThat(jdbc.queryForObject("select status from application where id = ?", String.class,
+				fixture.applicationId())).isEqualTo("WAITING_RESPONSE");
+		assertThat(jdbc.queryForObject("select count(*) from employment_offer", Integer.class)).isZero();
+	}
+
+	@Test
 	void preventsDuplicateOfferAndRepeatedAcceptance() throws Exception {
 		Fixture fixture = createApplication("WAITING_RESPONSE");
 		String employerToken = token(fixture.employerId(), "EMPLOYER");
@@ -203,6 +220,46 @@ class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 		List<HttpResponse<String>> responses = List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
 		assertThat(responses).extracting(HttpResponse::statusCode).containsExactlyInAnyOrder(200, 409);
 		assertThat(jdbc.queryForObject("select count(*) from employment_match", Integer.class)).isEqualTo(1);
+	}
+
+	@Test
+	void concurrentExpiredOfferAndAcceptanceKeepExpirationResult() throws Exception {
+		Fixture fixture = createApplication("OFFERED");
+		long offerId = createPendingOffer(fixture.applicationId(), PROCESSING_TIME);
+		CompletableFuture<HttpResponse<String>> acceptance;
+		CompletableFuture<Void> expiration;
+		try (Connection connection = dataSource.getConnection()) {
+			connection.setAutoCommit(false);
+			try (var statement = connection.prepareStatement("select id from application where id = ? for update")) {
+				statement.setLong(1, fixture.applicationId());
+				statement.executeQuery().close();
+			}
+			try {
+				acceptance = client.sendAsync(acceptRequest(token(fixture.studentId(), "STUDENT"),
+						Long.toString(offerId)), HttpResponse.BodyHandlers.ofString());
+				expiration = CompletableFuture.runAsync(() -> expirationProcessor.expireStudentResponse(
+						fixture.applicationId(), PROCESSING_TIME));
+				await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(jdbc.queryForObject("""
+						select count(*) from pg_stat_activity where datname = current_database()
+						and wait_event_type = 'Lock' and query like '%application%'
+						""", Integer.class)).isGreaterThanOrEqualTo(2));
+			}
+			finally {
+				connection.rollback();
+			}
+		}
+
+		assertError(acceptance.get(10, TimeUnit.SECONDS), 409, "EMPLOYMENT_OFFER_STATE_CONFLICT");
+		expiration.get(10, TimeUnit.SECONDS);
+		assertThat(jdbc.queryForObject("select status from application where id = ?", String.class,
+				fixture.applicationId())).isEqualTo("ENDED");
+		assertThat(jdbc.queryForObject("select end_reason from application where id = ?", String.class,
+				fixture.applicationId())).isEqualTo("STUDENT_RESPONSE_EXPIRED");
+		assertThat(jdbc.queryForObject("select status from employment_offer where id = ?", String.class,
+				offerId)).isEqualTo("EXPIRED");
+		assertThat(jdbc.queryForObject("select end_reason from employment_offer where id = ?", String.class,
+				offerId)).isEqualTo("STUDENT_RESPONSE_EXPIRED");
+		assertThat(jdbc.queryForObject("select count(*) from employment_match", Integer.class)).isZero();
 	}
 
 	@Test

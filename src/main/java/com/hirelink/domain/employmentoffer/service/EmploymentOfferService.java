@@ -61,11 +61,12 @@ public class EmploymentOfferService {
 		if (!application.getJobPosting().getWorkplace().getEmployerUser().getId().equals(userId)) {
 			throw new AccessDeniedException("본인의 채용공고에 접수된 지원에만 채용 제안을 생성할 수 있습니다.");
 		}
-		if (employmentOfferRepository.existsByApplicationId(applicationId) || !application.offer()) {
+		Instant offeredAt = now();
+		if (!application.getEmployerResponseDeadline().isAfter(offeredAt)
+				|| employmentOfferRepository.existsByApplicationId(applicationId) || !application.offer()) {
 			throw new EmploymentOfferStateConflictException();
 		}
 
-		Instant offeredAt = now();
 		EmploymentOffer offer = new EmploymentOffer(application, EmploymentOfferStatus.PENDING, null,
 				offeredAt.plus(24, ChronoUnit.HOURS), offeredAt, null, null);
 		employmentOfferRepository.saveAndFlush(offer);
