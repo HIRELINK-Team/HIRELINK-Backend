@@ -25,6 +25,7 @@ public abstract class PostgreSQLIntegrationTest {
 		registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
 		registry.add("spring.datasource.username", POSTGRES::getUsername);
 		registry.add("spring.datasource.password", POSTGRES::getPassword);
+		registry.add("application.expiration.initial-delay", () -> "3600000");
 	}
 
 	@BeforeEach
