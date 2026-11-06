@@ -327,26 +327,33 @@ public class ApplicationService {
 	private EmployerApplicationDetailResponse.MatchResult matchResult(Map<String, Object> student,
 			Map<String, Object> posting, Map<String, Object> recommendation) {
 		Map<String, Object> reason = object(recommendation, "reason");
+		if (!(reason.get("criterionScores") instanceof Map<?, ?>)) {
+			return legacyMatchResult(recommendation, reason);
+		}
 		Map<String, Object> criterionScores = object(reason, "criterionScores");
 		return new EmployerApplicationDetailResponse.MatchResult(decimalValue(recommendation, "score"),
-				criterionMatched(criterionScores, "WORK_TIME", reason, "workTimeMatched"),
-				experienceMatched(student, posting, reason),
-				criterionMatched(criterionScores, "DISTANCE", reason, "locationMatched"),
-				criterionMatched(criterionScores, "WAGE", reason, "wageMatched"),
-				koreanLevelMatched(student, posting, reason));
+				criterionMatched(criterionScores, "WORK_TIME"), experienceMatched(student, posting),
+				criterionMatched(criterionScores, "DISTANCE"), criterionMatched(criterionScores, "WAGE"),
+				koreanLevelMatched(student, posting));
 	}
 
-	private boolean criterionMatched(Map<String, Object> criterionScores, String criterion,
-			Map<String, Object> reason, String legacyKey) {
-		BigDecimal score = decimalValue(criterionScores, criterion);
-		return score == null ? booleanValue(reason, legacyKey) : score.compareTo(BigDecimal.valueOf(100)) == 0;
-	}
-
-	private boolean experienceMatched(Map<String, Object> student, Map<String, Object> posting,
+	private EmployerApplicationDetailResponse.MatchResult legacyMatchResult(Map<String, Object> recommendation,
 			Map<String, Object> reason) {
+		return new EmployerApplicationDetailResponse.MatchResult(decimalValue(recommendation, "score"),
+				booleanValue(reason, "workTimeMatched"), booleanValue(reason, "experienceMatched"),
+				booleanValue(reason, "locationMatched"), booleanValue(reason, "wageMatched"),
+				booleanValue(reason, "koreanLevelMatched"));
+	}
+
+	private boolean criterionMatched(Map<String, Object> criterionScores, String criterion) {
+		BigDecimal score = decimalValue(criterionScores, criterion);
+		return score != null && score.compareTo(BigDecimal.valueOf(100)) == 0;
+	}
+
+	private boolean experienceMatched(Map<String, Object> student, Map<String, Object> posting) {
 		String preferredExperience = stringValue(posting, "preferredExperience");
 		if (preferredExperience == null) {
-			return booleanValue(reason, "experienceMatched");
+			return false;
 		}
 		int requiredMonths = switch (preferredExperience) {
 			case "NONE" -> 0;
@@ -384,12 +391,10 @@ public class ApplicationService {
 		return workedMonths.size();
 	}
 
-	private boolean koreanLevelMatched(Map<String, Object> student, Map<String, Object> posting,
-			Map<String, Object> reason) {
+	private boolean koreanLevelMatched(Map<String, Object> student, Map<String, Object> posting) {
 		String requiredLevel = stringValue(posting, "requiredKoreanLevel");
 		if (requiredLevel == null) {
-			return posting.containsKey("requiredKoreanLevel")
-					? true : booleanValue(reason, "koreanLevelMatched");
+			return true;
 		}
 		Integer studentLevel = koreanLevelRank(stringValue(student, "koreanLevel"));
 		Integer requiredLevelRank = koreanLevelRank(requiredLevel);
