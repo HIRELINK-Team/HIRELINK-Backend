@@ -4,12 +4,18 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.hirelink.domain.application.entity.Application;
+import com.hirelink.domain.application.entity.ApplicationStatus;
+import com.hirelink.domain.application.repository.ApplicationRepository;
 import com.hirelink.domain.jobposting.entity.JobPosting;
 import com.hirelink.domain.jobposting.entity.JobPostingWorkTime;
 import com.hirelink.domain.jobposting.repository.JobPostingWorkTimeRepository;
@@ -41,19 +47,22 @@ public class RecommendationService {
 	private final StudentProfileRepository studentProfileRepository;
 	private final RecommendationBatchRepository batchRepository;
 	private final RecommendationRepository recommendationRepository;
+	private final ApplicationRepository applicationRepository;
 	private final JobPostingWorkTimeRepository workTimeRepository;
 	private final RecommendationCalculationService calculationService;
 	private final RecommendationValidityChecker validityChecker;
 
 	public RecommendationService(UserAccountRepository userAccountRepository,
 			StudentProfileRepository studentProfileRepository, RecommendationBatchRepository batchRepository,
-			RecommendationRepository recommendationRepository, JobPostingWorkTimeRepository workTimeRepository,
+			RecommendationRepository recommendationRepository, ApplicationRepository applicationRepository,
+			JobPostingWorkTimeRepository workTimeRepository,
 			RecommendationCalculationService calculationService,
 			RecommendationValidityChecker validityChecker) {
 		this.userAccountRepository = userAccountRepository;
 		this.studentProfileRepository = studentProfileRepository;
 		this.batchRepository = batchRepository;
 		this.recommendationRepository = recommendationRepository;
+		this.applicationRepository = applicationRepository;
 		this.workTimeRepository = workTimeRepository;
 		this.calculationService = calculationService;
 		this.validityChecker = validityChecker;
@@ -84,6 +93,10 @@ public class RecommendationService {
 		RecommendationBatch currentBatch = latestBatch(userId);
 		List<Recommendation> currentRecommendations = recommendationRepository
 				.findAllByBatchIdOrderByRankAsc(currentBatch.getId());
+		if (hasActiveApplication(loadApplications(userId, currentRecommendations))) {
+			return new RecommendationRefreshResponse(currentBatch.getId(), currentBatch.getCreatedAt(),
+					currentRecommendations.size(), false);
+		}
 		RecommendationCalculationService.Calculation calculation = calculationService.calculate(userId);
 		if (!validityChecker.isRefreshRequired(currentBatch, currentRecommendations, calculation)) {
 			return new RecommendationRefreshResponse(currentBatch.getId(), currentBatch.getCreatedAt(),
@@ -103,13 +116,15 @@ public class RecommendationService {
 		RecommendationBatch batch = latestBatch(userId);
 		List<Recommendation> recommendations = recommendationRepository
 				.findAllByBatchIdOrderByRankAsc(batch.getId());
-		boolean refreshRequired = validityChecker.isRefreshRequired(userId, batch, recommendations);
+		Map<Long, Application> applicationsByPostingId = loadApplications(userId, recommendations);
+		boolean refreshRequired = !hasActiveApplication(applicationsByPostingId)
+				&& validityChecker.isRefreshRequired(userId, batch, recommendations);
 		if (refreshRequired) {
 			return new RecommendationListResponse(batch.getId(), batch.getCreatedAt(), true, List.of());
 		}
 		return new RecommendationListResponse(batch.getId(), batch.getCreatedAt(), false,
 				recommendations.stream().limit(RecommendationPolicyV1.MAX_RECOMMENDATIONS)
-						.map(this::listItem).toList());
+						.map(recommendation -> listItem(recommendation, applicationsByPostingId)).toList());
 	}
 
 	@Transactional(readOnly = true)
@@ -126,19 +141,42 @@ public class RecommendationService {
 		}
 		List<Recommendation> latestRecommendations = recommendationRepository
 				.findAllByBatchIdOrderByRankAsc(latestBatch.getId());
-		if (validityChecker.isRefreshRequired(userId, latestBatch, latestRecommendations)) {
+		Map<Long, Application> applicationsByPostingId = loadApplications(userId, latestRecommendations);
+		if (!hasActiveApplication(applicationsByPostingId)
+				&& validityChecker.isRefreshRequired(userId, latestBatch, latestRecommendations)) {
 			throw new RecommendationStateConflictException("현재 상태에 맞게 추천 갱신이 필요합니다.");
 		}
 		return detail(recommendation);
 	}
 
-	private RecommendationListResponse.Item listItem(Recommendation recommendation) {
+	private RecommendationListResponse.Item listItem(Recommendation recommendation,
+			Map<Long, Application> applicationsByPostingId) {
 		JobPosting posting = recommendation.getJobPosting();
+		Application application = applicationsByPostingId.get(posting.getId());
 		return new RecommendationListResponse.Item(recommendation.getId(), posting.getId(),
+				application == null ? null : application.getId(),
+				application == null ? null : application.getStatus(),
 				recommendation.getRank().intValue(), posting.getTitle(), posting.getWorkplace().getWorkplaceName(),
 				posting.getWorkplace().getWorkplaceAddress(), posting.getWageType(), posting.getWageAmount(),
 				workTimes(posting.getId()), recommendation.getScore(),
 				validityChecker.recommendationReasons(recommendation.getReasonJson()));
+	}
+
+	private Map<Long, Application> loadApplications(Long userId, List<Recommendation> recommendations) {
+		List<Long> jobPostingIds = recommendations.stream()
+				.map(recommendation -> recommendation.getJobPosting().getId())
+				.toList();
+		if (jobPostingIds.isEmpty()) {
+			return Map.of();
+		}
+		return applicationRepository.findAllByStudentProfileIdAndJobPostingIdIn(userId, jobPostingIds).stream()
+				.collect(Collectors.toMap(application -> application.getJobPosting().getId(), Function.identity()));
+	}
+
+	private boolean hasActiveApplication(Map<Long, Application> applicationsByPostingId) {
+		return applicationsByPostingId.values().stream()
+				.anyMatch(application -> application.getStatus() == ApplicationStatus.WAITING_RESPONSE
+						|| application.getStatus() == ApplicationStatus.OFFERED);
 	}
 
 	private SavedBatch saveBatch(StudentProfile profile, RecommendationCalculationService.Calculation calculation) {
