@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
+import com.hirelink.domain.application.entity.ApplicationEndReason;
 import com.hirelink.domain.application.entity.ApplicationStatus;
 
 public record JobPostingApplicationListResponse(
@@ -30,6 +31,8 @@ public record JobPostingApplicationListResponse(
 			Instant employerResponseDeadline,
 			Long offerId,
 			Instant studentResponseDeadline,
-			Long matchId) {
+			Long matchId,
+			ApplicationEndReason endReason,
+			Instant endedAt) {
 	}
 }

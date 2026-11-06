@@ -1,5 +1,6 @@
 package com.hirelink.domain.application.repository;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -57,4 +58,12 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
 
 	List<Application> findAllByStudentProfileIdAndStatusOrderByAppliedAtDescIdDesc(Long studentProfileId,
 			ApplicationStatus status);
+
+	@Query("""
+			select application.id from Application application
+			where application.status = :status and application.employerResponseDeadline <= :now
+			order by application.id
+			""")
+	List<Long> findExpiredEmployerResponseIds(@Param("status") ApplicationStatus status,
+			@Param("now") Instant now);
 }
