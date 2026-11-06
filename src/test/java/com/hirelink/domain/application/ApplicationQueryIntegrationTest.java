@@ -69,7 +69,7 @@ class ApplicationQueryIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
-	void employerReadsApplicationDetailFromSnapshotWithoutContact() throws Exception {
+	void employerReadsLegacyBooleanMatchResultFromSnapshotWithoutContact() throws Exception {
 		long employer = createUser("EMPLOYER", "현재 사업주");
 		long student = createStudent("현재 유학생");
 		long posting = createPosting(employer, "현재 공고");
@@ -94,7 +94,44 @@ class ApplicationQueryIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(body.path("matchResult").path("matchScore").decimalValue()).isEqualByComparingTo("85.00");
 		assertThat(body.path("matchResult").path("workTimeMatched").asBoolean()).isTrue();
 		assertThat(body.path("matchResult").path("experienceMatched").asBoolean()).isFalse();
+		assertThat(body.path("matchResult").path("locationMatched").asBoolean()).isTrue();
+		assertThat(body.path("matchResult").path("wageMatched").asBoolean()).isTrue();
+		assertThat(body.path("matchResult").path("koreanLevelMatched").asBoolean()).isTrue();
 		assertThat(response.body()).doesNotContain("phone", "contact");
+	}
+
+	@Test
+	void employerReadsCriterionScoresAndEvaluatesQualificationsIndependentlyFromSnapshot() throws Exception {
+		long employer = createUser("EMPLOYER", "현재 사업주");
+		long student = createStudent("현재 유학생");
+		long posting = createPosting(employer, "현재 공고");
+		ApplicationFixture fixture = createApplication(student, posting, "WAITING_RESPONSE", BASE_TIME, "지원 당시 유학생");
+		String snapshot = """
+				{
+				  "version":1,
+				  "student":{"studentProfileId":%d,"name":"지원 당시 유학생","koreanLevel":"BEGINNER",
+				    "careers":[{"careerName":"단기 경력","startMonth":"2026-01","endMonth":"2026-06"}]},
+				  "jobPosting":{"jobPostingId":%d,"wageAmount":13000,"requiredKoreanLevel":"ADVANCED",
+				    "preferredExperience":"ONE_YEAR_OR_MORE","workTimes":[]},
+				  "recommendation":{"recommendationId":1,"score":100.00,
+				    "reason":{"recommendationReasons":["모든 추천 조건 충족"],
+				      "criterionScores":{"WORK_TIME":100.00,"DISTANCE":100.00,"WAGE":100.00,
+				        "BUSINESS_TYPE":100.00},"distanceKm":0.5}}
+				}
+				""".formatted(student, posting);
+		jdbc.update("update application set application_snapshot = cast(? as jsonb) where id = ?",
+				snapshot, fixture.applicationId());
+
+		JsonNode matchResult = body(get(token(employer, "EMPLOYER"),
+				"/api/employer/applications/" + fixture.applicationId()), 200).path("matchResult");
+
+		assertThat(matchResult.path("matchScore").decimalValue()).isEqualByComparingTo("100.00");
+		assertThat(matchResult.path("workTimeMatched").asBoolean()).isTrue();
+		assertThat(matchResult.path("locationMatched").asBoolean()).isTrue();
+		assertThat(matchResult.path("wageMatched").asBoolean()).isTrue();
+		assertThat(matchResult.path("experienceMatched").asBoolean()).isFalse();
+		assertThat(matchResult.path("koreanLevelMatched").asBoolean()).isFalse();
+		assertThat(matchResult.has("businessTypeMatched")).isFalse();
 	}
 
 	@Test

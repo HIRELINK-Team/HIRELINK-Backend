@@ -4,13 +4,16 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
@@ -214,7 +217,7 @@ public class ApplicationService {
 				employerResponseDeadline(application), employerApplicant(student),
 				new EmployerApplicationDetailResponse.JobRequirements(workTimes(posting),
 						integerValue(posting, "wageAmount"), stringValue(posting, "requiredKoreanLevel")),
-				matchResult(recommendation));
+				matchResult(student, posting, recommendation));
 	}
 
 	@Transactional(readOnly = true)
@@ -321,12 +324,93 @@ public class ApplicationService {
 		return List.copyOf(times);
 	}
 
-	private EmployerApplicationDetailResponse.MatchResult matchResult(Map<String, Object> recommendation) {
+	private EmployerApplicationDetailResponse.MatchResult matchResult(Map<String, Object> student,
+			Map<String, Object> posting, Map<String, Object> recommendation) {
 		Map<String, Object> reason = object(recommendation, "reason");
+		if (!(reason.get("criterionScores") instanceof Map<?, ?>)) {
+			return legacyMatchResult(recommendation, reason);
+		}
+		Map<String, Object> criterionScores = object(reason, "criterionScores");
+		return new EmployerApplicationDetailResponse.MatchResult(decimalValue(recommendation, "score"),
+				criterionMatched(criterionScores, "WORK_TIME"), experienceMatched(student, posting),
+				criterionMatched(criterionScores, "DISTANCE"), criterionMatched(criterionScores, "WAGE"),
+				koreanLevelMatched(student, posting));
+	}
+
+	private EmployerApplicationDetailResponse.MatchResult legacyMatchResult(Map<String, Object> recommendation,
+			Map<String, Object> reason) {
 		return new EmployerApplicationDetailResponse.MatchResult(decimalValue(recommendation, "score"),
 				booleanValue(reason, "workTimeMatched"), booleanValue(reason, "experienceMatched"),
 				booleanValue(reason, "locationMatched"), booleanValue(reason, "wageMatched"),
 				booleanValue(reason, "koreanLevelMatched"));
+	}
+
+	private boolean criterionMatched(Map<String, Object> criterionScores, String criterion) {
+		BigDecimal score = decimalValue(criterionScores, criterion);
+		return score != null && score.compareTo(BigDecimal.valueOf(100)) == 0;
+	}
+
+	private boolean experienceMatched(Map<String, Object> student, Map<String, Object> posting) {
+		String preferredExperience = stringValue(posting, "preferredExperience");
+		if (preferredExperience == null) {
+			return false;
+		}
+		int requiredMonths = switch (preferredExperience) {
+			case "NONE" -> 0;
+			case "SIX_MONTHS_OR_MORE" -> 6;
+			case "ONE_YEAR_OR_MORE" -> 12;
+			default -> Integer.MAX_VALUE;
+		};
+		return careerMonths(student) >= requiredMonths;
+	}
+
+	private int careerMonths(Map<String, Object> student) {
+		Object value = student.get("careers");
+		if (!(value instanceof List<?> careers)) {
+			return 0;
+		}
+		Set<YearMonth> workedMonths = new HashSet<>();
+		for (Object career : careers) {
+			if (!(career instanceof Map<?, ?> values)) {
+				continue;
+			}
+			try {
+				YearMonth start = YearMonth.parse(stringValue(values, "startMonth"));
+				YearMonth end = YearMonth.parse(stringValue(values, "endMonth"));
+				if (end.isBefore(start)) {
+					continue;
+				}
+				for (YearMonth month = start; !month.isAfter(end); month = month.plusMonths(1)) {
+					workedMonths.add(month);
+				}
+			}
+			catch (RuntimeException ignored) {
+				// Invalid legacy snapshot values do not satisfy an experience requirement.
+			}
+		}
+		return workedMonths.size();
+	}
+
+	private boolean koreanLevelMatched(Map<String, Object> student, Map<String, Object> posting) {
+		String requiredLevel = stringValue(posting, "requiredKoreanLevel");
+		if (requiredLevel == null) {
+			return true;
+		}
+		Integer studentLevel = koreanLevelRank(stringValue(student, "koreanLevel"));
+		Integer requiredLevelRank = koreanLevelRank(requiredLevel);
+		return studentLevel != null && requiredLevelRank != null && studentLevel >= requiredLevelRank;
+	}
+
+	private Integer koreanLevelRank(String level) {
+		if (level == null) {
+			return null;
+		}
+		return switch (level) {
+			case "BEGINNER" -> 0;
+			case "INTERMEDIATE" -> 1;
+			case "ADVANCED" -> 2;
+			default -> null;
+		};
 	}
 
 	private JobPostingApplicationListResponse.Item jobPostingApplicationItem(Application application) {
