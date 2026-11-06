@@ -94,6 +94,9 @@ class ApplicationQueryIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(body.path("matchResult").path("matchScore").decimalValue()).isEqualByComparingTo("85.00");
 		assertThat(body.path("matchResult").path("workTimeMatched").asBoolean()).isTrue();
 		assertThat(body.path("matchResult").path("experienceMatched").asBoolean()).isFalse();
+		assertThat(body.path("matchResult").path("locationMatched").asBoolean()).isTrue();
+		assertThat(body.path("matchResult").path("wageMatched").asBoolean()).isTrue();
+		assertThat(body.path("matchResult").path("koreanLevelMatched").asBoolean()).isTrue();
 		assertThat(response.body()).doesNotContain("phone", "contact");
 	}
 
