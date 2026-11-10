@@ -944,4 +944,4 @@ Windows PowerShell:
 - [Git Workflow](docs/convention/git-workflow.md)
 - [Commit Message Convention](docs/convention/commit-message.md)
 
-Issue를 먼저 생성하고 작업 브랜치와 PR에 연결하는 흐름을 기본안으로 제안합니다. 세부 브랜치 전략, 리뷰 승인 수, merge 방식은 팀 합의 후 확정합니다.
+Issue를 먼저 생성하고 작업 브랜치와 PR에 연결합니다. PR 제목은 연결된 이슈 제목과 동일하게 작성하고, 이슈와 PR의 Assignees는 작성자 본인으로 설정합니다. 커밋 메시지는 `feat: 한글 설명`과 같은 기존 형식을 사용합니다. 세부 브랜치 전략, 리뷰 승인 수, merge 방식은 팀 합의 후 확정합니다.

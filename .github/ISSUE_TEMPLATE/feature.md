@@ -6,6 +6,8 @@ labels: "enhancement"
 assignees: ""
 ---
 
+<!-- 이슈 등록 시 Assignees에 작성자 본인을 지정해주세요. -->
+
 ### Description
 
 > 개발하려는 기능에 대해 간결하게 설명해주세요
