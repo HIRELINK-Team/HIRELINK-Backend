@@ -717,7 +717,8 @@ URL은 Supabase 프로젝트 기본 URL을 사용합니다. 비밀키는 [공식
 
 ### API Documentation
 
-- TODO: Swagger/OpenAPI 등 자동화된 API 문서 도구는 현재 의존성과 설정에서 확인되지 않음
+- Springdoc OpenAPI 3.2.0
+- Swagger UI
 
 ## 프로젝트 구조
 
@@ -862,7 +863,12 @@ Windows PowerShell:
 
 ### API 문서
 
-Swagger UI나 OpenAPI 문서 엔드포인트는 현재 구성되어 있지 않습니다. 구현된 인증 API는 이 README의 [현재 인증 API](#현재-인증-api)를 참고합니다.
+애플리케이션을 실행한 뒤 다음 주소에서 현재 Controller와 요청·응답 DTO를 기반으로 생성된 API 문서를 확인합니다.
+
+- Swagger UI: `http://localhost:8080/swagger-ui/index.html`
+- OpenAPI JSON: `http://localhost:8080/v3/api-docs`
+
+Swagger UI에서 `Authorize`를 선택하고 발급받은 Access Token 값만 입력하면 인증 API를 호출할 수 있습니다. `Bearer ` 접두사는 Swagger UI가 추가합니다. 문서 엔드포인트만 인증 없이 접근할 수 있으며 기존 API의 공개·인증 정책은 그대로 유지됩니다. API 문서는 환경변수, 데이터베이스 접속정보, JWT Secret 같은 애플리케이션 설정값을 포함하지 않습니다.
 
 ### 로컬 OCR 실행
 
