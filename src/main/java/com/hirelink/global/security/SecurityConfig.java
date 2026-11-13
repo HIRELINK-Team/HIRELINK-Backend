@@ -53,6 +53,7 @@ public class SecurityConfig {
 		http
 				.authorizeHttpRequests(authorize -> authorize
 						.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+						.requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
 						.requestMatchers(HttpMethod.GET, "/health").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/auth/signup", "/api/auth/login").permitAll()
 						.requestMatchers(cookieAuthenticatedRequests, csrfRequest).permitAll()
