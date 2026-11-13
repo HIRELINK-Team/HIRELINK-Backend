@@ -336,6 +336,151 @@ class RecommendationApiIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
+	void listDoesNotAutoRefreshBeforeTwentyFourHours() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		createPosting(employer, "24시간 전 추천", 13000, "RECRUITING");
+		JsonNode created = body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+		jdbc.update("update recommendation_batch set created_at = now() - interval '23 hours 59 minutes' where id = ?",
+				created.path("batchId").asLong());
+
+		JsonNode listed = body(get(token(student, "STUDENT"), "/api/recommendations"), 200);
+
+		assertThat(listed.path("batchId").asLong()).isEqualTo(created.path("batchId").asLong());
+		assertThat(count("recommendation_batch")).isOne();
+	}
+
+	@Test
+	void expiredListAutoRefreshesAndPreservesRecommendationHistory() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		createPosting(employer, "24시간 만료 추천", 13000, "RECRUITING");
+		JsonNode created = body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+		long oldRecommendation = jdbc.queryForObject(
+				"select id from recommendation where batch_id = ?", Long.class, created.path("batchId").asLong());
+		jdbc.update("update recommendation_batch set created_at = now() - interval '24 hours' where id = ?",
+				created.path("batchId").asLong());
+
+		JsonNode listed = body(get(token(student, "STUDENT"), "/api/recommendations"), 200);
+
+		assertThat(listed.path("batchId").asLong()).isNotEqualTo(created.path("batchId").asLong());
+		assertThat(listed.path("refreshRequired").asBoolean()).isFalse();
+		assertThat(listed.path("recommendations").size()).isOne();
+		assertThat(Instant.parse(listed.path("generatedAt").asText())).isAfter(Instant.parse(created.path("generatedAt").asText()));
+		assertThat(count("recommendation_batch")).isEqualTo(2);
+		assertThat(jdbc.queryForObject("select count(*) from recommendation where id = ?", Integer.class,
+				oldRecommendation)).isOne();
+	}
+
+	@Test
+	void expiredListRetainsActiveRecommendationAndFillsOnlyAvailableSeats() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		for (int index = 0; index < 4; index++) {
+			createPosting(employer, "부분 갱신 공고 " + index, 13000, "RECRUITING");
+		}
+		JsonNode created = body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+		JsonNode before = body(get(token(student, "STUDENT"), "/api/recommendations"), 200);
+		long retainedRecommendation = before.path("recommendations").get(0).path("recommendationId").asLong();
+		long retainedPosting = before.path("recommendations").get(0).path("jobPostingId").asLong();
+		insertApplication(student, retainedRecommendation, retainedPosting, "WAITING_RESPONSE");
+		long application = jdbc.queryForObject(
+				"select id from application where recommendation_id = ?", Long.class, retainedRecommendation);
+		Instant responseDeadline = jdbc.queryForObject(
+				"select employer_response_deadline from application where id = ?", Instant.class, application);
+		for (int index = 1; index < before.path("recommendations").size(); index++) {
+			jdbc.update("update job_posting set status = 'CLOSED' where id = ?",
+					before.path("recommendations").get(index).path("jobPostingId").asLong());
+		}
+		jdbc.update("update recommendation_batch set created_at = now() - interval '24 hours 1 second' where id = ?",
+				created.path("batchId").asLong());
+
+		JsonNode listed = body(get(token(student, "STUDENT"), "/api/recommendations"), 200);
+
+		assertThat(listed.path("recommendations").size()).isEqualTo(2);
+		JsonNode retained = listed.path("recommendations").get(0);
+		assertThat(retained.path("jobPostingId").asLong()).isEqualTo(retainedPosting);
+		assertThat(retained.path("applicationId").asLong()).isEqualTo(application);
+		assertThat(retained.path("applicationStatus").asString()).isEqualTo("WAITING_RESPONSE");
+		assertThat(body(get(token(student, "STUDENT"),
+				"/api/recommendations/" + retained.path("recommendationId").asLong()), 200)
+				.path("jobPostingId").asLong()).isEqualTo(retainedPosting);
+		assertThat(jdbc.queryForObject("select employer_response_deadline from application where id = ?",
+				Instant.class, application)).isEqualTo(responseDeadline);
+	}
+
+	@Test
+	void expiredListReturnsEmptyNewBatchWhenNoCandidateExists() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		long posting = createPosting(employer, "사라질 후보", 13000, "RECRUITING");
+		JsonNode created = body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+		jdbc.update("update job_posting set status = 'CLOSED' where id = ?", posting);
+		jdbc.update("update recommendation_batch set created_at = now() - interval '25 hours' where id = ?",
+				created.path("batchId").asLong());
+
+		JsonNode listed = body(get(token(student, "STUDENT"), "/api/recommendations"), 200);
+
+		assertThat(listed.path("batchId").asLong()).isNotEqualTo(created.path("batchId").asLong());
+		assertThat(listed.path("recommendations").isEmpty()).isTrue();
+		assertThat(listed.path("refreshRequired").asBoolean()).isFalse();
+		assertThat(count("recommendation")).isOne();
+	}
+
+	@Test
+	void expiredListWithThreeActiveRecommendationsRefreshesOnlyOnce() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		for (int index = 0; index < 3; index++) {
+			createPosting(employer, "모두 진행 중 " + index, 13000, "RECRUITING");
+		}
+		JsonNode created = body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+		JsonNode before = body(get(token(student, "STUDENT"), "/api/recommendations"), 200);
+		for (JsonNode item : before.path("recommendations")) {
+			insertApplication(student, item.path("recommendationId").asLong(),
+					item.path("jobPostingId").asLong(), "OFFERED");
+		}
+		jdbc.update("update recommendation_batch set created_at = now() - interval '25 hours' where id = ?",
+				created.path("batchId").asLong());
+
+		JsonNode first = body(get(token(student, "STUDENT"), "/api/recommendations"), 200);
+		JsonNode second = body(get(token(student, "STUDENT"), "/api/recommendations"), 200);
+
+		assertThat(first.path("recommendations").size()).isEqualTo(3);
+		assertThat(first.path("recommendations")).allSatisfy(
+				item -> assertThat(item.path("applicationStatus").asString()).isEqualTo("OFFERED"));
+		assertThat(second.path("batchId").asLong()).isEqualTo(first.path("batchId").asLong());
+		assertThat(count("recommendation_batch")).isEqualTo(2);
+	}
+
+	@Test
+	void concurrentExpiredListCreatesOnlyOneNewBatch() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		createPosting(employer, "동시 자동 갱신", 13000, "RECRUITING");
+		JsonNode created = body(post(token(student, "STUDENT"), "/api/recommendations"), 201);
+		jdbc.update("update recommendation_batch set created_at = now() - interval '25 hours' where id = ?",
+				created.path("batchId").asLong());
+		String studentToken = token(student, "STUDENT");
+
+		List<HttpResponse<String>> responses = List.of(
+				getAsync(studentToken, "/api/recommendations"),
+				getAsync(studentToken, "/api/recommendations"))
+				.stream().map(CompletableFuture::join).toList();
+
+		assertThat(responses).allSatisfy(response -> assertThat(response.statusCode()).isEqualTo(200));
+		assertThat(responses.stream().map(response -> {
+			try {
+				return mapper.readTree(response.body()).path("batchId").asLong();
+			} catch (Exception exception) {
+				throw new IllegalStateException(exception);
+			}
+		}).distinct().count()).isOne();
+		assertThat(jdbc.queryForObject("select count(*) from recommendation_batch where student_profile_id = ?",
+				Integer.class, student)).isEqualTo(2);
+	}
+
+	@Test
 	void refreshWithoutExistingBatchReturnsNotFound() throws Exception {
 		long student = createStudent(true);
 
@@ -605,6 +750,10 @@ class RecommendationApiIntegrationTest extends PostgreSQLIntegrationTest {
 	private CompletableFuture<HttpResponse<String>> postAsync(String token, String path) {
 		return client.sendAsync(request(token, path).POST(HttpRequest.BodyPublishers.noBody()).build(),
 				HttpResponse.BodyHandlers.ofString());
+	}
+
+	private CompletableFuture<HttpResponse<String>> getAsync(String token, String path) {
+		return client.sendAsync(request(token, path).GET().build(), HttpResponse.BodyHandlers.ofString());
 	}
 
 	private HttpResponse<String> get(String token, String path) throws Exception {
