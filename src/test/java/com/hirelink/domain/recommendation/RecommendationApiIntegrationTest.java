@@ -173,7 +173,7 @@ class RecommendationApiIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
-	void matchingConditionAndPriorityChangesUseSameValidityDecisionForGetAndRefresh() throws Exception {
+	void matchingConditionChangesStillRequireRefreshForListAndDetail() throws Exception {
 		long student = createStudent(true);
 		long employer = createUser("EMPLOYER");
 		long posting = createPosting(employer, "조건 감지 공고", 13000, "RECRUITING");
@@ -185,13 +185,122 @@ class RecommendationApiIntegrationTest extends PostgreSQLIntegrationTest {
 		assertRefreshRequiredForListAndDetail(student, recommendation);
 		assertThat(body(post(token(student, "STUDENT"), "/api/recommendations/refresh"), 200)
 				.path("refreshed").asBoolean()).isTrue();
+	}
 
-		jdbc.update("update student_priority set priority_order = priority_order + 10 where user_id = ?", student);
-		jdbc.update("update student_priority set priority_order = 5 - (priority_order - 10) where user_id = ?", student);
-		JsonNode list = body(get(token(student, "STUDENT"), "/api/recommendations"), 200);
-		assertThat(list.path("refreshRequired").asBoolean()).isTrue();
-		assertThat(body(post(token(student, "STUDENT"), "/api/recommendations/refresh"), 200)
-				.path("refreshed").asBoolean()).isTrue();
+	@Test
+	void priorityChangeKeepsCurrentRecommendationsUntilExplicitRefresh() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		for (int index = 0; index < 4; index++) {
+			createPosting(employer, "우선순위 반영 " + index, 13000 + index, "RECRUITING");
+		}
+		String studentToken = token(student, "STUDENT");
+		JsonNode created = body(post(studentToken, "/api/recommendations"), 201);
+		JsonNode before = body(get(studentToken, "/api/recommendations"), 200);
+		JsonNode target = before.path("recommendations").get(0);
+		long recommendation = target.path("recommendationId").asLong();
+		long posting = target.path("jobPostingId").asLong();
+
+		updatePriorities(studentToken);
+		JsonNode unchanged = body(get(studentToken, "/api/recommendations"), 200);
+
+		assertThat(unchanged.path("refreshRequired").asBoolean()).isFalse();
+		assertThat(unchanged.path("batchId").asLong()).isEqualTo(created.path("batchId").asLong());
+		assertThat(unchanged.path("generatedAt").asText()).isEqualTo(created.path("generatedAt").asText());
+		assertThat(unchanged.path("recommendations").toString())
+				.isEqualTo(before.path("recommendations").toString());
+		assertThat(body(get(studentToken, "/api/recommendations/" + recommendation), 200)
+				.path("recommendationId").asLong()).isEqualTo(recommendation);
+
+		String applicationRequest = "{\"recommendationId\":" + recommendation
+				+ ",\"desiredStartDate\":\"" + LocalDate.now().plusDays(1) + "\"}";
+		JsonNode application = body(send("POST", "/api/applications", studentToken, applicationRequest), 201);
+		Instant responseDeadline = Instant.parse(application.path("employerResponseDeadline").asText());
+
+		JsonNode refreshed = body(post(studentToken, "/api/recommendations/refresh"), 200);
+		JsonNode refreshedList = body(get(studentToken, "/api/recommendations"), 200);
+		JsonNode retained = refreshedList.path("recommendations").get(0);
+
+		assertThat(refreshed.path("refreshed").asBoolean()).isTrue();
+		assertThat(refreshed.path("batchId").asLong()).isNotEqualTo(created.path("batchId").asLong());
+		assertThat(Instant.parse(refreshed.path("generatedAt").asText()))
+				.isAfter(Instant.parse(created.path("generatedAt").asText()));
+		assertThat(refreshedList.path("recommendations").size()).isEqualTo(3);
+		assertThat(retained.path("jobPostingId").asLong()).isEqualTo(posting);
+		assertThat(retained.path("applicationId").asLong()).isEqualTo(application.path("applicationId").asLong());
+		assertThat(retained.path("applicationStatus").asString()).isEqualTo("WAITING_RESPONSE");
+		assertThat(jdbc.queryForObject("select employer_response_deadline from application where id = ?",
+				Instant.class, application.path("applicationId").asLong())).isEqualTo(responseDeadline);
+		assertThat(mapper.readTree(jdbc.queryForObject(
+				"select input_snapshot ->> 'priorities' from recommendation_batch where id = ?",
+				String.class, refreshed.path("batchId").asLong())).toString())
+				.isEqualTo("[\"BUSINESS_TYPE\",\"DISTANCE\",\"WAGE\",\"WORK_TIME\"]");
+	}
+
+	@Test
+	void explicitPriorityRefreshWithThreeActiveRecommendationsPreservesApplications() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		for (int index = 0; index < 3; index++) {
+			createPosting(employer, "진행 중 우선순위 " + index, 13000 + index, "RECRUITING");
+		}
+		String studentToken = token(student, "STUDENT");
+		JsonNode created = body(post(studentToken, "/api/recommendations"), 201);
+		JsonNode before = body(get(studentToken, "/api/recommendations"), 200);
+		List<Long> applicationIds = new ArrayList<>();
+		List<Instant> responseDeadlines = new ArrayList<>();
+		int index = 0;
+		for (JsonNode item : before.path("recommendations")) {
+			String status = index++ == 0 ? "WAITING_RESPONSE" : "OFFERED";
+			insertApplication(student, item.path("recommendationId").asLong(),
+					item.path("jobPostingId").asLong(), status);
+			Long applicationId = jdbc.queryForObject(
+					"select id from application where recommendation_id = ?", Long.class,
+					item.path("recommendationId").asLong());
+			applicationIds.add(applicationId);
+			responseDeadlines.add(jdbc.queryForObject(
+					"select employer_response_deadline from application where id = ?", Instant.class, applicationId));
+		}
+		updatePriorities(studentToken);
+
+		JsonNode refreshed = body(post(studentToken, "/api/recommendations/refresh"), 200);
+		JsonNode listed = body(get(studentToken, "/api/recommendations"), 200);
+
+		assertThat(refreshed.path("refreshed").asBoolean()).isTrue();
+		assertThat(refreshed.path("batchId").asLong()).isNotEqualTo(created.path("batchId").asLong());
+		assertThat(listed.path("recommendations").size()).isEqualTo(3);
+		List<Long> linkedApplications = new ArrayList<>();
+		listed.path("recommendations").forEach(
+				item -> linkedApplications.add(item.path("applicationId").asLong()));
+		assertThat(linkedApplications).containsExactlyElementsOf(applicationIds);
+		for (int deadlineIndex = 0; deadlineIndex < applicationIds.size(); deadlineIndex++) {
+			assertThat(jdbc.queryForObject("select employer_response_deadline from application where id = ?",
+					Instant.class, applicationIds.get(deadlineIndex))).isEqualTo(responseDeadlines.get(deadlineIndex));
+		}
+		assertThat(body(post(studentToken, "/api/recommendations/refresh"), 200)
+				.path("refreshed").asBoolean()).isFalse();
+	}
+
+	@Test
+	void automaticRefreshUsesSavedPrioritiesAfterTwentyFourHours() throws Exception {
+		long student = createStudent(true);
+		long employer = createUser("EMPLOYER");
+		createPosting(employer, "24시간 후 우선순위", 13000, "RECRUITING");
+		String studentToken = token(student, "STUDENT");
+		JsonNode created = body(post(studentToken, "/api/recommendations"), 201);
+		updatePriorities(studentToken);
+		assertThat(body(get(studentToken, "/api/recommendations"), 200)
+				.path("batchId").asLong()).isEqualTo(created.path("batchId").asLong());
+		jdbc.update("update recommendation_batch set created_at = now() - interval '25 hours' where id = ?",
+				created.path("batchId").asLong());
+
+		JsonNode refreshed = body(get(studentToken, "/api/recommendations"), 200);
+
+		assertThat(refreshed.path("batchId").asLong()).isNotEqualTo(created.path("batchId").asLong());
+		assertThat(mapper.readTree(jdbc.queryForObject(
+				"select input_snapshot ->> 'priorities' from recommendation_batch where id = ?",
+				String.class, refreshed.path("batchId").asLong())).toString())
+				.isEqualTo("[\"BUSINESS_TYPE\",\"DISTANCE\",\"WAGE\",\"WORK_TIME\"]");
 	}
 
 	@Test
@@ -722,6 +831,18 @@ class RecommendationApiIntegrationTest extends PostgreSQLIntegrationTest {
 				snapshot_version, application_snapshot, status, employer_response_deadline, applied_at)
 				values (?, ?, ?, current_date + 1, 1, '{}'::jsonb, ?, now() + interval '1 day', now())
 				""", recommendation, student, posting, status);
+	}
+
+	private void updatePriorities(String studentToken) throws Exception {
+		String request = """
+				{"priorities":[
+				  {"criterionId":1,"priorityOrder":4},
+				  {"criterionId":2,"priorityOrder":3},
+				  {"criterionId":3,"priorityOrder":2},
+				  {"criterionId":4,"priorityOrder":1}
+				]}
+				""";
+		body(send("PATCH", "/api/students/me/matching-preferences", studentToken, request), 200);
 	}
 
 	private long createPosting(long employer, String title, int wageAmount, String status) {
