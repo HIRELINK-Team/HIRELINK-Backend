@@ -1,8 +1,10 @@
 package com.hirelink.domain.recommendation.service;
 
 import java.math.BigDecimal;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import org.springframework.stereotype.Component;
 
@@ -46,6 +48,39 @@ public class RecommendationValidityChecker {
 			}
 		}
 		return false;
+	}
+
+	public boolean isRefreshRequiredForRead(RecommendationBatch batch, List<Recommendation> storedRecommendations,
+			RecommendationCalculationService.Calculation current) {
+		if (batch.getInvalidatedAt() != null) {
+			return true;
+		}
+		if (hasPriorityChanged(batch, current)
+				&& snapshotsWithoutPriorities(batch.getInputSnapshot())
+						.equals(snapshotsWithoutPriorities(current.inputSnapshot()))) {
+			return false;
+		}
+		return isRefreshRequired(batch, storedRecommendations, current);
+	}
+
+	public boolean isRefreshRequiredForRead(Long studentProfileId, RecommendationBatch batch,
+			List<Recommendation> storedRecommendations) {
+		return isRefreshRequiredForRead(batch, storedRecommendations,
+				calculationService.calculate(studentProfileId));
+	}
+
+	public boolean hasPriorityChanged(RecommendationBatch batch,
+			RecommendationCalculationService.Calculation current) {
+		return !Objects.equals(batch.getInputSnapshot().get("priorities"), current.inputSnapshot().get("priorities"))
+				|| !Objects.equals(batch.getInputSnapshot().get("priorityWeights"),
+						current.inputSnapshot().get("priorityWeights"));
+	}
+
+	private Map<String, Object> snapshotsWithoutPriorities(Map<String, Object> snapshot) {
+		Map<String, Object> copy = new LinkedHashMap<>(snapshot);
+		copy.remove("priorities");
+		copy.remove("priorityWeights");
+		return copy;
 	}
 
 	public List<String> recommendationReasons(Map<String, Object> reasonJson) {

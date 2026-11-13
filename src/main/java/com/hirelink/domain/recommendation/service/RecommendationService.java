@@ -95,19 +95,21 @@ public class RecommendationService {
 		RecommendationBatch currentBatch = latestBatch(userId);
 		List<Recommendation> currentRecommendations = recommendationRepository
 				.findAllByBatchIdOrderByRankAsc(currentBatch.getId());
-		if (hasActiveApplication(loadApplications(userId, currentRecommendations))) {
-			return new RecommendationRefreshResponse(currentBatch.getId(), currentBatch.getCreatedAt(),
-					currentRecommendations.size(), false);
-		}
+		Map<Long, Application> applicationsByPostingId = loadApplications(userId, currentRecommendations);
 		RecommendationCalculationService.Calculation calculation = calculationService.calculate(userId);
-		if (!validityChecker.isRefreshRequired(currentBatch, currentRecommendations, calculation)) {
+		boolean hasActiveApplication = hasActiveApplication(applicationsByPostingId);
+		boolean refreshRequired = hasActiveApplication
+				? validityChecker.hasPriorityChanged(currentBatch, calculation)
+				: validityChecker.isRefreshRequired(currentBatch, currentRecommendations, calculation);
+		if (!refreshRequired) {
 			return new RecommendationRefreshResponse(currentBatch.getId(), currentBatch.getCreatedAt(),
 					currentRecommendations.size(), false);
 		}
 
-		Instant invalidatedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
-		currentBatch.invalidate(invalidatedAt);
-		SavedBatch saved = saveBatch(currentBatch.getStudentProfile(), calculation);
+		Instant refreshedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		currentBatch.invalidate(refreshedAt);
+		SavedBatch saved = saveRefreshedBatch(currentBatch, currentRecommendations,
+				applicationsByPostingId, calculation, refreshedAt);
 		return new RecommendationRefreshResponse(saved.batch().getId(), saved.batch().getCreatedAt(),
 				saved.recommendationCount(), true);
 	}
@@ -124,20 +126,15 @@ public class RecommendationService {
 		Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 		if (isAutoRefreshExpired(batch.getCreatedAt(), now)) {
 			RecommendationCalculationService.Calculation calculation = calculationService.calculate(userId);
-			Map<Long, Application> currentApplicationsByPostingId = applicationsByPostingId;
-			List<Recommendation> retainedRecommendations = recommendations.stream()
-					.filter(recommendation -> isActiveApplication(
-							currentApplicationsByPostingId.get(recommendation.getJobPosting().getId())))
-					.limit(RecommendationPolicyV1.MAX_RECOMMENDATIONS)
-					.toList();
 			batch.invalidate(now);
-			SavedBatch saved = saveBatch(batch.getStudentProfile(), calculation, retainedRecommendations, now);
+			SavedBatch saved = saveRefreshedBatch(batch, recommendations,
+					applicationsByPostingId, calculation, now);
 			batch = saved.batch();
 			recommendations = recommendationRepository.findAllByBatchIdOrderByRankAsc(batch.getId());
 			applicationsByPostingId = loadApplications(userId, recommendations);
 		}
 		boolean refreshRequired = !hasActiveApplication(applicationsByPostingId)
-				&& validityChecker.isRefreshRequired(userId, batch, recommendations);
+				&& validityChecker.isRefreshRequiredForRead(userId, batch, recommendations);
 		if (refreshRequired) {
 			return new RecommendationListResponse(batch.getId(), batch.getCreatedAt(), true, List.of());
 		}
@@ -163,7 +160,7 @@ public class RecommendationService {
 				.findAllByBatchIdOrderByRankAsc(latestBatch.getId());
 		Map<Long, Application> applicationsByPostingId = loadApplications(userId, latestRecommendations);
 		if (!hasActiveApplication(applicationsByPostingId)
-				&& validityChecker.isRefreshRequired(userId, latestBatch, latestRecommendations)) {
+				&& validityChecker.isRefreshRequiredForRead(userId, latestBatch, latestRecommendations)) {
 			throw new RecommendationStateConflictException("현재 상태에 맞게 추천 갱신이 필요합니다.");
 		}
 		return detail(recommendation);
@@ -206,6 +203,17 @@ public class RecommendationService {
 	private SavedBatch saveBatch(StudentProfile profile, RecommendationCalculationService.Calculation calculation) {
 		Instant generatedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
 		return saveBatch(profile, calculation, List.of(), generatedAt);
+	}
+
+	private SavedBatch saveRefreshedBatch(RecommendationBatch currentBatch,
+			List<Recommendation> currentRecommendations, Map<Long, Application> applicationsByPostingId,
+			RecommendationCalculationService.Calculation calculation, Instant generatedAt) {
+		List<Recommendation> retainedRecommendations = currentRecommendations.stream()
+				.filter(recommendation -> isActiveApplication(
+						applicationsByPostingId.get(recommendation.getJobPosting().getId())))
+				.limit(RecommendationPolicyV1.MAX_RECOMMENDATIONS)
+				.toList();
+		return saveBatch(currentBatch.getStudentProfile(), calculation, retainedRecommendations, generatedAt);
 	}
 
 	private SavedBatch saveBatch(StudentProfile profile, RecommendationCalculationService.Calculation calculation,
