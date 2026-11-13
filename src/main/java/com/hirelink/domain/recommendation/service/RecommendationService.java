@@ -1,5 +1,6 @@
 package com.hirelink.domain.recommendation.service;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
@@ -41,6 +42,7 @@ import com.hirelink.global.exception.WithdrawnAccountException;
 public class RecommendationService {
 
 	private static final String ALGORITHM_VERSION = "v1";
+	private static final Duration AUTO_REFRESH_INTERVAL = Duration.ofHours(24);
 	private static final List<String> WEEK_DAYS = List.of("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN");
 
 	private final UserAccountRepository userAccountRepository;
@@ -110,21 +112,39 @@ public class RecommendationService {
 				saved.recommendationCount(), true);
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional
 	public RecommendationListResponse getRecommendations(Long userId) {
-		validateStudent(getCurrentUser(userId));
+		UserAccount student = userAccountRepository.findByIdForUpdate(userId)
+				.orElseThrow(() -> new AuthenticationCredentialsNotFoundException("로그인이 필요합니다."));
+		validateStudent(student);
 		RecommendationBatch batch = latestBatch(userId);
 		List<Recommendation> recommendations = recommendationRepository
 				.findAllByBatchIdOrderByRankAsc(batch.getId());
 		Map<Long, Application> applicationsByPostingId = loadApplications(userId, recommendations);
+		Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		if (isAutoRefreshExpired(batch.getCreatedAt(), now)) {
+			RecommendationCalculationService.Calculation calculation = calculationService.calculate(userId);
+			Map<Long, Application> currentApplicationsByPostingId = applicationsByPostingId;
+			List<Recommendation> retainedRecommendations = recommendations.stream()
+					.filter(recommendation -> isActiveApplication(
+							currentApplicationsByPostingId.get(recommendation.getJobPosting().getId())))
+					.limit(RecommendationPolicyV1.MAX_RECOMMENDATIONS)
+					.toList();
+			batch.invalidate(now);
+			SavedBatch saved = saveBatch(batch.getStudentProfile(), calculation, retainedRecommendations, now);
+			batch = saved.batch();
+			recommendations = recommendationRepository.findAllByBatchIdOrderByRankAsc(batch.getId());
+			applicationsByPostingId = loadApplications(userId, recommendations);
+		}
 		boolean refreshRequired = !hasActiveApplication(applicationsByPostingId)
 				&& validityChecker.isRefreshRequired(userId, batch, recommendations);
 		if (refreshRequired) {
 			return new RecommendationListResponse(batch.getId(), batch.getCreatedAt(), true, List.of());
 		}
+		Map<Long, Application> responseApplicationsByPostingId = applicationsByPostingId;
 		return new RecommendationListResponse(batch.getId(), batch.getCreatedAt(), false,
 				recommendations.stream().limit(RecommendationPolicyV1.MAX_RECOMMENDATIONS)
-						.map(recommendation -> listItem(recommendation, applicationsByPostingId)).toList());
+						.map(recommendation -> listItem(recommendation, responseApplicationsByPostingId)).toList());
 	}
 
 	@Transactional(readOnly = true)
@@ -175,24 +195,47 @@ public class RecommendationService {
 
 	private boolean hasActiveApplication(Map<Long, Application> applicationsByPostingId) {
 		return applicationsByPostingId.values().stream()
-				.anyMatch(application -> application.getStatus() == ApplicationStatus.WAITING_RESPONSE
-						|| application.getStatus() == ApplicationStatus.OFFERED);
+				.anyMatch(this::isActiveApplication);
+	}
+
+	private boolean isActiveApplication(Application application) {
+		return application != null && (application.getStatus() == ApplicationStatus.WAITING_RESPONSE
+				|| application.getStatus() == ApplicationStatus.OFFERED);
 	}
 
 	private SavedBatch saveBatch(StudentProfile profile, RecommendationCalculationService.Calculation calculation) {
 		Instant generatedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		return saveBatch(profile, calculation, List.of(), generatedAt);
+	}
+
+	private SavedBatch saveBatch(StudentProfile profile, RecommendationCalculationService.Calculation calculation,
+			List<Recommendation> retainedRecommendations, Instant generatedAt) {
 		RecommendationBatch batch = batchRepository.save(new RecommendationBatch(
 				profile, ALGORITHM_VERSION, calculation.inputSnapshot(), null, generatedAt));
 		List<Recommendation> recommendations = new java.util.ArrayList<>();
-		for (int index = 0; index < calculation.results().size(); index++) {
-			RecommendationResult result = calculation.results().get(index);
+		for (Recommendation retained : retainedRecommendations) {
+			recommendations.add(new Recommendation(batch, retained.getJobPosting(),
+					(short)(recommendations.size() + 1), retained.getScore(), retained.getReasonJson(), generatedAt));
+		}
+		for (RecommendationResult result : calculation.results()) {
+			if (recommendations.size() >= RecommendationPolicyV1.MAX_RECOMMENDATIONS) {
+				break;
+			}
+			if (retainedRecommendations.stream()
+					.anyMatch(retained -> retained.getJobPosting().getId().equals(result.jobPostingId()))) {
+				continue;
+			}
 			JobPosting posting = calculation.postings().get(result.jobPostingId());
-			recommendations.add(new Recommendation(batch, posting, (short)(index + 1), result.matchScore(),
+			recommendations.add(new Recommendation(batch, posting, (short)(recommendations.size() + 1), result.matchScore(),
 					validityChecker.reasonSnapshot(result), generatedAt));
 		}
 		recommendationRepository.saveAll(recommendations);
 		batchRepository.flush();
 		return new SavedBatch(batch, recommendations.size());
+	}
+
+	static boolean isAutoRefreshExpired(Instant generatedAt, Instant now) {
+		return !now.isBefore(generatedAt.plus(AUTO_REFRESH_INTERVAL));
 	}
 
 	private RecommendationDetailResponse detail(Recommendation recommendation) {
