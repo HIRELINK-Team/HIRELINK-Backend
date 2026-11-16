@@ -32,6 +32,8 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 			new OperationSpec("/api/auth/refresh", "post", "200", "401", "403", "500"),
 			new OperationSpec("/api/auth/logout", "post", "200", "403", "500"),
 			new OperationSpec("/api/auth/social/result", "post", "200", "401", "403", "503", "500"),
+			new OperationSpec("/api/auth/social/terms", "get", "200", "401", "403", "409", "503", "500"),
+			new OperationSpec("/api/auth/social/terms", "put", "200", "400", "401", "403", "404", "409", "503", "500"),
 			new OperationSpec("/api/auth/phone-verifications", "post", "200", "400", "401", "403", "429", "500"),
 			new OperationSpec("/api/auth/phone-verifications/verify", "post", "200", "400", "401", "403", "409", "429", "500"),
 			new OperationSpec("/api/users/me/term-agreements", "put", "200", "400", "401", "403", "404", "500"),
@@ -153,6 +155,28 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 				"EmployerProfileResponse", "EmployerProfileCreateResponse")) {
 			assertThat(nullable(schema(document, name).path("properties").path("email"))).as(name).isTrue();
 		}
+	}
+
+	@Test
+	void socialSignupTermsDocumentCookieCsrfAndConsentFields() throws Exception {
+		JsonNode document = openApiDocument();
+		for (String method : List.of("get", "put")) {
+			JsonNode terms = operation(document, "/api/auth/social/terms", method);
+			assertThat(terms.path("security").isEmpty()).isTrue();
+			assertThat(parameter(terms, "socialSignup").path("required").asBoolean()).isTrue();
+			assertThat(parameter(terms, "socialSignup").path("in").asString()).isEqualTo("cookie");
+		}
+		JsonNode update = operation(document, "/api/auth/social/terms", "put");
+		for (String name : List.of("X-XSRF-TOKEN", "XSRF-TOKEN")) {
+			assertThat(parameter(update, name).path("required").asBoolean()).as(name).isTrue();
+		}
+		JsonNode agreement = schema(document, "SocialSignupTermsRequestAgreement");
+		assertThat(contains(agreement.path("required"), "termTypeId")).isTrue();
+		assertThat(contains(agreement.path("required"), "isAgreed")).isTrue();
+		JsonNode fields = schema(document, "SocialSignupTerm").path("properties");
+		assertThat(fields.propertyNames()).containsExactlyInAnyOrder(
+				"termTypeId", "termTypeName", "isRequired", "isAgreed", "agreedAt");
+		assertThat(nullable(fields.path("agreedAt"))).isTrue();
 	}
 
 	@Test
