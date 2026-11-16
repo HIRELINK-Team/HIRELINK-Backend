@@ -31,6 +31,7 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 			new OperationSpec("/api/auth/csrf", "get", "200", "500"),
 			new OperationSpec("/api/auth/refresh", "post", "200", "401", "403", "500"),
 			new OperationSpec("/api/auth/logout", "post", "200", "403", "500"),
+			new OperationSpec("/api/auth/social/result", "post", "200", "401", "403", "503", "500"),
 			new OperationSpec("/api/auth/phone-verifications", "post", "200", "400", "401", "403", "429", "500"),
 			new OperationSpec("/api/auth/phone-verifications/verify", "post", "200", "400", "401", "403", "409", "429", "500"),
 			new OperationSpec("/api/users/me/term-agreements", "put", "200", "400", "401", "403", "404", "500"),
@@ -87,7 +88,7 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 					continue;
 				}
 				JsonNode content = response.path("content").path("application/json");
-				assertThat(content.path("schema").path("$ref").asString()).isNotBlank();
+				assertThat(content.path("schema").path("$ref").asString()).as(spec.path() + " " + status).isNotBlank();
 				assertThat(content.path("examples").isEmpty()).as(spec.path() + " " + status).isFalse();
 				for (JsonNode example : content.path("examples")) {
 					JsonNode value = example.path("value");
@@ -106,7 +107,7 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 	@Test
 	void authOperationsSeparateBearerFromCsrfAndRefreshCookies() throws Exception {
 		JsonNode document = openApiDocument();
-		for (String endpoint : List.of("signup", "login", "csrf", "refresh", "logout")) {
+		for (String endpoint : List.of("signup", "login", "csrf", "refresh", "logout", "social/result")) {
 			JsonNode auth = operation(document, "/api/auth/" + endpoint, endpoint.equals("csrf") ? "get" : "post");
 			assertThat(auth.has("security")).as(endpoint).isTrue();
 			assertThat(auth.path("security").isEmpty()).as(endpoint).isTrue();
@@ -124,6 +125,34 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 				.path("required").asBoolean()).isTrue();
 		assertThat(operation(document, "/api/auth/logout", "post").path("responses").has("401")).isFalse();
 		assertThat(operation(document, "/api/auth/csrf", "get").path("parameters").isEmpty()).isTrue();
+	}
+
+	@Test
+	void socialAuthDocumentsRedirectAndTemporarySignupCookie() throws Exception {
+		JsonNode document = openApiDocument();
+		JsonNode start = operation(document, "/api/auth/social/{provider}", "get");
+		assertThat(start.path("security").isEmpty()).isTrue();
+		assertThat(start.path("responses").path("302").path("headers").has("Location")).isTrue();
+		assertThat(contains(parameter(start, "provider").path("schema").path("enum"), "google")).isTrue();
+		assertThat(contains(parameter(start, "provider").path("schema").path("enum"), "kakao")).isTrue();
+		assertThat(parameter(start, "role").path("required").asBoolean()).isTrue();
+		assertThat(contains(parameter(start, "role").path("schema").path("enum"), "EMPLOYER")).isTrue();
+		JsonNode result = operation(document, "/api/auth/social/result", "post");
+		assertThat(result.has("requestBody")).isFalse();
+		for (String name : List.of("X-XSRF-TOKEN", "XSRF-TOKEN", "socialSignup")) {
+			assertThat(parameter(result, name).path("required").asBoolean()).as(name).isTrue();
+		}
+		assertThat(parameter(result, "socialSignup").path("in").asString()).isEqualTo("cookie");
+		JsonNode fields = schema(document, "SocialAuthResponse").path("properties");
+		assertThat(fields.propertyNames()).containsExactlyInAnyOrder("status", "role", "email", "signupExpiresAt", "login");
+		assertThat(contains(fields.path("status").path("enum"), "SIGNUP_REQUIRED")).isTrue();
+		assertThat(nullable(fields.path("email"))).isTrue();
+		assertThat(nullable(fields.path("signupExpiresAt"))).isTrue();
+		assertThat(nullable(fields.path("login"))).isTrue();
+		for (String name : List.of("StudentProfileResponse", "StudentProfileUpdateResponse",
+				"EmployerProfileResponse", "EmployerProfileCreateResponse")) {
+			assertThat(nullable(schema(document, name).path("properties").path("email"))).as(name).isTrue();
+		}
 	}
 
 	@Test
