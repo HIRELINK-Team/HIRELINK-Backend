@@ -8,15 +8,23 @@ import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import tools.jackson.databind.JsonNode;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
+@Schema(description = "휴대전화 인증 후 사업주 프로필을 최초 등록한다. 이름·유입 경로만 입력한다.")
 public class EmployerProfileCreateRequest {
 
 	@NotBlank(message = "이름을 입력해주세요.")
 	@Size(max = 100, message = "이름은 100자 이하여야 합니다.")
+	@Schema(description = "회원 이름", maxLength = 100, example = "김하늘", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 	private String name;
 
 	@NotBlank(message = "유입 경로를 입력해주세요.")
 	@Pattern(regexp = "SEARCH|REFERRAL|OTHER",
 			message = "유입 경로는 SEARCH, REFERRAL, OTHER 중 하나여야 합니다.")
+	@Schema(description = "서비스 유입 경로",
+			allowableValues = {"SEARCH", "REFERRAL", "OTHER"},
+			example = "SEARCH",
+			requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 	private String acquisitionChannel;
 
 	@JsonSetter
