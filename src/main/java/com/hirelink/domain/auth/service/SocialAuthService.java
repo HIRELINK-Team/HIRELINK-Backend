@@ -61,14 +61,7 @@ public class SocialAuthService {
 
 	@Transactional
 	public Result getResult(String token) {
-		if (token == null || !token.matches("[A-Za-z0-9_-]{43}")) {
-			throw invalidSession();
-		}
-		SocialAuthSession session = sessionRepository.findByTokenHashForUpdate(hash(token))
-				.orElseThrow(this::invalidSession);
-		if (!session.getExpiresAt().isAfter(Instant.now())) {
-			throw invalidSession();
-		}
+		SocialAuthSession session = findValidSession(token);
 		var account = authAccountRepository.findByProviderAndProviderUserId(
 				session.getProvider(), session.getProviderUserId());
 		if (account.isEmpty()) {
@@ -83,6 +76,29 @@ public class SocialAuthService {
 		return new Result(new SocialAuthResponse(Status.LOGIN, member.getRole(), member.getEmail(), null,
 				new LoginResponse(member.getId(), member.getRole(), tokens.accessToken(), "Bearer",
 						TokenService.ACCESS_TOKEN_TTL.toSeconds())), tokens);
+	}
+
+	SocialAuthSession requireSignupSession(String token) {
+		SocialAuthSession session = findValidSession(token);
+		authAccountRepository.findByProviderAndProviderUserId(session.getProvider(), session.getProviderUserId())
+				.ifPresent(account -> {
+					checkMember(account.getUserAccount(), session.getRole());
+					throw new SocialAuthException(HttpStatus.CONFLICT, "SOCIAL_ACCOUNT_ALREADY_REGISTERED",
+							"이미 가입한 소셜 계정입니다. 다시 로그인해주세요.");
+				});
+		return session;
+	}
+
+	private SocialAuthSession findValidSession(String token) {
+		if (token == null || !token.matches("[A-Za-z0-9_-]{43}")) {
+			throw invalidSession();
+		}
+		SocialAuthSession session = sessionRepository.findByTokenHashForUpdate(hash(token))
+				.orElseThrow(this::invalidSession);
+		if (!session.getExpiresAt().isAfter(Instant.now())) {
+			throw invalidSession();
+		}
+		return session;
 	}
 
 	@Transactional

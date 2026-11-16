@@ -67,7 +67,7 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 	@ParameterizedTest
 	@ValueSource(strings = {"STUDENT", "EMPLOYER"})
 	void savesAgreementsForBothRolesAndReturnsSpecifiedFields(String role) throws Exception {
-		assertThat(jdbc.queryForList("select term_type_name from term_type order by id", String.class))
+		assertThat(jdbc.queryForList("select term_type_name from term_type where not is_social_signup order by id", String.class))
 				.containsExactly("이용약관", "개인정보처리방침", "광고성 정보 수신");
 		String token = createUser(role);
 		HttpResponse<String> response = save(token, """

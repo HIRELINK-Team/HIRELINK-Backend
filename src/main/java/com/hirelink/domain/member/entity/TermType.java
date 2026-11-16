@@ -21,6 +21,16 @@ public class TermType {
 	@Column(name = "term_type_name", nullable = false, length = 50)
 	private String termTypeName;
 
+	@Column(name = "is_required", nullable = false)
+	private boolean required;
+
+	@Column(name = "is_social_signup", nullable = false)
+	private boolean socialSignup;
+
 	protected TermType() {
 	}
+
+	public Long getId() { return id; }
+	public String getTermTypeName() { return termTypeName; }
+	public boolean isRequired() { return required; }
 }
