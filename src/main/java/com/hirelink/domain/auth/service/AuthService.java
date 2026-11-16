@@ -43,7 +43,7 @@ public class AuthService {
 	@Transactional
 	public AuthResult signup(SignupRequest request) {
 		String email = request.email();
-		if (userAccountRepository.existsByEmail(email)) {
+		if (authAccountRepository.existsByProviderAndProviderUserId(AuthProvider.LOCAL, email)) {
 			throw new DuplicateEmailException();
 		}
 
@@ -98,8 +98,7 @@ public class AuthService {
 		for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
 			if (cause instanceof ConstraintViolationException constraintViolation) {
 				String constraintName = constraintViolation.getConstraintName();
-				return "uk_user_account_email".equals(constraintName)
-						|| "uk_auth_account_provider_user_id".equals(constraintName);
+				return "uk_auth_account_provider_user_id".equals(constraintName);
 			}
 		}
 		return false;

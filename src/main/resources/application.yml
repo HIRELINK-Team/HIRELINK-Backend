@@ -1,5 +1,12 @@
 server:
   port: ${PORT:8080}
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        secure: ${AUTH_COOKIE_SECURE:true}
+        same-site: lax
+        path: /api/auth/social
 
 spring:
   application:
@@ -27,6 +34,24 @@ jwt:
 auth:
   cookie:
     secure: ${AUTH_COOKIE_SECURE:true}
+  social:
+    enabled: ${SOCIAL_LOGIN_ENABLED:false}
+    callback-base-url: ${SOCIAL_CALLBACK_BASE_URL:}
+    frontend-redirect-uri: ${SOCIAL_FRONTEND_REDIRECT_URI:}
+    google:
+      client-id: ${GOOGLE_CLIENT_ID:}
+      client-secret: ${GOOGLE_CLIENT_SECRET:}
+      authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
+      token-uri: https://oauth2.googleapis.com/token
+      jwk-set-uri: https://www.googleapis.com/oauth2/v3/certs
+      issuer-uri: https://accounts.google.com
+    kakao:
+      client-id: ${KAKAO_CLIENT_ID:}
+      client-secret: ${KAKAO_CLIENT_SECRET:}
+      authorization-uri: https://kauth.kakao.com/oauth/authorize
+      token-uri: https://kauth.kakao.com/oauth/token
+      jwk-set-uri: https://kauth.kakao.com/.well-known/jwks.json
+      issuer-uri: https://kauth.kakao.com
 
 storage:
   supabase:
