@@ -102,6 +102,8 @@ public class PhoneVerificationService {
 			throw new InvalidPhoneVerificationCodeException();
 		}
 
+		// 가입 완료와 기존 회원 인증이 같은 번호를 동시에 저장하지 않도록 직렬화한다.
+		sendAttemptRepository.lockPhoneNumber(phoneNumber);
 		user.verifyPhoneNumber(phoneNumber, now);
 		try {
 			userAccountRepository.saveAndFlush(user);

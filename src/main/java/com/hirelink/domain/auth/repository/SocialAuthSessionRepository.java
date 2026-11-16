@@ -15,6 +15,14 @@ import jakarta.persistence.LockModeType;
 
 public interface SocialAuthSessionRepository extends JpaRepository<SocialAuthSession, String> {
 
+	// 가입 정보가 아직 없는 동일 소셜 사용자도 같은 순서로 잠근다.
+	@Query(value = "select true from pg_advisory_xact_lock(2, hashtext(:identity))", nativeQuery = true)
+	boolean lockIdentity(@Param("identity") String identity);
+
+	@Modifying
+	@Query(value = "delete from social_auth_session where provider = :provider and provider_user_id = :subject", nativeQuery = true)
+	void deleteByIdentity(@Param("provider") String provider, @Param("subject") String subject);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select session from SocialAuthSession session where session.tokenHash = :hash")
 	Optional<SocialAuthSession> findByTokenHashForUpdate(@Param("hash") String hash);

@@ -55,7 +55,7 @@ public class SocialAuthController {
 		this.secureCookie = secureCookie;
 	}
 
-	@Operation(summary = "소셜 로그인 시작", description = "브라우저 전체 페이지 이동으로 호출한다(fetch 호출 아님). provider와 회원 유형을 선택하면 소셜 로그인 화면으로 이동한다. 인증 완료 후 서버 설정의 프론트 주소로 돌아오며, 같은 브라우저에서 CSRF 조회 후 POST /api/auth/social/result를 호출한다. 인증 실패 시 프론트 주소의 error 쿼리에 SOCIAL_AUTH_FAILED, SOCIAL_ROLE_MISMATCH 또는 WITHDRAWN_ACCOUNT가 전달된다. 토큰은 URL에 포함하지 않는다.")
+	@Operation(summary = "소셜 로그인 시작", description = "브라우저 전체 페이지 이동으로 호출한다(fetch 호출 아님). provider와 회원 유형을 선택하면 소셜 로그인 화면으로 이동한다. 가입을 중단한 뒤 재시작할 때도 이 API부터 호출한다. 기존 socialSignup 쿠키에 해당하는 가입 정보·임시 약관·인증번호를 폐기하고 쿠키를 지운다. 브라우저 종료만으로 즉시 삭제되지는 않는다. 새 소셜 인증은 새 30분 가입 정보를 만들고 같은 미가입 소셜 사용자의 이전 가입 정보도 대체한다. 기존 회원·소셜 연결·로그인 상태는 변경하지 않는다. 인증 완료 후 서버 설정의 프론트 주소로 돌아오며, 같은 브라우저에서 CSRF 조회 후 POST /api/auth/social/result를 호출한다. 인증 실패 시 프론트 주소의 error 쿼리에 SOCIAL_AUTH_FAILED, SOCIAL_ROLE_MISMATCH 또는 WITHDRAWN_ACCOUNT가 전달된다. 토큰은 URL에 포함하지 않는다.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "302", description = "소셜 인증 화면으로 이동",
 				headers = @Header(name = "Location", description = "서버의 소셜 인증 시작 주소", schema = @Schema(type = "string"))),
@@ -68,18 +68,21 @@ public class SocialAuthController {
 	@GetMapping("/{provider}")
 	public ResponseEntity<Void> start(
 			@Parameter(description = "로그인 제공자", schema = @Schema(allowableValues = {"google", "kakao"})) @PathVariable String provider,
-			@Parameter(description = "랜딩 페이지에서 선택한 회원 유형", schema = @Schema(allowableValues = {"STUDENT", "EMPLOYER"})) @RequestParam MemberRole role) {
+			@Parameter(description = "랜딩 페이지에서 선택한 회원 유형", schema = @Schema(allowableValues = {"STUDENT", "EMPLOYER"})) @RequestParam MemberRole role,
+			@Parameter(name = "socialSignup", in = ParameterIn.COOKIE, description = "이전 가입 진행 쿠키. 있으면 이번 가입 시작 시 폐기", schema = @Schema(type = "string"))
+			@CookieValue(name = SocialLoginCookie.NAME, required = false) String previousToken) {
 		if (!"google".equals(provider) && !"kakao".equals(provider)) {
 			throw new SocialAuthException(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "지원하지 않는 소셜 로그인입니다.");
 		}
 		checkEnabled();
+		service.discardSignupSession(previousToken);
 		return ResponseEntity.status(HttpStatus.FOUND)
 				.location(URI.create("/api/auth/social/authorize/" + provider + "?role=" + role))
 				.header(HttpHeaders.SET_COOKIE, cookie.clear().toString())
 				.header(HttpHeaders.CACHE_CONTROL, "no-store").build();
 	}
 
-	@Operation(summary = "소셜 인증 결과 확인", description = "본문 없음. 소셜 인증 콜백이 설정한 socialSignup 쿠키와 GET /api/auth/csrf에서 받은 확인값을 사용한다. 신규 사용자는 SIGNUP_REQUIRED이며 회원 생성·JWT 발급 없이 30분 가입 진행 정보만 유지한다. 조회해도 만료 시각은 연장되지 않는다. 기존 회원은 LOGIN과 기존 로그인 형식의 login 객체, refreshToken 쿠키를 받고 가입 진행 쿠키는 삭제된다. 기존 회원 결과는 한 번만 교환할 수 있다. 회원 조회는 provider+고유 ID 기준이며 이메일로 연결하지 않는다. 가입 완료(약관·전화번호) 및 온보딩 단계 판정은 후속 API에서 제공한다.")
+	@Operation(summary = "소셜 인증 결과 확인", description = "본문 없음. 소셜 인증 콜백이 설정한 socialSignup 쿠키와 GET /api/auth/csrf에서 받은 확인값을 사용한다. 신규 사용자는 SIGNUP_REQUIRED이며 회원 생성·JWT 발급 없이 30분 가입 진행 정보만 유지한다. 조회해도 만료 시각은 연장되지 않는다. 약관 동의 후 가입용 phone-verifications/verify에서 계정을 생성한다. 생성된 계정은 다시 가입하지 않고 LOGIN과 기존 로그인 형식의 login 객체, refreshToken 쿠키를 받으며 가입 진행 쿠키는 삭제된다. LOGIN은 온보딩 완료를 뜻하지 않는다. 남은 필수 온보딩 단계 조회·재개 판정·접근 제한은 후속 기능이다. 기존 회원 결과는 한 번만 교환할 수 있다. 회원 조회는 provider+고유 ID 기준이며 이메일로 연결하지 않는다.")
 	@Parameter(name = "X-XSRF-TOKEN", in = ParameterIn.HEADER, required = true, description = "GET /api/auth/csrf 응답의 token", schema = @Schema(type = "string"))
 	@Parameter(name = "XSRF-TOKEN", in = ParameterIn.COOKIE, required = true, description = "같은 브라우저의 CSRF 쿠키", schema = @Schema(type = "string"))
 	@ApiResponses({

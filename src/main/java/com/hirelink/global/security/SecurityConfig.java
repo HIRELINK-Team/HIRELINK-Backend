@@ -43,8 +43,12 @@ public class SecurityConfig {
 				.matcher(HttpMethod.PUT, "/api/auth/social/terms");
 		PathPatternRequestMatcher socialTermsRead = PathPatternRequestMatcher.withDefaults()
 				.matcher(HttpMethod.GET, "/api/auth/social/terms");
+		PathPatternRequestMatcher signupPhoneRequest = PathPatternRequestMatcher.withDefaults()
+				.matcher(HttpMethod.POST, "/api/auth/social/phone-verifications");
+		PathPatternRequestMatcher signupPhoneConfirm = PathPatternRequestMatcher.withDefaults()
+				.matcher(HttpMethod.POST, "/api/auth/social/phone-verifications/verify");
 		OrRequestMatcher cookieAuthenticatedRequests = new OrRequestMatcher(refreshRequest, logoutRequest,
-				socialResultRequest, socialTermsUpdate);
+				socialResultRequest, socialTermsUpdate, signupPhoneRequest, signupPhoneConfirm);
 		PathPatternRequestMatcher csrfRequest = PathPatternRequestMatcher.withDefaults()
 				.matcher(HttpMethod.GET, "/api/auth/csrf");
 		CookieCsrfTokenRepository csrfTokenRepository = new CookieCsrfTokenRepository();

@@ -63,6 +63,7 @@ public class SocialAuthSession {
 	}
 
 	public AuthProvider getProvider() { return provider; }
+	public String getTokenHash() { return tokenHash; }
 	public String getProviderUserId() { return providerUserId; }
 	public MemberRole getRole() { return role; }
 	public String getEmail() { return email; }

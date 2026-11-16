@@ -17,8 +17,11 @@ public class PhoneVerification {
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
 
-	@Column(name = "user_id", nullable = false, unique = true)
+	@Column(name = "user_id", unique = true)
 	private Long userId;
+
+	@Column(name = "signup_token_hash", unique = true, length = 64)
+	private String signupTokenHash;
 
 	@Column(name = "phone_number", nullable = false, length = 20)
 	private String phoneNumber;
@@ -44,6 +47,12 @@ public class PhoneVerification {
 
 	public boolean isActive(Instant now) {
 		return expiresAt.isAfter(now);
+	}
+
+	public static PhoneVerification forSignup(String tokenHash, String phoneNumber, String codeHash, Instant expiresAt) {
+		PhoneVerification verification = new PhoneVerification(null, phoneNumber, codeHash, expiresAt);
+		verification.signupTokenHash = tokenHash;
+		return verification;
 	}
 
 	public String getPhoneNumber() {

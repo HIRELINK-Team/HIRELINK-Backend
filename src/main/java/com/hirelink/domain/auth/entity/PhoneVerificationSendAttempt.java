@@ -17,8 +17,11 @@ public class PhoneVerificationSendAttempt {
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
 
-	@Column(name = "user_id", nullable = false)
+	@Column(name = "user_id")
 	private Long userId;
+
+	@Column(name = "signup_identity", length = 64)
+	private String signupIdentity;
 
 	@Column(name = "phone_number", nullable = false, length = 20)
 	private String phoneNumber;
@@ -33,5 +36,11 @@ public class PhoneVerificationSendAttempt {
 		this.userId = userId;
 		this.phoneNumber = phoneNumber;
 		this.requestedAt = requestedAt;
+	}
+
+	public static PhoneVerificationSendAttempt forSignup(String identity, String phoneNumber, Instant requestedAt) {
+		PhoneVerificationSendAttempt attempt = new PhoneVerificationSendAttempt(null, phoneNumber, requestedAt);
+		attempt.signupIdentity = identity;
+		return attempt;
 	}
 }

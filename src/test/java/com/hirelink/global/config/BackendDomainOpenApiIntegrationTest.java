@@ -34,6 +34,8 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 			new OperationSpec("/api/auth/social/result", "post", "200", "401", "403", "503", "500"),
 			new OperationSpec("/api/auth/social/terms", "get", "200", "401", "403", "409", "503", "500"),
 			new OperationSpec("/api/auth/social/terms", "put", "200", "400", "401", "403", "404", "409", "503", "500"),
+			new OperationSpec("/api/auth/social/phone-verifications", "post", "200", "400", "401", "403", "409", "429", "500", "503"),
+			new OperationSpec("/api/auth/social/phone-verifications/verify", "post", "201", "400", "401", "403", "409", "429", "500", "503"),
 			new OperationSpec("/api/auth/phone-verifications", "post", "200", "400", "401", "403", "429", "500"),
 			new OperationSpec("/api/auth/phone-verifications/verify", "post", "200", "400", "401", "403", "409", "429", "500"),
 			new OperationSpec("/api/users/me/term-agreements", "put", "200", "400", "401", "403", "404", "500"),
@@ -177,6 +179,28 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(fields.propertyNames()).containsExactlyInAnyOrder(
 				"termTypeId", "termTypeName", "isRequired", "isAgreed", "agreedAt");
 		assertThat(nullable(fields.path("agreedAt"))).isTrue();
+	}
+
+	@Test
+	void socialSignupPhoneDocumentsCookiesExpiryDuplicateCleanupAndOnboarding() throws Exception {
+		JsonNode document = openApiDocument();
+		for (String path : List.of("/api/auth/social/phone-verifications", "/api/auth/social/phone-verifications/verify")) {
+			JsonNode operation = operation(document, path, "post");
+			assertThat(operation.path("security").isEmpty()).isTrue();
+			for (String name : List.of("socialSignup", "XSRF-TOKEN", "X-XSRF-TOKEN")) {
+				assertThat(parameter(operation, name).path("required").asBoolean()).as(path + name).isTrue();
+			}
+			assertThat(parameter(operation, "socialSignup").path("in").asString()).isEqualTo("cookie");
+		}
+		JsonNode request = operation(document, "/api/auth/social/phone-verifications", "post");
+		assertThat(request.path("description").asString()).contains("300초", "30분", "즉시 삭제되지", "60초");
+		JsonNode confirm = operation(document, "/api/auth/social/phone-verifications/verify", "post");
+		assertThat(confirm.path("description").asString()).contains("온보딩 완료가 아니다", "기존 회원·소셜 연결·로그인 토큰", "동의 시각 그대로");
+		assertThat(confirm.path("responses").path("409").path("headers").has("Set-Cookie")).isTrue();
+		assertThat(confirm.path("responses").path("400").path("content").path("application/json").path("examples")
+				.has("INVALID_VERIFICATION_CODE")).isTrue();
+		assertThat(schema(document, "SocialSignupResponse").path("properties").propertyNames())
+				.containsExactlyInAnyOrder("userId", "role", "accessToken", "tokenType", "expiresIn", "onboardingRequired");
 	}
 
 	@Test
