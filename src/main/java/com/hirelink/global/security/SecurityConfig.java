@@ -39,7 +39,12 @@ public class SecurityConfig {
 				.matcher(HttpMethod.POST, "/api/auth/logout");
 		PathPatternRequestMatcher socialResultRequest = PathPatternRequestMatcher.withDefaults()
 				.matcher(HttpMethod.POST, "/api/auth/social/result");
-		OrRequestMatcher cookieAuthenticatedRequests = new OrRequestMatcher(refreshRequest, logoutRequest, socialResultRequest);
+		PathPatternRequestMatcher socialTermsUpdate = PathPatternRequestMatcher.withDefaults()
+				.matcher(HttpMethod.PUT, "/api/auth/social/terms");
+		PathPatternRequestMatcher socialTermsRead = PathPatternRequestMatcher.withDefaults()
+				.matcher(HttpMethod.GET, "/api/auth/social/terms");
+		OrRequestMatcher cookieAuthenticatedRequests = new OrRequestMatcher(refreshRequest, logoutRequest,
+				socialResultRequest, socialTermsUpdate);
 		PathPatternRequestMatcher csrfRequest = PathPatternRequestMatcher.withDefaults()
 				.matcher(HttpMethod.GET, "/api/auth/csrf");
 		CookieCsrfTokenRepository csrfTokenRepository = new CookieCsrfTokenRepository();
@@ -59,7 +64,7 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.GET, "/health").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/auth/social/{provider}").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/auth/signup", "/api/auth/login").permitAll()
-						.requestMatchers(cookieAuthenticatedRequests, csrfRequest).permitAll()
+						.requestMatchers(cookieAuthenticatedRequests, csrfRequest, socialTermsRead).permitAll()
 						.anyRequest().authenticated())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.requestCache(AbstractHttpConfigurer::disable)
@@ -68,7 +73,8 @@ public class SecurityConfig {
 						.requireCsrfProtectionMatcher(cookieAuthenticatedRequests))
 				.oauth2ResourceServer(resourceServer -> resourceServer
 						// 쿠키로 인증하는 요청은 Bearer 헤더가 있어도 CSRF 검사를 수행한다.
-						.bearerTokenResolver(request -> cookieAuthenticatedRequests.matches(request) || csrfRequest.matches(request)
+						.bearerTokenResolver(request -> cookieAuthenticatedRequests.matches(request)
+								|| csrfRequest.matches(request) || socialTermsRead.matches(request)
 								? null : bearerTokenResolver.resolve(request))
 						.jwt(jwt -> jwt.decoder(jwtDecoder).jwtAuthenticationConverter(authenticationConverter))
 						.authenticationEntryPoint(errorHandler)

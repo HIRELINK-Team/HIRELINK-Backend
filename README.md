@@ -56,6 +56,8 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 | `GET` | `/api/auth/csrf` | 쿠키 인증 요청용 CSRF 보안 확인값 조회 | 불필요 |
 | `POST` | `/api/auth/refresh` | Access Token 재발급 | Refresh Token 쿠키 및 CSRF 확인값 |
 | `POST` | `/api/auth/logout` | 현재 로그인 종료 | CSRF 확인값 필수, Refresh Token 쿠키 선택 |
+| `GET` | `/api/auth/social/terms` | 소셜 가입 약관 및 임시 동의 상태 조회 | 가입 진행 쿠키 |
+| `PUT` | `/api/auth/social/terms` | 소셜 가입 약관 동의 임시 저장 | 가입 진행 쿠키 및 CSRF 확인값 |
 | `POST` | `/api/auth/phone-verifications` | 휴대전화 인증번호 요청 | Access Token |
 | `POST` | `/api/auth/phone-verifications/verify` | 휴대전화 인증번호 확인 | Access Token |
 
@@ -75,6 +77,19 @@ Authorization: Bearer <Access Token>
 ```
 
 폼 로그인, HTTP Basic, 서버 세션, Spring Security 기본 로그아웃은 사용하지 않습니다.
+
+### 소셜 가입 약관 API
+
+- 소셜 인증 결과가 `SIGNUP_REQUIRED`인 신규 회원은 `GET /api/auth/social/terms`로 약관을 조회합니다. `socialSignup` HttpOnly 쿠키가 필요하며 응답은 `terms` 목록입니다.
+- 각 항목은 `termTypeId`, `termTypeName`, `isRequired`, `isAgreed`, `agreedAt`을 반환합니다. 아직 동의하지 않았다면 `isAgreed=false`, `agreedAt=null`입니다. 약관 ID를 고정하지 않고 조회 응답의 ID를 사용합니다.
+- 서비스 이용약관, 개인정보 수집·이용, 개인정보 제3자 제공은 필수이며 마케팅 정보 수신은 선택입니다. 긴 약관 본문과 번역은 프론트에서 표시합니다.
+- `PUT /api/auth/social/terms`는 `{"agreements":[{"termTypeId":4,"isAgreed":true}, ...]}` 형식으로 전체 동의 상태를 전달합니다. 필수 약관은 모두 `true`여야 하며 생략한 선택 약관은 `false`로 저장합니다. 예시의 ID는 실제 조회 응답으로 대체합니다.
+- PUT 요청 전 `GET /api/auth/csrf`에서 받은 `token`을 `X-XSRF-TOKEN` 헤더에 넣고, 브라우저 쿠키도 함께 전송합니다. Access Token은 사용하지 않습니다.
+- 성공하면 `200`과 조회와 같은 응답을 반환합니다. 같은 동의를 다시 저장하면 기존 동의 시각을 유지하며, 미동의로 변경하면 시각을 지웁니다.
+- 동의 내역은 가입 진행 정보에 임시 보관합니다. 이번 API만으로 회원 계정이나 `user_term_agreement` 기록을 생성하지 않습니다. 휴대전화 인증 후 계정 생성과 정식 동의 기록 저장은 후속 가입 완료 기능에서 연결합니다.
+- 조회·저장은 소셜 인증에서 정한 30분 만료 시각을 연장하지 않습니다. 만료 즉시 요청을 거절하고, 만료된 가입 진행 정보와 동의 내역은 주기적으로 삭제합니다.
+- 오류는 잘못된 입력·필수 동의 누락 `400`, 가입 진행 정보 누락·만료 `401`, CSRF 또는 회원 유형·상태 오류 `403`, 가입용이 아닌 약관·없는 약관 `404`, 이미 가입된 소셜 계정 `409`, 소셜 로그인 비활성화 `503`입니다.
+- `V18__add_social_signup_terms.sql`은 약관 필수 여부·소셜 가입 사용 여부와 임시 동의 테이블을 추가합니다. 기존 LOCAL 회원의 약관 종류와 동의 기록은 유지합니다.
 
 ### 휴대전화 인증번호 요청 API
 
@@ -904,6 +919,8 @@ Windows PowerShell:
 `AuthIntegrationTest`는 Testcontainers가 생성한 일회용 PostgreSQL을 대상으로 실제 HTTP 요청을 보내 회원가입, 로그인, 입력 검증, 중복 가입, 트랜잭션 롤백, 쿠키 속성, 다중 로그인, 토큰과 CSRF 검증을 확인합니다. 로그아웃의 반복·동시 요청, 현재 로그인만 무효화되는지, 오류 발생 시 기존 기록이 유지되는지도 검증합니다. 개발 데이터베이스 접속값은 사용하지 않으며 테스트용 JWT 키도 실행 시 별도로 생성합니다.
 
 `TermAgreementIntegrationTest`는 약관 초기 데이터, 동의 상태 변경과 시각 유지, 사용자 구분, 입력 오류, 없는 약관, 저장 실패 시 전체 롤백과 동시 요청을 확인합니다.
+
+`SocialSignupTermsIntegrationTest`는 가입용 약관 조회, 필수 동의 검사, 임시 저장·시각 유지, 쿠키·CSRF 검증, 만료 및 연관 동의 삭제를 확인합니다. 회원 계정·정식 동의 기록을 만들지 않고 가입 진행 정보의 만료 시각을 연장하지 않는지도 검증합니다.
 
 `StudentProfileIntegrationTest`는 프로필 등록 응답과 저장, 만 18세 경계, 입력 검증, 유학생·휴대전화 인증 조건, 중복·동시 등록 및 저장 실패 시 롤백을 확인합니다.
 
