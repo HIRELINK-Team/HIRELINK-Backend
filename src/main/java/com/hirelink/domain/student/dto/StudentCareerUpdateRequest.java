@@ -10,15 +10,33 @@ import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 import tools.jackson.databind.JsonNode;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
+@Schema(description = "보낸 필드만 수정한다. 빈 요청·알 수 없는 필드·description 외 null은 400.", example = "{\"careerName\":\"카페 매장 근무\",\"description\":null}")
 public class StudentCareerUpdateRequest {
 
 	@Pattern(regexp = "(?s).*\\S.*", message = "경력명은 공백일 수 없습니다.")
 	@Size(max = 150, message = "경력명은 150자 이하여야 합니다.")
+	@Schema(description = "경력명. 빈 문자열·공백만 입력 불가. 생략하면 기존 값 유지, null 불가", maxLength = 150,
+			example = "카페 아르바이트",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String careerName;
 
+	@Schema(description = "근무 시작월 (YYYY-MM). 한국 기준 이번 달까지 허용. 생략하면 기존 값 유지, null 불가",
+			pattern = "[0-9]{4}-(0[1-9]|1[0-2])",
+			example = "2026-01", type = "string",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private YearMonth startMonth;
+	@Schema(description = "근무 종료월 (YYYY-MM). 시작월 이상, 한국 기준 이번 달까지 허용. 생략하면 기존 값 유지, null 불가",
+			pattern = "[0-9]{4}-(0[1-9]|1[0-2])",
+			example = "2026-06", type = "string",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private YearMonth endMonth;
+	@Schema(description = "근무 내용. null 또는 빈 문자열 허용. 생략하면 기존 값 유지, null이면 값 삭제",
+			example = "음료 제조 및 고객 응대",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = true)
 	private String description;
+	@Schema(hidden = true)
 	private boolean descriptionProvided;
 
 	@JsonSetter(nulls = Nulls.FAIL)

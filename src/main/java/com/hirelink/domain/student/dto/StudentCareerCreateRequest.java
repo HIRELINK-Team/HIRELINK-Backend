@@ -10,18 +10,31 @@ import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import tools.jackson.databind.JsonNode;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
+@Schema(description = "경력 추가. 경력명·시작월·종료월 필수, 근무 내용 선택.")
 public class StudentCareerCreateRequest {
 
 	@NotBlank(message = "경력명을 입력해주세요.")
 	@Size(max = 150, message = "경력명은 150자 이하여야 합니다.")
+	@Schema(description = "경력명. 빈 문자열·공백만 입력 불가", maxLength = 150, example = "카페 아르바이트", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 	private String careerName;
 
 	@NotNull(message = "근무 시작 월을 입력해주세요.")
+	@Schema(description = "근무 시작월 (YYYY-MM). 한국 기준 이번 달까지 허용",
+			pattern = "[0-9]{4}-(0[1-9]|1[0-2])",
+			example = "2026-01", type = "string",
+			requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 	private YearMonth startMonth;
 
 	@NotNull(message = "근무 종료 월을 입력해주세요.")
+	@Schema(description = "근무 종료월 (YYYY-MM). 시작월 이상, 한국 기준 이번 달까지 허용",
+			pattern = "[0-9]{4}-(0[1-9]|1[0-2])",
+			example = "2026-06", type = "string",
+			requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 	private YearMonth endMonth;
 
+	@Schema(description = "근무 내용. null 또는 빈 문자열 허용", example = "음료 제조 및 고객 응대", requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = true)
 	private String description;
 
 	@JsonSetter

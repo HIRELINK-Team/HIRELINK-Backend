@@ -12,39 +12,78 @@ import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 import tools.jackson.databind.JsonNode;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
+@Schema(description = "보낸 필드만 수정한다. 빈 요청·알 수 없는 필드·topikLevel 외 null은 400. studyProgramId와 gradeLevel은 수정 대상에서 제외된다.",
+		example = "{\"name\":\"김하늘\",\"visaCode\":\"D-2-2\",\"academicState\":\"ENROLLED\",\"topikLevel\":null}")
 public class StudentProfileUpdateRequest {
 
 	@Pattern(regexp = "(?s).*\\S.*", message = "이름은 공백일 수 없습니다.")
 	@Size(max = 100, message = "이름은 100자 이하여야 합니다.")
+	@Schema(description = "회원 이름. 생략하면 기존 값 유지, null 불가", maxLength = 100,
+			example = "김하늘",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String name;
 
+	@Schema(description = "생년월일 (YYYY-MM-DD). 한국 기준 만 18세 이상. 생략하면 기존 값 유지, null 불가",
+			example = "2000-05-14", type = "string", format = "date",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private LocalDate birthDate;
 
 	@Pattern(regexp = "[A-Z]{2}", message = "국적은 영문 대문자 2자리 국가 코드여야 합니다.")
+	@Schema(description = "ISO 3166-1 alpha-2 국가 코드 (영문 대문자 2자리). 생략하면 기존 값 유지, null 불가",
+			pattern = "[A-Z]{2}",
+			example = "VN",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String nationality;
 
 	@Pattern(regexp = "(?s).*\\S.*", message = "현재 거주지역은 공백일 수 없습니다.")
 	@Size(max = 150, message = "현재 거주지역은 150자 이하여야 합니다.")
+	@Schema(description = "현재 거주지역. 빈 문자열·공백만 입력 불가. 생략하면 기존 값 유지, null 불가", maxLength = 150,
+			example = "서울특별시 성동구",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String currentRegion;
 
 	@Pattern(regexp = "BEGINNER|INTERMEDIATE|ADVANCED", message = "올바른 한국어 수준을 입력해주세요.")
+	@Schema(description = "한국어 수준. 화면에서는 초급·중급·고급으로 변환 가능. 생략하면 기존 값 유지, null 불가",
+			allowableValues = {"BEGINNER", "INTERMEDIATE", "ADVANCED"},
+			example = "INTERMEDIATE",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String koreanLevel;
 
 	@Size(min = 1, max = 20, message = "올바른 비자 코드를 입력해주세요.")
+	@Schema(description = "비자 코드. 생략하면 기존 값 유지, null 불가",
+			allowableValues = {"D-2-1", "D-2-2", "D-2-3", "D-2-4", "D-2-6", "D-2-7", "D-2-8", "D-4-1", "D-4-7"},
+			example = "D-2-2",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String visaCode;
 
+	@Schema(description = "체류 만료일 (YYYY-MM-DD). 과거 날짜 허용, 기존 체류 시작일보다 앞설 수 없음. 생략하면 기존 값 유지, null 불가",
+			example = "2027-03-01", type = "string", format = "date",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private LocalDate stayExpirationDate;
 
 	@Pattern(regexp = "(?s).*\\S.*", message = "학교명은 공백일 수 없습니다.")
 	@Size(max = 150, message = "학교명은 150자 이하여야 합니다.")
+	@Schema(description = "학교명. 빈 문자열·공백만 입력 불가. 생략하면 기존 값 유지, null 불가", maxLength = 150,
+			example = "예시대학교",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String universityName;
 
 	@Size(min = 1, max = 30, message = "올바른 학업 상태를 입력해주세요.")
+	@Schema(description = "학업 상태. D-2-1/2/3/4: ENROLLED, ON_LEAVE, COMPLETED, GRADUATED; D-2-6/8, D-4-1/7: IN_PROGRESS, COMPLETED, DISCONTINUED; D-2-7: IN_PROGRESS, ON_LEAVE_OR_DISCONTINUED, COMPLETED. 생략하면 기존 값 유지, null 불가",
+			allowableValues = {"ENROLLED", "ON_LEAVE", "COMPLETED", "GRADUATED", "IN_PROGRESS", "DISCONTINUED", "ON_LEAVE_OR_DISCONTINUED"},
+			example = "ENROLLED",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String academicState;
 
 	@Min(value = 1, message = "TOPIK 급수는 1부터 6까지 입력할 수 있습니다.")
 	@Max(value = 6, message = "TOPIK 급수는 1부터 6까지 입력할 수 있습니다.")
+	@Schema(description = "TOPIK 급수. 미등록은 null. 생략하면 기존 값 유지, null이면 값 삭제", minimum = "1", maximum = "6",
+			example = "4",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = true)
 	private Integer topikLevel;
+	@Schema(hidden = true)
 	private boolean topikLevelProvided;
 
 	@JsonSetter(nulls = Nulls.FAIL)

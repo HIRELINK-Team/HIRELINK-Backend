@@ -17,28 +17,67 @@ import tools.jackson.databind.JsonNode;
 
 import com.hirelink.domain.jobposting.entity.JobPostingStatus;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
+@Schema(description = "보낸 항목만 수정한다. null·빈 요청·알 수 없는 필드는 400. 사업장 변경 불가. workTimes는 전체 교체.", example = "{\"wageAmount\":14000}")
 public class JobPostingUpdateRequest {
 
 	@Positive(message = "업종 ID는 양수여야 합니다.")
+	@Schema(description = "업종 ID: 1 음식점·카페, 2 매장·판매, 3 사무·행사·관광, 4 통·번역, 5 면세점, 6 전공·학업, 7 인턴십, 8 기타. 생략하면 기존 값 유지, null 불가",
+			example = "1",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private Long businessTypeId;
 	@Size(max = 100, message = "직무명은 100자 이하여야 합니다.")
+	@Schema(description = "직무. 빈 문자열·공백만 입력 불가. 생략하면 기존 값 유지, null 불가", maxLength = 100,
+			example = "바리스타",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String jobRole;
 	@Min(value = 1, message = "채용 인원은 1명 이상이어야 합니다.")
 	@Max(value = 32767, message = "채용 인원은 32,767명 이하여야 합니다.")
+	@Schema(description = "채용 인원. 생략하면 기존 값 유지, null 불가", minimum = "1", maximum = "32767",
+			example = "2",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private Integer recruitmentCount;
 	@Pattern(regexp = "HOURLY|MONTHLY", message = "급여 유형은 HOURLY 또는 MONTHLY여야 합니다.")
+	@Schema(description = "급여 유형. 생략하면 기존 값 유지, null 불가",
+			allowableValues = {"HOURLY", "MONTHLY"},
+			example = "HOURLY",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String wageType;
 	@Positive(message = "급여는 1원 이상의 정수여야 합니다.")
+	@Schema(description = "급여 금액 (원), 1 이상의 정수. 생략하면 기존 값 유지, null 불가", minimum = "1",
+			example = "13000",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private Integer wageAmount;
+	@Schema(description = "근무 시작일 (YYYY-MM-DD). 생략하면 기존 값 유지, null 불가",
+			example = "2027-03-01", type = "string", format = "date",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private LocalDate workStartDate;
 	@Pattern(regexp = "BEGINNER|INTERMEDIATE|ADVANCED", message = "올바른 한국어 수준을 선택해주세요.")
+	@Schema(description = "요구 한국어 수준. 생략하면 기존 값 유지, null 불가",
+			allowableValues = {"BEGINNER", "INTERMEDIATE", "ADVANCED"},
+			example = "INTERMEDIATE",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String requiredKoreanLevel;
 	@Pattern(regexp = "NONE|SIX_MONTHS_OR_MORE|ONE_YEAR_OR_MORE", message = "올바른 우대 경력을 선택해주세요.")
+	@Schema(description = "우대 경력. 생략하면 기존 값 유지, null 불가",
+			allowableValues = {"NONE", "SIX_MONTHS_OR_MORE", "ONE_YEAR_OR_MORE"},
+			example = "NONE",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String preferredExperience;
+	@Schema(description = "모집 마감일 (YYYY-MM-DD). 근무 시작일과의 선후 관계 제한 없음. 생략하면 기존 값 유지, null 불가",
+			example = "2027-03-14", type = "string", format = "date",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private LocalDate applicationDeadlineDate;
+	@Schema(description = "근무시간 협의 가능 여부. 생략하면 기존 값 유지, null 불가", example = "false", requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private Boolean workTimeNegotiable;
 	@Valid
+	@Schema(description = "근무시간 목록. 월~일, 시작 시간 오름차순. 없으면 []. 생략하면 기존 값 유지, null 불가", requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private List<JobPostingWorkTimeRequest> workTimes;
+	@Schema(description = "공고 상태. 생략하면 기존 값 유지, null 불가",
+			allowableValues = {"DRAFT", "RECRUITING"},
+			example = "RECRUITING",
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private JobPostingStatus status;
 
 	@JsonSetter(nulls = Nulls.FAIL)
