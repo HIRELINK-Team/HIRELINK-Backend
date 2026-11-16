@@ -8,5 +8,7 @@ import com.hirelink.domain.auth.entity.AuthAccount;
 import com.hirelink.domain.auth.entity.AuthProvider;
 
 public interface AuthAccountRepository extends JpaRepository<AuthAccount, Long> {
+	boolean existsByProviderAndProviderUserId(AuthProvider provider, String providerUserId);
+
 	Optional<AuthAccount> findByProviderAndProviderUserId(AuthProvider provider, String providerUserId);
 }

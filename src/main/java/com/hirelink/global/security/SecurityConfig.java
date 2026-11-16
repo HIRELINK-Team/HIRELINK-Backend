@@ -37,7 +37,9 @@ public class SecurityConfig {
 				.matcher(HttpMethod.POST, "/api/auth/refresh");
 		PathPatternRequestMatcher logoutRequest = PathPatternRequestMatcher.withDefaults()
 				.matcher(HttpMethod.POST, "/api/auth/logout");
-		OrRequestMatcher cookieAuthenticatedRequests = new OrRequestMatcher(refreshRequest, logoutRequest);
+		PathPatternRequestMatcher socialResultRequest = PathPatternRequestMatcher.withDefaults()
+				.matcher(HttpMethod.POST, "/api/auth/social/result");
+		OrRequestMatcher cookieAuthenticatedRequests = new OrRequestMatcher(refreshRequest, logoutRequest, socialResultRequest);
 		PathPatternRequestMatcher csrfRequest = PathPatternRequestMatcher.withDefaults()
 				.matcher(HttpMethod.GET, "/api/auth/csrf");
 		CookieCsrfTokenRepository csrfTokenRepository = new CookieCsrfTokenRepository();
@@ -55,6 +57,7 @@ public class SecurityConfig {
 						.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
 						.requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
 						.requestMatchers(HttpMethod.GET, "/health").permitAll()
+						.requestMatchers(HttpMethod.GET, "/api/auth/social/{provider}").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/auth/signup", "/api/auth/login").permitAll()
 						.requestMatchers(cookieAuthenticatedRequests, csrfRequest).permitAll()
 						.anyRequest().authenticated())

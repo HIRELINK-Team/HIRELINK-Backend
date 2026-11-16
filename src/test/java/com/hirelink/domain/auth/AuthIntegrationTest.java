@@ -49,6 +49,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import com.hirelink.domain.auth.entity.AuthAccount;
+import com.hirelink.domain.auth.entity.AuthProvider;
 import com.hirelink.domain.auth.entity.RefreshToken;
 import com.hirelink.domain.auth.repository.AuthAccountRepository;
 import com.hirelink.domain.auth.repository.RefreshTokenRepository;
@@ -189,7 +190,7 @@ class AuthIntegrationTest extends PostgreSQLIntegrationTest {
 			// 두 요청 모두 사전 중복 조회를 통과한 상황을 만들고 실제 DB UNIQUE 처리를 검증한다.
 			bothEmailsChecked.await(10, TimeUnit.SECONDS);
 			return false;
-		}).when(userAccountRepository).existsByEmail("race@example.com");
+		}).when(authAccountRepository).existsByProviderAndProviderUserId(AuthProvider.LOCAL, "race@example.com");
 
 		HttpRequest request = signupRequest(signupJson("race@example.com", "password123", "STUDENT"));
 		var first = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString());
@@ -204,6 +205,8 @@ class AuthIntegrationTest extends PostgreSQLIntegrationTest {
 
 	@Test
 	void authAccountUniqueViolationRollsBackNewUserAccount() throws Exception {
+		doAnswer(invocation -> false).when(authAccountRepository)
+				.existsByProviderAndProviderUserId(AuthProvider.LOCAL, "conflict@example.com");
 		jdbcTemplate.update("INSERT INTO user_account (email, role) VALUES (?, ?)", "existing@example.com", "STUDENT");
 		Long existingUserId = jdbcTemplate.queryForObject("SELECT id FROM user_account", Long.class);
 		jdbcTemplate.update("INSERT INTO auth_account (user_id, provider, provider_user_id) VALUES (?, ?, ?)",
@@ -212,6 +215,17 @@ class AuthIntegrationTest extends PostgreSQLIntegrationTest {
 		assertError(signup("conflict@example.com", "password123", "STUDENT"), 409, "DUPLICATE_EMAIL");
 		assertThat(userAccountRepository.existsByEmail("conflict@example.com")).isFalse();
 		assertAccountCounts(1, 1);
+	}
+
+	@Test
+	void socialLoginIsUnavailableUntilConfiguredWithoutAffectingLocalLogin() throws Exception {
+		HttpRequest start = HttpRequest.newBuilder(URI.create("http://localhost:" + port
+				+ "/api/auth/social/google?role=STUDENT")).GET().build();
+		assertError(httpClient.send(start, HttpResponse.BodyHandlers.ofString()), 503, "SOCIAL_LOGIN_UNAVAILABLE");
+		HttpRequest result = cookieRequest("/api/auth/social/result", null, csrf()).build();
+		assertError(httpClient.send(result, HttpResponse.BodyHandlers.ofString()), 503, "SOCIAL_LOGIN_UNAVAILABLE");
+		assertAccountCounts(0, 0);
+		assertThat(signup("local@example.com", "password123", "STUDENT").statusCode()).isEqualTo(201);
 	}
 
 	@Test

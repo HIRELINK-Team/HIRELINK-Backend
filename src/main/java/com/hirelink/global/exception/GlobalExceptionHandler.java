@@ -21,6 +21,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(SocialAuthException.class)
+	public ResponseEntity<ErrorResponse> handleSocialAuth(SocialAuthException exception) {
+		return ResponseEntity.status(exception.getStatus())
+				.body(new ErrorResponse(exception.getCode(), exception.getMessage()));
+	}
+
 	@ExceptionHandler(EmploymentMatchNotFoundException.class)
 	public ResponseEntity<ErrorResponse> handleEmploymentMatchNotFound(EmploymentMatchNotFoundException exception) {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)

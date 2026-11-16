@@ -14,7 +14,7 @@ public record StudentProfileResponse(
 		Long studentId,
 		@Schema(description = "회원 이름", maxLength = 100, example = "김하늘", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 		String name,
-		@Schema(description = "회원 이메일", maxLength = 255, example = "student@example.com", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
+		@Schema(description = "회원 이메일. 소셜 가입 시 제공되지 않으면 null", maxLength = 255, example = "student@example.com", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
 		String email,
 		@Schema(description = "국내 010 휴대전화 번호. 입력 시 하이픈 생략 가능, 응답은 하이픈 포함",
 				example = "010-1234-5678",

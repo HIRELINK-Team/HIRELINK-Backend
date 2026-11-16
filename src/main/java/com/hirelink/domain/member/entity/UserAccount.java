@@ -16,7 +16,6 @@ import jakarta.persistence.UniqueConstraint;
 
 @Entity
 @Table(name = "user_account", uniqueConstraints = {
-		@UniqueConstraint(name = "uk_user_account_email", columnNames = "email"),
 		@UniqueConstraint(name = "uk_user_account_phone_number", columnNames = "phone_number")
 })
 public class UserAccount {
@@ -32,7 +31,7 @@ public class UserAccount {
 	@Column(nullable = false, length = 20)
 	private MemberRole role;
 
-	@Column(nullable = false, length = 255)
+	@Column(length = 255)
 	private String email;
 
 	@Column(name = "email_verified_at")
