@@ -48,8 +48,14 @@ public class SocialAuthService {
 		if (provider == AuthProvider.LOCAL || subject == null || subject.isBlank() || subject.length() > 255) {
 			throw new SocialAuthException(HttpStatus.UNAUTHORIZED, "SOCIAL_AUTH_FAILED", "소셜 인증을 완료하지 못했습니다.");
 		}
-		authAccountRepository.findByProviderAndProviderUserId(provider, subject)
-				.ifPresent(account -> checkMember(account.getUserAccount(), role));
+		sessionRepository.lockIdentity(hash(provider.name() + ":" + subject));
+		var account = authAccountRepository.findByProviderAndProviderUserId(provider, subject);
+		if (account.isPresent()) {
+			checkMember(account.get().getUserAccount(), role);
+		} else {
+			// 새 소셜 인증부터 다시 가입하며 이전 인증번호와 약관도 함께 폐기한다.
+			sessionRepository.deleteByIdentity(provider.name(), subject);
+		}
 		byte[] bytes = new byte[32];
 		random.nextBytes(bytes);
 		String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
@@ -93,12 +99,32 @@ public class SocialAuthService {
 		if (token == null || !token.matches("[A-Za-z0-9_-]{43}")) {
 			throw invalidSession();
 		}
-		SocialAuthSession session = sessionRepository.findByTokenHashForUpdate(hash(token))
+		String tokenHash = hash(token);
+		SocialAuthSession identity = sessionRepository.findById(tokenHash).orElseThrow(this::invalidSession);
+		// 소셜 사용자 → 가입 정보 → 전화번호 순서로 잠근다.
+		sessionRepository.lockIdentity(signupIdentity(identity));
+		SocialAuthSession session = sessionRepository.findByTokenHashForUpdate(tokenHash)
 				.orElseThrow(this::invalidSession);
 		if (!session.getExpiresAt().isAfter(Instant.now())) {
 			throw invalidSession();
 		}
 		return session;
+	}
+
+	String signupIdentity(SocialAuthSession session) {
+		return hash(session.getProvider().name() + ":" + session.getProviderUserId());
+	}
+
+	@Transactional
+	public void discardSignupSession(String token) {
+		if (token == null || !token.matches("[A-Za-z0-9_-]{43}")) {
+			return;
+		}
+		String tokenHash = hash(token);
+		sessionRepository.findById(tokenHash).ifPresent(session -> {
+			sessionRepository.lockIdentity(signupIdentity(session));
+			sessionRepository.findByTokenHashForUpdate(tokenHash).ifPresent(sessionRepository::delete);
+		});
 	}
 
 	@Transactional

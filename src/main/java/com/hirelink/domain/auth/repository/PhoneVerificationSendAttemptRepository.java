@@ -19,6 +19,19 @@ public interface PhoneVerificationSendAttemptRepository extends JpaRepository<Ph
 
 	long countByPhoneNumberAndRequestedAtAfter(String phoneNumber, Instant since);
 
+	long countBySignupIdentityAndRequestedAtAfter(String identity, Instant since);
+
+	@Modifying
+	@Query("update PhoneVerificationSendAttempt attempt set attempt.userId = :userId, attempt.signupIdentity = null "
+			+ "where attempt.signupIdentity = :identity")
+	void transferSignupAttempts(@Param("identity") String identity, @Param("userId") Long userId);
+
+	@Modifying
+	@Query("delete from PhoneVerificationSendAttempt attempt where attempt.requestedAt <= :before "
+			+ "and (attempt.signupIdentity = :identity or attempt.phoneNumber = :phoneNumber)")
+	void deleteExpiredSignupAttempts(@Param("identity") String identity, @Param("phoneNumber") String phoneNumber,
+			@Param("before") Instant before);
+
 	@Modifying
 	@Query("delete from PhoneVerificationSendAttempt attempt where attempt.requestedAt <= :before "
 			+ "and (attempt.userId = :userId or attempt.phoneNumber = :phoneNumber)")

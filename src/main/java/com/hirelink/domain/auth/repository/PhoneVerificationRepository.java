@@ -8,4 +8,5 @@ import com.hirelink.domain.auth.entity.PhoneVerification;
 
 public interface PhoneVerificationRepository extends JpaRepository<PhoneVerification, Long> {
 	Optional<PhoneVerification> findByUserId(Long userId);
+	Optional<PhoneVerification> findBySignupTokenHash(String tokenHash);
 }

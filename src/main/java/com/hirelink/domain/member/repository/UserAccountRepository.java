@@ -18,4 +18,5 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
 	@Query("select user from UserAccount user where user.id = :id")
 	Optional<UserAccount> findByIdForUpdate(@Param("id") Long id);
 	boolean existsByEmail(String email);
+	boolean existsByPhoneNumber(String phoneNumber);
 }
