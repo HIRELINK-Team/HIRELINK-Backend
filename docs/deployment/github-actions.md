@@ -14,7 +14,27 @@ AWS Systems Manager Run Command를 통해 EC2가 해당 이미지를 받아 실�
 - GitHub는 OIDC로 임시 AWS 자격 증명을 받는다. SSH 키나 장기 AWS 접근 키는 등록하지 않는다.
 - 배포는 한 번에 하나씩 실행한다. 새 배포가 진행 중인 배포를 취소하지 않는다.
 - 이미지 다운로드와 설정 검사가 끝난 뒤 컨테이너를 교체한다. 교체 중에는 잠시 요청이 실패할 수 있다.
-- 컨테이너 상태와 HTTPS `/health` 확인까지 통과해야 배포 성공으로 처리한다.
+- 컨테이너 상태와 배포 후 Smoke 검증을 통과해야 배포 성공으로 처리한다.
+
+## 배포 후 Smoke 검증
+
+`deploy/smoke-test.sh`는 외부 HTTPS 경로로 다음 항목을 순서대로 확인한다.
+
+1. `/health`가 2xx HTTP 상태와 유효한 JSON을 반환하는지 확인한다.
+2. `/health`의 `status`가 `UP`인지 확인한다.
+3. `/v3/api-docs`가 2xx HTTP 상태와 유효한 JSON을 반환하는지 확인한다.
+4. OpenAPI `paths`에 공고 조회, 추천, 지원을 대표하는 다음 경로가 모두 있는지 확인한다.
+   - `/api/job-postings/{jobPostingId}`
+   - `/api/recommendations`
+   - `/api/applications`
+
+위 경로는 공고를 확인하고 추천을 받아 지원하는 서비스의 핵심 흐름을 도메인별로 대표한다.
+또한 현재 OpenAPI 통합 테스트가 존재를 보장하는 안정적인 경로이며, Smoke 검증은 명세만 읽어 운영 데이터를 생성하거나 변경하지 않는다.
+
+각 단계는 `START`, `SUCCESS`, `FAIL`을 출력한다. 하나라도 실패하면 non-zero로 종료하고,
+배포 스크립트는 `docker compose ps`와 같은 서비스 상태만 추가로 출력한다.
+환경변수, 인증 정보, 전체 컨테이너 로그는 출력하지 않는다. SSM 종료 상태에서는 이 제한된 표준 출력·표준 오류와
+응답 코드를 Actions에 표시하고 non-zero 코드를 전파한다.
 
 최초 EC2 준비는 [EC2 배포](./ec2.md)를 따른다. 저장소는 `/home/ubuntu/HIRELINK-Backend`에 있어야 한다.
 기존 `/etc/hirelink/backend.env`, 인증서, Caddy 인증서 볼륨은 계속 사용한다.
