@@ -3,6 +3,10 @@ set -euo pipefail
 
 fail() {
   printf '%s\n' "$1" >&2
+  if declare -F compose >/dev/null 2>&1; then
+    printf '%s\n' "SERVICE_STATUS"
+    compose ps || true
+  fi
   exit 1
 }
 
@@ -63,6 +67,6 @@ for line in Path(sys.argv[1]).read_text().splitlines():
         break
 PY
 )
-curl --fail --silent --max-time 10 --retry 3 --retry-delay 3 \
-  "https://$api_domain/health" >/dev/null 2>&1 || fail "HTTPS_HEALTH_CHECK_FAILED"
+bash "$repo_dir/deploy/smoke-test.sh" "https://$api_domain" \
+  || fail "POST_DEPLOY_SMOKE_VALIDATION_FAILED"
 printf '%s\n' "DEPLOYMENT_SUCCEEDED"

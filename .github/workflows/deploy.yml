@@ -166,7 +166,22 @@ jobs:
                 exit 0
                 ;;
               Failed|Cancelled|TimedOut|Cancelling)
-                echo "Deployment failed. Check the command result in Systems Manager."
+                response_code=$(aws ssm get-command-invocation \
+                  --command-id "$command_id" --instance-id "$EC2_INSTANCE_ID" \
+                  --query ResponseCode --output text)
+                echo "SSM command status: $status"
+                echo "SSM response code: $response_code"
+                echo "SSM standard output:"
+                aws ssm get-command-invocation \
+                  --command-id "$command_id" --instance-id "$EC2_INSTANCE_ID" \
+                  --query StandardOutputContent --output text
+                echo "SSM standard error:"
+                aws ssm get-command-invocation \
+                  --command-id "$command_id" --instance-id "$EC2_INSTANCE_ID" \
+                  --query StandardErrorContent --output text
+                if [[ "$response_code" =~ ^[1-9][0-9]*$ ]] && ((response_code <= 255)); then
+                  exit "$response_code"
+                fi
                 exit 1
                 ;;
             esac
