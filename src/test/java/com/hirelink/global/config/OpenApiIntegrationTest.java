@@ -75,6 +75,31 @@ class OpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
+	void openApiDocumentUsesForwardedHttpsServerUrlBehindReverseProxy() throws Exception {
+		HttpRequest request = HttpRequest.newBuilder(uri("/v3/api-docs"))
+				.header("X-Forwarded-Proto", "https")
+				.header("X-Forwarded-Host", "api.hirelink.site")
+				.GET()
+				.build();
+		HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+		JsonNode document = objectMapper.readTree(response.body());
+
+		assertThat(response.statusCode()).isEqualTo(200);
+		assertThat(document.path("servers").get(0).path("url").asString())
+				.isEqualTo("https://api.hirelink.site");
+	}
+
+	@Test
+	void openApiDocumentStillUsesLocalServerUrlWithoutForwardedHeaders() throws Exception {
+		HttpResponse<String> response = get("/v3/api-docs");
+		JsonNode document = objectMapper.readTree(response.body());
+
+		assertThat(response.statusCode()).isEqualTo(200);
+		assertThat(document.path("servers").get(0).path("url").asString())
+				.isEqualTo("http://localhost:" + port);
+	}
+
+	@Test
 	void swaggerPermissionDoesNotChangeExistingApiSecurityPolicy() throws Exception {
 		HttpResponse<String> publicHealth = get("/health");
 		HttpResponse<String> protectedApi = get("/api/recommendations");
