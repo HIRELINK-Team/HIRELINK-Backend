@@ -43,4 +43,8 @@ public class PhoneVerificationSendAttempt {
 		attempt.signupIdentity = identity;
 		return attempt;
 	}
+
+	public Long getId() {
+		return id;
+	}
 }

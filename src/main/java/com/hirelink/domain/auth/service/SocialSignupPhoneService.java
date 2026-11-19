@@ -34,6 +34,8 @@ import com.hirelink.global.exception.InvalidPhoneVerificationCodeException;
 import com.hirelink.global.exception.PhoneVerificationRateLimitException;
 import com.hirelink.global.exception.SmsDeliveryException;
 import com.hirelink.global.exception.SocialAuthException;
+import com.hirelink.global.sms.SmsSendRequest;
+import com.hirelink.global.sms.SmsSender;
 
 @Service
 public class SocialSignupPhoneService {
@@ -87,13 +89,15 @@ public class SocialSignupPhoneService {
 			throw new PhoneVerificationRateLimitException();
 		}
 		attempts.deleteExpiredSignupAttempts(identity, phoneNumber, now.minusSeconds(3600));
-		attempts.saveAndFlush(PhoneVerificationSendAttempt.forSignup(identity, phoneNumber, now));
+		PhoneVerificationSendAttempt sendAttempt = attempts.saveAndFlush(
+				PhoneVerificationSendAttempt.forSignup(identity, phoneNumber, now));
 		String code;
 		do {
 			code = String.format(Locale.ROOT, "%06d", random.nextInt(1_000_000));
 		} while (verification != null && passwordEncoder.matches(code, verification.getCodeHash()));
 		String codeHash = passwordEncoder.encode(code);
-		smsSender.sendVerificationCode(phoneNumber, code);
+		smsSender.send(new SmsSendRequest(phoneNumber, "[HIRELINK] 인증번호 [" + code + "]",
+				"social-phone-verification:" + sendAttempt.getId()));
 		Instant sentAt = Instant.now();
 		if (verification == null) {
 			verification = PhoneVerification.forSignup(session.getTokenHash(), phoneNumber, codeHash,

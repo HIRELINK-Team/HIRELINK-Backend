@@ -1,4 +1,4 @@
-package com.hirelink.domain.auth.service;
+package com.hirelink.global.sms;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -28,7 +28,7 @@ import tools.jackson.databind.JsonNode;
 import com.hirelink.global.exception.SmsDeliveryException;
 
 @Component
-public class SmsSender {
+class SolapiSmsGateway implements SmsGateway {
 
 	private final String apiKey;
 	private final String apiSecret;
@@ -38,13 +38,13 @@ public class SmsSender {
 	private final SecureRandom secureRandom = new SecureRandom();
 
 	@Autowired
-	public SmsSender(@Value("${sms.solapi.api-key}") String apiKey,
+	SolapiSmsGateway(@Value("${sms.solapi.api-key}") String apiKey,
 			@Value("${sms.solapi.api-secret}") String apiSecret,
 			@Value("${sms.solapi.sender-number}") String senderNumber) {
 		this(apiKey, apiSecret, senderNumber, URI.create("https://api.solapi.com/messages/v4/send-many/detail"));
 	}
 
-	SmsSender(String apiKey, String apiSecret, String senderNumber, URI sendUri) {
+	SolapiSmsGateway(String apiKey, String apiSecret, String senderNumber, URI sendUri) {
 		this.apiKey = apiKey;
 		this.apiSecret = apiSecret;
 		this.senderNumber = senderNumber;
@@ -56,20 +56,22 @@ public class SmsSender {
 		this.restClient = RestClient.builder().requestFactory(factory).build();
 	}
 
-	public void sendVerificationCode(String phoneNumber, String code) {
+	@Override
+	public SmsGatewayResult send(String recipient, String messageText) {
 		if (!StringUtils.hasText(apiKey) || !StringUtils.hasText(apiSecret) || !StringUtils.hasText(senderNumber)) {
 			throw new SmsDeliveryException();
 		}
 		try {
-			Map<String, String> message = Map.of("to", phoneNumber, "from", senderNumber, "type", "SMS",
-					"text", "[HIRELINK] 인증번호 [" + code + "]");
+			String type = messageText.getBytes(StandardCharsets.UTF_8).length <= 90 ? "SMS" : "LMS";
+			Map<String, String> message = Map.of("to", recipient, "from", senderNumber, "type", type,
+					"text", messageText);
 			JsonNode response = restClient.post().uri(sendUri).contentType(MediaType.APPLICATION_JSON)
 					.accept(MediaType.APPLICATION_JSON).header(HttpHeaders.AUTHORIZATION, createAuthorization())
 					.body(Map.of("messages", List.of(message)))
 					.retrieve().onStatus(status -> status.value() != 200, (request, result) -> {
 						throw new SmsDeliveryException();
 					}).body(JsonNode.class);
-			validateAcceptance(response);
+			return validateAcceptance(response);
 		} catch (GeneralSecurityException | RestClientException | IllegalArgumentException exception) {
 			throw new SmsDeliveryException();
 		}
@@ -86,7 +88,7 @@ public class SmsSender {
 		return "HMAC-SHA256 apiKey=" + apiKey + ", date=" + date + ", salt=" + salt + ", signature=" + signature;
 	}
 
-	private void validateAcceptance(JsonNode response) {
+	private SmsGatewayResult validateAcceptance(JsonNode response) {
 		if (response == null) {
 			throw new SmsDeliveryException();
 		}
@@ -98,5 +100,7 @@ public class SmsSender {
 				|| !failures.isArray() || !failures.isEmpty()) {
 			throw new SmsDeliveryException();
 		}
+		JsonNode groupId = response.path("groupInfo").path("groupId");
+		return new SmsGatewayResult(groupId.isTextual() ? groupId.stringValue() : null);
 	}
 }
