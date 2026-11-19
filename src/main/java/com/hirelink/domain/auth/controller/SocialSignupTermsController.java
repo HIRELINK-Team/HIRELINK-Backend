@@ -60,7 +60,7 @@ public class SocialSignupTermsController {
 		this.properties = properties;
 	}
 
-	@Operation(summary = "소셜 가입 약관 조회", description = "소셜 인증 결과가 SIGNUP_REQUIRED인 사용자의 약관 목록과 임시 동의 상태를 반환한다. socialSignup 쿠키로 식별하며 Bearer 토큰은 사용하지 않는다. 필수 여부는 서버가 제공하고 약관 본문·번역은 프론트에서 표시한다. 아직 저장하지 않은 동의는 false, agreedAt은 null이다. 조회해도 가입 진행 정보의 30분 만료 시각은 연장되지 않는다. ID를 고정하지 않고 이 응답의 termTypeId로 동의를 저장한다.")
+	@Operation(summary = "소셜 가입 약관 조회", description = "소셜 인증 결과가 SIGNUP_REQUIRED인 사용자의 약관 목록과 임시 동의 상태를 반환한다. socialSignup 쿠키로 식별하며 Bearer 토큰은 사용하지 않는다. 필수 여부는 서버가 제공하고 약관 본문·번역은 프론트에서 표시한다. 등록증 확인 기능 활성화 시 유학생에게만 필수 고유식별정보 수집·이용 항목이 추가되며 일반 약관과 별도로 동의받아야 한다. 사업주와 기능 비활성 상태는 기존 목록을 유지한다. 아직 저장하지 않은 동의는 false, agreedAt은 null이다. 조회해도 가입 진행 정보의 30분 만료 시각은 연장되지 않는다. ID를 고정하지 않고 이 응답의 termTypeId로 동의를 저장한다.")
 	@ApiResponse(responseCode = "200", description = "약관 ID 오름차순 목록", content = @Content(mediaType = "application/json",
 			schema = @Schema(implementation = SocialSignupTermsResponse.class), examples = @ExampleObject(name = "success", value = "{\"terms\":[{\"termTypeId\":4,\"termTypeName\":\"서비스 이용약관\",\"isRequired\":true,\"isAgreed\":false,\"agreedAt\":null},{\"termTypeId\":5,\"termTypeName\":\"개인정보 수집·이용\",\"isRequired\":true,\"isAgreed\":false,\"agreedAt\":null},{\"termTypeId\":6,\"termTypeName\":\"개인정보 제3자 제공\",\"isRequired\":true,\"isAgreed\":false,\"agreedAt\":null},{\"termTypeId\":7,\"termTypeName\":\"마케팅 정보 수신\",\"isRequired\":false,\"isAgreed\":false,\"agreedAt\":null}]}")))
 	@GetMapping

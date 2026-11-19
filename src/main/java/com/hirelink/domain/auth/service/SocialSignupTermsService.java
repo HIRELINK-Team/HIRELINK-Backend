@@ -9,6 +9,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,6 +18,7 @@ import com.hirelink.domain.auth.dto.SocialSignupTermsResponse;
 import com.hirelink.domain.auth.entity.SocialAuthSession;
 import com.hirelink.domain.auth.entity.SocialSignupAgreement;
 import com.hirelink.domain.member.entity.TermType;
+import com.hirelink.domain.member.entity.MemberRole;
 import com.hirelink.domain.member.repository.TermTypeRepository;
 import com.hirelink.global.exception.DuplicateTermTypeException;
 import com.hirelink.global.exception.SocialAuthException;
@@ -28,20 +30,23 @@ public class SocialSignupTermsService {
 
 	private final SocialAuthService socialAuthService;
 	private final TermTypeRepository termTypeRepository;
+	private final boolean registrationEnabled;
 
-	public SocialSignupTermsService(SocialAuthService socialAuthService, TermTypeRepository termTypeRepository) {
+	public SocialSignupTermsService(SocialAuthService socialAuthService, TermTypeRepository termTypeRepository,
+			@Value("${registration-verification.enabled:false}") boolean registrationEnabled) {
 		this.socialAuthService = socialAuthService;
 		this.termTypeRepository = termTypeRepository;
+		this.registrationEnabled = registrationEnabled;
 	}
 
 	public SocialSignupTermsResponse getTerms(String token) {
 		SocialAuthSession session = socialAuthService.requireSignupSession(token);
-		return response(termTypeRepository.findBySocialSignupTrueOrderByIdAsc(), session);
+		return response(signupTerms(session), session);
 	}
 
 	public SocialSignupTermsResponse saveTerms(String token, SocialSignupTermsRequest request) {
 		SocialAuthSession session = socialAuthService.requireSignupSession(token);
-		List<TermType> terms = termTypeRepository.findBySocialSignupTrueOrderByIdAsc();
+		List<TermType> terms = signupTerms(session);
 		Set<Long> termIds = terms.stream().map(TermType::getId).collect(Collectors.toSet());
 		Map<Long, Boolean> requested = new HashMap<>();
 		for (SocialSignupTermsRequest.Agreement agreement : request.agreements()) {
@@ -62,6 +67,13 @@ public class SocialSignupTermsService {
 			session.saveAgreement(term.getId(), requested.getOrDefault(term.getId(), false), now);
 		}
 		return response(terms, session);
+	}
+
+	List<TermType> signupTerms(SocialAuthSession session) {
+		return termTypeRepository.findBySocialSignupTrueOrderByIdAsc().stream()
+				.filter(term -> !term.isStudentRegistration()
+						|| (registrationEnabled && session.getRole() == MemberRole.STUDENT))
+				.toList();
 	}
 
 	private SocialSignupTermsResponse response(List<TermType> terms, SocialAuthSession session) {

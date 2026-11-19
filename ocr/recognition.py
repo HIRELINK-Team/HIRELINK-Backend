@@ -85,7 +85,7 @@ def reading_lines(result):
     return [" ".join(text for _, text in sorted(row[2])) for row in rows]
 
 
-def recognize_document(engine, data, content_type):
+def recognize_document(engine, data, content_type, extractor=extract_registration):
     import numpy as np
     import pypdfium2 as pdfium
     from PIL import Image, ImageOps, UnidentifiedImageError
@@ -133,4 +133,4 @@ def recognize_document(engine, data, content_type):
         raise UnreadableDocument() from None
     if time.monotonic() > deadline:
         raise TimeoutError()
-    return extract_registration(pages)
+    return extractor(pages)
