@@ -92,7 +92,8 @@ class StudentProfileIntegrationTest extends PostgreSQLIntegrationTest {
 				.isEqualTo(request.get("name"));
 
 		Map<String, Object> stored = jdbc.queryForMap("select * from student_profile where id = ?", userId);
-		assertThat(stored).hasSize(17);
+		assertThat(stored).hasSize(18);
+		assertThat(stored).containsEntry("onboarding_completed_at", null);
 		assertThat(stored.get("birth_date").toString()).isEqualTo(request.get("birthDate"));
 		assertThat(stored).containsEntry("nationality", "VN").containsEntry("korean_level", koreanLevel)
 				.containsEntry("current_region", request.get("currentRegion"));
