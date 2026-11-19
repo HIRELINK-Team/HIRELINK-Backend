@@ -28,13 +28,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import com.hirelink.domain.auth.dto.AuthResult;
 import com.hirelink.domain.auth.entity.AuthAccount;
 import com.hirelink.domain.auth.entity.AuthProvider;
 import com.hirelink.domain.auth.repository.AuthAccountRepository;
-import com.hirelink.domain.auth.service.SmsSender;
 import com.hirelink.domain.auth.service.SocialAuthService;
 import com.hirelink.domain.auth.service.TokenService;
 import com.hirelink.domain.member.entity.MemberRole;
@@ -42,6 +42,8 @@ import com.hirelink.domain.member.entity.UserAccount;
 import com.hirelink.domain.member.repository.UserAccountRepository;
 import com.hirelink.domain.member.repository.UserTermAgreementRepository;
 import com.hirelink.global.exception.SmsDeliveryException;
+import com.hirelink.global.sms.SmsSendRequest;
+import com.hirelink.global.sms.SmsSender;
 import com.hirelink.support.PostgreSQLIntegrationTest;
 
 import tools.jackson.databind.JsonNode;
@@ -82,13 +84,13 @@ class SocialSignupPhoneIntegrationTest extends PostgreSQLIntegrationTest {
 	@Autowired private AuthAccountRepository accounts;
 	@Autowired private TokenService tokenService;
 	@Autowired private PasswordEncoder passwordEncoder;
-	@MockitoSpyBean private SmsSender smsSender;
+	@MockitoBean private SmsSender smsSender;
 	@MockitoSpyBean private UserTermAgreementRepository agreements;
 
 	@BeforeEach
 	void prepare() {
 		jdbc.execute("truncate table user_account, social_auth_session restart identity cascade");
-		doNothing().when(smsSender).sendVerificationCode(anyString(), anyString());
+		doNothing().when(smsSender).send(any(SmsSendRequest.class));
 	}
 
 	@ParameterizedTest
@@ -271,7 +273,7 @@ class SocialSignupPhoneIntegrationTest extends PostgreSQLIntegrationTest {
 		String code = sendCode(browser, PHONE);
 		String hash = jdbc.queryForObject("select code_hash from phone_verification", String.class);
 		ageAttempts(61);
-		doThrow(new SmsDeliveryException()).when(smsSender).sendVerificationCode(anyString(), anyString());
+		doThrow(new SmsDeliveryException()).when(smsSender).send(any(SmsSendRequest.class));
 		assertError(requestCode(browser, PHONE), 500, "SMS_DELIVERY_FAILED");
 		assertThat(count("phone_verification_send_attempt")).isEqualTo(2);
 		assertThat(jdbc.queryForObject("select code_hash from phone_verification", String.class)).isEqualTo(hash);
@@ -335,9 +337,9 @@ class SocialSignupPhoneIntegrationTest extends PostgreSQLIntegrationTest {
 				.header("Authorization", "Bearer " + accessToken).header("Content-Type", "application/json")
 				.POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(Map.of("phoneNumber", PHONE)))).build();
 		assertThat(memberClient.send(memberSend, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(200);
-		ArgumentCaptor<String> captured = ArgumentCaptor.forClass(String.class);
-		verify(smsSender).sendVerificationCode(anyString(), captured.capture());
-		String memberCode = captured.getValue();
+		ArgumentCaptor<SmsSendRequest> captured = ArgumentCaptor.forClass(SmsSendRequest.class);
+		verify(smsSender).send(captured.capture());
+		String memberCode = verificationCode(captured.getValue());
 		ageAttempts(61);
 		Browser browser = signup(AuthProvider.GOOGLE, "competing-signup", MemberRole.EMPLOYER, true);
 		String signupCode = sendCode(browser, PHONE);
@@ -397,9 +399,13 @@ class SocialSignupPhoneIntegrationTest extends PostgreSQLIntegrationTest {
 		HttpResponse<String> response = requestCode(browser, phone);
 		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
 		assertThat(JSON.readTree(response.body()).path("expiresIn").asInt()).isEqualTo(300);
-		ArgumentCaptor<String> codes = ArgumentCaptor.forClass(String.class);
-		verify(smsSender, atLeastOnce()).sendVerificationCode(anyString(), codes.capture());
-		return codes.getValue();
+		ArgumentCaptor<SmsSendRequest> requests = ArgumentCaptor.forClass(SmsSendRequest.class);
+		verify(smsSender, atLeastOnce()).send(requests.capture());
+		return verificationCode(requests.getValue());
+	}
+
+	private String verificationCode(SmsSendRequest request) {
+		return request.message().substring("[HIRELINK] 인증번호 [".length(), request.message().length() - 1);
 	}
 
 	private HttpResponse<String> requestCode(Browser browser, String phone) throws Exception {

@@ -34,17 +34,18 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import tools.jackson.databind.ObjectMapper;
 
-import com.hirelink.domain.auth.service.SmsSender;
 import com.hirelink.domain.member.repository.UserAccountRepository;
+import com.hirelink.global.exception.SmsDeliveryException;
+import com.hirelink.global.sms.SmsSendRequest;
+import com.hirelink.global.sms.SmsSender;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
-import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -74,7 +75,7 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 	private JwtEncoder jwtEncoder;
 	@Autowired
 	private PasswordEncoder passwordEncoder;
-	@MockitoSpyBean
+	@MockitoBean
 	private SmsSender smsSender;
 	@MockitoSpyBean
 	private UserAccountRepository userAccountRepository;
@@ -87,7 +88,7 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 				+ "student_job_preference, student_priority, job_posting_work_time, job_posting, workplace, student_career, "
 				+ "student_profile, user_term_agreement, phone_verification, phone_verification_send_attempt, "
 				+ "refresh_token, auth_account, user_account RESTART IDENTITY");
-		doNothing().when(smsSender).sendVerificationCode(anyString(), anyString());
+		doNothing().when(smsSender).send(any(SmsSendRequest.class));
 	}
 
 	@ParameterizedTest
@@ -101,15 +102,15 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(mapper.readTree(response.body()).path("expiresIn").asLong()).isEqualTo(300);
 		assertThat(mapper.readTree(response.body()).path("message").asString()).isEqualTo("인증번호가 전송되었습니다.");
 		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
-		ArgumentCaptor<String> number = ArgumentCaptor.forClass(String.class);
-		ArgumentCaptor<String> code = ArgumentCaptor.forClass(String.class);
-		verify(smsSender).sendVerificationCode(number.capture(), code.capture());
-		assertThat(number.getValue()).isEqualTo(PHONE);
-		assertThat(code.getValue()).matches("[0-9]{6}");
+		ArgumentCaptor<SmsSendRequest> request = ArgumentCaptor.forClass(SmsSendRequest.class);
+		verify(smsSender).send(request.capture());
+		assertThat(request.getValue().recipient()).isEqualTo(PHONE);
+		String code = verificationCode(request.getValue());
+		assertThat(code).matches("[0-9]{6}");
 		Map<String, Object> stored = jdbc.queryForMap("select * from phone_verification");
 		assertThat(stored.get("phone_number")).isEqualTo(PHONE);
-		assertThat(passwordEncoder.matches(code.getValue(), (String) stored.get("code_hash"))).isTrue();
-		assertThat(stored.get("code_hash")).isNotEqualTo(code.getValue());
+		assertThat(passwordEncoder.matches(code, (String) stored.get("code_hash"))).isTrue();
+		assertThat(stored.get("code_hash")).isNotEqualTo(code);
 		Instant expiresAt = jdbc.queryForObject("select expires_at from phone_verification", java.sql.Timestamp.class).toInstant();
 		assertThat(expiresAt).isBetween(before.plusSeconds(300), Instant.now().plusSeconds(300));
 		assertThat(jdbc.queryForObject("select phone_number from user_account", String.class)).isNull();
@@ -121,7 +122,7 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 	void rejectsInvalidPhone(String phone) throws Exception {
 		String token = createUser("STUDENT");
 		assertError(request(token, phone), 400, "INVALID_INPUT");
-		verify(smsSender, never()).sendVerificationCode(anyString(), anyString());
+		verify(smsSender, never()).send(any(SmsSendRequest.class));
 	}
 
 	@Test
@@ -147,7 +148,7 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(jdbc.queryForObject("select count(*) from phone_verification", Integer.class)).isEqualTo(1);
 		assertThat(jdbc.queryForObject("select code_hash from phone_verification", String.class)).isNotEqualTo(firstHash);
 		assertThat(jdbc.queryForObject("select failed_attempts from phone_verification", Integer.class)).isEqualTo(3);
-		verify(smsSender, times(2)).sendVerificationCode(anyString(), anyString());
+		verify(smsSender, times(2)).send(any(SmsSendRequest.class));
 	}
 
 	@Test
@@ -188,7 +189,7 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 	@Test
 	void unconfiguredSenderFailsAndStillLimitsRetries() throws Exception {
 		String token = createUser("STUDENT");
-		doCallRealMethod().when(smsSender).sendVerificationCode(anyString(), anyString());
+		doThrow(new SmsDeliveryException()).when(smsSender).send(any(SmsSendRequest.class));
 		assertError(request(token, PHONE), 500, "SMS_DELIVERY_FAILED");
 		assertThat(jdbc.queryForObject("select count(*) from phone_verification", Integer.class)).isZero();
 		assertThat(jdbc.queryForObject("select count(*) from phone_verification_send_attempt", Integer.class)).isEqualTo(1);
@@ -201,7 +202,7 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(request(token, PHONE).statusCode()).isEqualTo(200);
 		Map<String, Object> before = jdbc.queryForMap("select * from phone_verification");
 		ageRequests(61);
-		doCallRealMethod().when(smsSender).sendVerificationCode(anyString(), anyString());
+		doThrow(new SmsDeliveryException()).when(smsSender).send(any(SmsSendRequest.class));
 		assertError(request(token, PHONE), 500, "SMS_DELIVERY_FAILED");
 		assertThat(jdbc.queryForMap("select * from phone_verification")).isEqualTo(before);
 	}
@@ -217,7 +218,7 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 		CompletableFuture<HttpResponse<String>> two = client.sendAsync(secondRequest, HttpResponse.BodyHandlers.ofString());
 		assertThat(List.of(one.get(15, TimeUnit.SECONDS).statusCode(), two.get(15, TimeUnit.SECONDS).statusCode()))
 				.containsExactlyInAnyOrder(200, 429);
-		verify(smsSender).sendVerificationCode(anyString(), anyString());
+		verify(smsSender).send(any(SmsSendRequest.class));
 	}
 
 	@ParameterizedTest
@@ -360,9 +361,13 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private String requestAndGetCode(String token, String phone) throws Exception {
 		assertThat(request(token, phone).statusCode()).isEqualTo(200);
-		ArgumentCaptor<String> codes = ArgumentCaptor.forClass(String.class);
-		verify(smsSender, atLeastOnce()).sendVerificationCode(anyString(), codes.capture());
-		return codes.getValue();
+		ArgumentCaptor<SmsSendRequest> requests = ArgumentCaptor.forClass(SmsSendRequest.class);
+		verify(smsSender, atLeastOnce()).send(requests.capture());
+		return verificationCode(requests.getValue());
+	}
+
+	private String verificationCode(SmsSendRequest request) {
+		return request.message().substring("[HIRELINK] 인증번호 [".length(), request.message().length() - 1);
 	}
 
 	private HttpResponse<String> confirm(String token, String phone, String code) throws Exception {

@@ -1,4 +1,4 @@
-package com.hirelink.domain.auth.service;
+package com.hirelink.global.sms;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -28,7 +28,7 @@ import com.hirelink.global.exception.SmsDeliveryException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class SmsSenderTest {
+class SolapiSmsGatewayTest {
 
 	private static final String API_KEY = "test-api-key";
 	private static final String API_SECRET = "test-api-secret";
@@ -41,7 +41,7 @@ class SmsSenderTest {
 			""";
 	private HttpServer server;
 	private URI sendUri;
-	private SmsSender sender;
+	private SolapiSmsGateway gateway;
 	private final ObjectMapper mapper = new ObjectMapper();
 	private final AtomicInteger calls = new AtomicInteger();
 	private final AtomicReference<String> method = new AtomicReference<>();
@@ -76,7 +76,7 @@ class SmsSenderTest {
 		});
 		server.start();
 		sendUri = URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/send");
-		sender = new SmsSender(API_KEY, API_SECRET, SENDER, sendUri);
+		gateway = new SolapiSmsGateway(API_KEY, API_SECRET, SENDER, sendUri);
 	}
 
 	@AfterEach
@@ -86,7 +86,7 @@ class SmsSenderTest {
 
 	@Test
 	void sendsSingleSmsWithSignedAuthorizationAndPreservesLeadingZero() throws Exception {
-		sender.sendVerificationCode(RECIPIENT, CODE);
+		gateway.send(RECIPIENT, "[HIRELINK] 인증번호 [" + CODE + "]");
 		assertThat(method.get()).isEqualTo("POST");
 		JsonNode body = mapper.readTree(requestBody.get());
 		assertThat(body.path("messages").size()).isEqualTo(1);
@@ -109,7 +109,7 @@ class SmsSenderTest {
 		assertThat(auth.get("signature")).isEqualTo(HexFormat.of().formatHex(
 				mac.doFinal((auth.get("date") + auth.get("salt")).getBytes(StandardCharsets.UTF_8))));
 		String firstAuthorization = authorization.get();
-		sender.sendVerificationCode(RECIPIENT, CODE);
+		gateway.send(RECIPIENT, "[HIRELINK] 인증번호 [" + CODE + "]");
 		assertThat(authorization.get()).isNotEqualTo(firstAuthorization);
 		assertThat(calls.get()).isEqualTo(2);
 	}
@@ -117,9 +117,9 @@ class SmsSenderTest {
 	@Test
 	void missingConfigurationFailsWithoutExternalCall() {
 		for (String missing : new String[] {null, "", "   "}) {
-			assertDeliveryFailure(new SmsSender(missing, API_SECRET, SENDER, sendUri));
-			assertDeliveryFailure(new SmsSender(API_KEY, missing, SENDER, sendUri));
-			assertDeliveryFailure(new SmsSender(API_KEY, API_SECRET, missing, sendUri));
+			assertDeliveryFailure(new SolapiSmsGateway(missing, API_SECRET, SENDER, sendUri));
+			assertDeliveryFailure(new SolapiSmsGateway(API_KEY, missing, SENDER, sendUri));
+			assertDeliveryFailure(new SolapiSmsGateway(API_KEY, API_SECRET, missing, sendUri));
 		}
 		assertThat(calls.get()).isZero();
 	}
@@ -130,7 +130,7 @@ class SmsSenderTest {
 				{"groupInfo":{"count":{"total":1,"registeredSuccess":0,"registeredFailed":1}},
 				"failedMessageList":[{"statusCode":"3040","statusMessage":"remote-details"}]}
 				""";
-		assertDeliveryFailure(sender);
+		assertDeliveryFailure(gateway);
 		assertThat(calls.get()).isEqualTo(1);
 	}
 
@@ -143,7 +143,7 @@ class SmsSenderTest {
 				ACCEPTED.replace("\"registeredFailed\":0", "\"registeredFailed\":1"),
 				ACCEPTED.replace("[]", "[{}]"), ACCEPTED.replace("[]", "null")}) {
 			responseBody = body;
-			assertDeliveryFailure(sender);
+			assertDeliveryFailure(gateway);
 		}
 	}
 
@@ -153,7 +153,7 @@ class SmsSenderTest {
 			responseStatus = status;
 			responseBody = "{\"message\":\"" + API_SECRET + " " + RECIPIENT + " " + CODE + "\"}";
 			int before = calls.get();
-			assertDeliveryFailure(sender);
+			assertDeliveryFailure(gateway);
 			assertThat(calls.get()).isEqualTo(before + 1);
 		}
 	}
@@ -161,18 +161,18 @@ class SmsSenderTest {
 	@Test
 	void connectionFailureReturnsDeliveryErrorWithoutDetails() {
 		server.stop(0);
-		assertDeliveryFailure(sender);
+		assertDeliveryFailure(gateway);
 	}
 
 	@Test
 	void slowResponseTimesOutWithoutRetry() {
 		responseDelayMillis = 6000;
-		assertDeliveryFailure(sender);
+		assertDeliveryFailure(gateway);
 		assertThat(calls.get()).isEqualTo(1);
 	}
 
-	private void assertDeliveryFailure(SmsSender target) {
-		assertThatThrownBy(() -> target.sendVerificationCode(RECIPIENT, CODE))
-				.isInstanceOf(SmsDeliveryException.class).hasMessage("인증번호를 전송하지 못했습니다.").hasNoCause();
+	private void assertDeliveryFailure(SolapiSmsGateway target) {
+		assertThatThrownBy(() -> target.send(RECIPIENT, "[HIRELINK] 인증번호 [" + CODE + "]"))
+				.isInstanceOf(SmsDeliveryException.class).hasMessage("문자를 발송하지 못했습니다.").hasNoCause();
 	}
 }
