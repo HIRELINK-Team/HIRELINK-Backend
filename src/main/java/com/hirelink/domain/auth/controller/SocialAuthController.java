@@ -82,7 +82,7 @@ public class SocialAuthController {
 				.header(HttpHeaders.CACHE_CONTROL, "no-store").build();
 	}
 
-	@Operation(summary = "소셜 인증 결과 확인", description = "본문 없음. 소셜 인증 콜백이 설정한 socialSignup 쿠키와 GET /api/auth/csrf에서 받은 확인값을 사용한다. 신규 사용자는 SIGNUP_REQUIRED이며 회원 생성·JWT 발급 없이 30분 가입 진행 정보만 유지한다. 조회해도 만료 시각은 연장되지 않는다. 약관 동의 후 가입용 phone-verifications/verify에서 계정을 생성한다. 생성된 계정은 다시 가입하지 않고 LOGIN과 기존 로그인 형식의 login 객체, refreshToken 쿠키를 받으며 가입 진행 쿠키는 삭제된다. LOGIN은 온보딩 완료를 뜻하지 않는다. 남은 필수 온보딩 단계 조회·재개 판정·접근 제한은 후속 기능이다. 기존 회원 결과는 한 번만 교환할 수 있다. 회원 조회는 provider+고유 ID 기준이며 이메일로 연결하지 않는다.")
+	@Operation(summary = "소셜 인증 결과 확인", description = "본문 없음. 소셜 인증 콜백이 설정한 socialSignup 쿠키와 GET /api/auth/csrf에서 받은 확인값을 사용한다. 신규 사용자는 SIGNUP_REQUIRED이며 회원 생성·JWT 발급 없이 30분 가입 진행 정보만 유지한다. 조회해도 만료 시각은 연장되지 않는다. 약관 동의 후 등록증 기능이 활성화된 유학생은 카드·필요한 PDF 확인을 완료하고 가입용 phone-verifications/verify에서 휴대전화 인증 후 계정을 생성한다. 생성된 계정은 다시 가입하지 않고 LOGIN과 기존 로그인 형식의 login 객체, refreshToken 쿠키를 받으며 가입 진행 쿠키는 삭제된다. LOGIN은 온보딩 완료를 뜻하지 않는다. 남은 필수 온보딩 단계 조회·재개 판정·접근 제한은 후속 기능이다. 기존 회원 결과는 한 번만 교환할 수 있다. 회원 조회는 provider+고유 ID 기준이며 이메일로 연결하지 않는다.")
 	@Parameter(name = "X-XSRF-TOKEN", in = ParameterIn.HEADER, required = true, description = "GET /api/auth/csrf 응답의 token", schema = @Schema(type = "string"))
 	@Parameter(name = "XSRF-TOKEN", in = ParameterIn.COOKIE, required = true, description = "같은 브라우저의 CSRF 쿠키", schema = @Schema(type = "string"))
 	@ApiResponses({

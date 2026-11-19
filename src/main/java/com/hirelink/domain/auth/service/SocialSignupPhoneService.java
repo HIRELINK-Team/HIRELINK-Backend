@@ -50,13 +50,14 @@ public class SocialSignupPhoneService {
 	private final PasswordEncoder passwordEncoder;
 	private final SmsSender smsSender;
 	private final TokenService tokenService;
+	private final SocialSignupRegistrationTransferService registrationTransfer;
 	private final SecureRandom random = new SecureRandom();
 
 	public SocialSignupPhoneService(SocialAuthService socialAuthService, SocialAuthSessionRepository sessions,
 			PhoneVerificationRepository verifications, PhoneVerificationSendAttemptRepository attempts,
 			UserAccountRepository users, AuthAccountRepository accounts, SocialSignupTermsService terms,
 			UserTermAgreementRepository agreements, PasswordEncoder passwordEncoder, SmsSender smsSender,
-			TokenService tokenService) {
+			TokenService tokenService, SocialSignupRegistrationTransferService registrationTransfer) {
 		this.socialAuthService = socialAuthService;
 		this.sessions = sessions;
 		this.verifications = verifications;
@@ -68,15 +69,19 @@ public class SocialSignupPhoneService {
 		this.passwordEncoder = passwordEncoder;
 		this.smsSender = smsSender;
 		this.tokenService = tokenService;
+		this.registrationTransfer = registrationTransfer;
 	}
 
 	@Transactional(noRollbackFor = SmsDeliveryException.class)
 	public void requestCode(String token, String phoneNumber) {
 		SocialAuthSession session = socialAuthService.requireSignupSession(token);
 		requireAgreements(session);
+		registrationTransfer.requireVerified(session);
 		String identity = socialAuthService.signupIdentity(session);
 		attempts.lockPhoneNumber(phoneNumber);
 		Instant now = Instant.now();
+		requireUnexpired(session, now);
+		registrationTransfer.requireVerified(session);
 		PhoneVerification verification = verifications.findBySignupTokenHash(session.getTokenHash()).orElse(null);
 		if (verification != null && verification.isBlocked(now)) {
 			throw new PhoneVerificationRateLimitException();
@@ -96,6 +101,8 @@ public class SocialSignupPhoneService {
 		} while (verification != null && passwordEncoder.matches(code, verification.getCodeHash()));
 		String codeHash = passwordEncoder.encode(code);
 		Instant sentAt = Instant.now();
+		requireUnexpired(session, sentAt);
+		registrationTransfer.requireVerified(session);
 		if (verification == null) {
 			verification = PhoneVerification.forSignup(session.getTokenHash(), phoneNumber, codeHash,
 					sentAt.plus(PhoneVerificationService.CODE_TTL));
@@ -117,6 +124,7 @@ public class SocialSignupPhoneService {
 	public Optional<AuthResult> confirmCode(String token, String phoneNumber, String code) {
 		SocialAuthSession session = socialAuthService.requireSignupSession(token);
 		List<TermType> signupTerms = requireAgreements(session);
+		registrationTransfer.requireVerified(session);
 		PhoneVerification verification = verifications.findBySignupTokenHash(session.getTokenHash())
 				.orElseThrow(InvalidPhoneVerificationCodeException::new);
 		Instant now = Instant.now();
@@ -134,6 +142,10 @@ public class SocialSignupPhoneService {
 			throw new InvalidPhoneVerificationCodeException();
 		}
 		attempts.lockPhoneNumber(phoneNumber);
+		now = Instant.now();
+		requireUnexpired(session, now);
+		if (!verification.isActive(now)) { throw new InvalidPhoneVerificationCodeException(); }
+		var registration = registrationTransfer.requireVerified(session);
 		if (users.existsByPhoneNumber(phoneNumber)) {
 			// 중복 안내는 정상 반환하여 이번 가입 정보 삭제를 커밋한다.
 			sessions.delete(session);
@@ -143,6 +155,7 @@ public class SocialSignupPhoneService {
 		user.verifyPhoneNumber(phoneNumber, now);
 		users.saveAndFlush(user);
 		accounts.saveAndFlush(new AuthAccount(user, session.getProvider(), session.getProviderUserId(), null));
+		registrationTransfer.save(user, registration, now);
 		Map<Long, SocialSignupAgreement> saved = agreementMap(session);
 		for (TermType term : signupTerms) {
 			SocialSignupAgreement consent = saved.get(term.getId());
@@ -152,8 +165,16 @@ public class SocialSignupPhoneService {
 		}
 		attempts.transferSignupAttempts(socialAuthService.signupIdentity(session), user.getId());
 		AuthResult result = tokenService.issueTokens(user);
+		requireUnexpired(session, Instant.now());
+		registrationTransfer.requireVerified(session);
 		sessions.delete(session);
 		return Optional.of(result);
+	}
+
+	private void requireUnexpired(SocialAuthSession session, Instant now) {
+		if (!session.getExpiresAt().isAfter(now)) {
+			throw new SocialAuthException(HttpStatus.UNAUTHORIZED, "INVALID_SOCIAL_SESSION", "소셜 인증을 다시 진행해주세요.");
+		}
 	}
 
 	private List<TermType> requireAgreements(SocialAuthSession session) {
