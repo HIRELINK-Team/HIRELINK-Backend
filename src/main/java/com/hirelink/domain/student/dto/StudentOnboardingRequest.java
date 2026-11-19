@@ -44,7 +44,7 @@ public class StudentOnboardingRequest {
 	@NotNull
 	@Valid
 	@Schema(description = "구직조건 전체. 업종 상관없음 여부 · 업종 목록 · 최소 1개 근무시간 · 위치와 반경 · 4개 우선순위가 모두 필수. minimumHourlyWage는 선택 입력", requiredMode = Schema.RequiredMode.REQUIRED)
-	private StudentMatchingPreferenceUpdateRequest matchingPreferences;
+	private StudentOnboardingMatchingPreferenceRequest matchingPreferences;
 
 	@JsonSetter(nulls = Nulls.FAIL)
 	public void setBirthDate(JsonNode value) {
@@ -77,7 +77,7 @@ public class StudentOnboardingRequest {
 	}
 
 	@JsonSetter(nulls = Nulls.FAIL)
-	public void setMatchingPreferences(StudentMatchingPreferenceUpdateRequest value) { matchingPreferences = value; }
+	public void setMatchingPreferences(StudentOnboardingMatchingPreferenceRequest value) { matchingPreferences = value; }
 
 	@JsonAnySetter
 	public void rejectUnknownField(String field, JsonNode value) {
@@ -113,5 +113,5 @@ public class StudentOnboardingRequest {
 	public String getKoreanLevel() { return koreanLevel; }
 	public List<StudentCareerCreateRequest> getCareers() { return careers; }
 	public Integer getTopikLevel() { return topikLevel; }
-	public StudentMatchingPreferenceUpdateRequest getMatchingPreferences() { return matchingPreferences; }
+	public StudentOnboardingMatchingPreferenceRequest getMatchingPreferences() { return matchingPreferences; }
 }
