@@ -108,6 +108,7 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		assertThat(result.path("requiresStayDocument").asBoolean()).isFalse();
 		assertThat(result.path("stayExpiresOn").asString()).isEqualTo(today.toString());
 		assertThat(decrypted().has("registrationNumber")).isFalse();
+		assertThat(decrypted().has("issueDate")).isFalse();
 		assertThat(decrypted().path("nationalityCode").asString()).isEqualTo("VN");
 		assertThat(jdbc.queryForObject("select expires_at from social_auth_session", Object.class)).isEqualTo(expires);
 		assertThat(jdbc.queryForObject("select agreed_at from social_auth_session_term_agreement a join term_type t on t.id=a.term_type_id where t.is_student_registration", Object.class)).isEqualTo(agreed);
@@ -125,6 +126,8 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		assertThat(JSON.readTree(back.body()).path("requiresStayDocument").asBoolean()).isTrue();
 		assertThat(decrypted().path("registrationNumber").asString()).isEqualTo(NUMBER);
 		assertThat(payload()).doesNotContain(NUMBER);
+		assertThat(decrypted().has("issueDate")).isFalse();
+		assertError(upload("back"), 409, "REGISTRATION_FRONT_REQUIRED");
 		assertThat(upload("front").statusCode()).isEqualTo(200);
 		assertThat(jdbc.queryForObject("select card_verified_at from social_signup_registration", Object.class)).isNull();
 	}
@@ -135,6 +138,7 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		when(ocr.recognize(any(), anyString(), eq(false))).thenReturn(backResult(today.minusDays(1), "00000000001"));
 		assertThat(upload("front").statusCode()).isEqualTo(200);
 		assertThat(upload("back").statusCode()).isEqualTo(200);
+		assertThat(upload("front").statusCode()).isEqualTo(200);
 		doThrow(new SocialAuthException(HttpStatus.BAD_GATEWAY, "REGISTRATION_VERIFICATION_FAILED", "다시 시도해주세요."))
 				.when(apick).verify(anyString(), any(), anyString());
 		assertError(upload("back"), 502, "REGISTRATION_VERIFICATION_FAILED");
@@ -268,6 +272,146 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		assertThat(frontSchema.propertyNames()).contains("maskedRegistrationNumber").doesNotContain("registrationNumber");
 	}
 
+	@Test
+	void pdfSuccessChecksTodayDeletesIdentifiersAndRecaptureResetsDocument() throws Exception {
+		preparePdf();
+		Object expires = jdbc.queryForObject("select expires_at from social_auth_session", Object.class);
+		Object cardVerified = jdbc.queryForObject("select card_verified_at from social_signup_registration", Object.class);
+		when(ocr.recognizeStayDocument(any())).thenReturn(pdfResult(NUMBER, today));
+		HttpResponse<String> response = uploadPdf();
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		assertThat(response.body()).doesNotContain(NUMBER, "issueDate");
+		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+		assertThat(JSON.readTree(response.body()).path("stayDocumentVerified").asBoolean()).isTrue();
+		assertThat(JSON.readTree(response.body()).path("stayExpiresOn").asString()).isEqualTo(today.toString());
+		assertThat(decrypted().has("registrationNumber")).isFalse();
+		assertThat(decrypted().has("issueDate")).isFalse();
+		assertThat(decrypted().path("name").asString()).isEqualTo("TEST STUDENT");
+		assertThat(jdbc.queryForObject("select document_expires_on from social_signup_registration", LocalDate.class)).isEqualTo(today);
+		assertThat(jdbc.queryForObject("select document_verified_at from social_signup_registration", Object.class)).isNotNull();
+		assertThat(jdbc.queryForObject("select card_verified_at from social_signup_registration", Object.class)).isEqualTo(cardVerified);
+		assertThat(jdbc.queryForObject("select expires_at from social_auth_session", Object.class)).isEqualTo(expires);
+		assertThat(jdbc.queryForObject("select count(*) from user_account", Long.class)).isZero();
+		verifyNoInteractions(apick);
+		assertError(uploadPdf(), 409, "REGISTRATION_FRONT_REQUIRED");
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertThat(jdbc.queryForObject("select document_verified_at from social_signup_registration", Object.class)).isNull();
+		assertThat(jdbc.queryForObject("select document_expires_on from social_signup_registration", Object.class)).isNull();
+		assertError(uploadPdf(), 409, "REGISTRATION_BACK_REQUIRED");
+	}
+
+	@Test
+	void pdfRejectsMissingConsentCardSessionAndUnnecessaryDocumentBeforeOcr() throws Exception {
+		assertError(uploadPdf(), 400, "REQUIRED_TERMS_NOT_AGREED");
+		agree();
+		assertError(uploadPdf(), 409, "REGISTRATION_BACK_REQUIRED");
+		assertError(send(uploadRequest("stay-document", "%PDF-test".getBytes(StandardCharsets.UTF_8), "application/pdf", null, "", false)), 403, "INVALID_CSRF_TOKEN");
+		verifyNoInteractions(ocr, apick);
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertError(uploadPdf(), 409, "REGISTRATION_BACK_REQUIRED");
+		assertThat(upload("back").statusCode()).isEqualTo(200);
+		assertError(uploadPdf(), 409, "STAY_DOCUMENT_NOT_REQUIRED");
+		verify(ocr, never()).recognizeStayDocument(any());
+		setSession(MemberRole.EMPLOYER);
+		assertError(uploadPdf(), 403, "FORBIDDEN");
+		cookies.getCookieStore().removeAll();
+		csrf = JSON.readTree(get("/api/auth/csrf").body()).path("token").asString();
+		assertError(uploadPdf(), 401, "INVALID_SOCIAL_SESSION");
+	}
+
+	@Test
+	void pdfMismatchExpiryAndUnreadableResultsRemainRetryableWithoutVerifying() throws Exception {
+		preparePdf();
+		when(ocr.recognizeStayDocument(any())).thenReturn(pdfResult("0001016000000", today));
+		assertError(uploadPdf(), 422, "STAY_DOCUMENT_MISMATCH");
+		when(ocr.recognizeStayDocument(any())).thenReturn(pdfResult(NUMBER, today.minusDays(1)));
+		assertError(uploadPdf(), 422, "STAY_DOCUMENT_EXPIRED");
+		when(ocr.recognizeStayDocument(any())).thenReturn(JSON.createObjectNode(), pdfResult("masked", today));
+		assertError(uploadPdf(), 422, "UNREADABLE_STAY_DOCUMENT");
+		assertError(uploadPdf(), 422, "UNREADABLE_STAY_DOCUMENT");
+		when(ocr.recognizeStayDocument(any())).thenThrow(RegistrationOcrClient.unreadableDocument());
+		assertError(uploadPdf(), 422, "UNREADABLE_STAY_DOCUMENT");
+		assertThat(jdbc.queryForObject("select document_verified_at from social_signup_registration", Object.class)).isNull();
+		assertThat(jdbc.queryForObject("select document_expires_on from social_signup_registration", Object.class)).isNull();
+		assertThat(decrypted().path("registrationNumber").asString()).isEqualTo(NUMBER);
+		doReturn(pdfResult(NUMBER, today.plusDays(1))).when(ocr).recognizeStayDocument(any());
+		assertThat(uploadPdf().statusCode()).isEqualTo(200);
+		verifyNoInteractions(apick);
+	}
+
+	@Test
+	void pdfRequiresOnePdfPartWithNoExtraFieldsAndNoOversizedFile() throws Exception {
+		preparePdf();
+		assertError(send(uploadRequest("stay-document", PNG, "image/png", csrf, "", false)), 415, "UNSUPPORTED_FILE_TYPE");
+		assertError(send(uploadRequest("stay-document", PNG, "application/pdf", csrf, "", false)), 415, "UNSUPPORTED_FILE_TYPE");
+		assertError(send(uploadRequest("stay-document", new byte[0], "application/pdf", csrf, "", false)), 400, "INVALID_INPUT");
+		assertError(send(uploadRequest("stay-document", new byte[5 * 1024 * 1024 + 1], "application/pdf", csrf, "", false)), 413, "FILE_TOO_LARGE");
+		assertError(send(uploadRequest("stay-document", "%PDF-test".getBytes(StandardCharsets.UTF_8), "application/pdf", csrf, "", true)), 400, "INVALID_INPUT");
+		assertError(send(uploadRequest("stay-document", "%PDF-test".getBytes(StandardCharsets.UTF_8), "application/pdf", csrf,
+				"--boundary\r\nContent-Disposition: form-data; name=\"stayExpiresOn\"\r\n\r\n2099-01-01\r\n", false)), 400, "INVALID_INPUT");
+		verify(ocr, never()).recognizeStayDocument(any());
+		assertThat(decrypted().path("registrationNumber").asString()).isEqualTo(NUMBER);
+	}
+
+	@Test
+	void pdfCannotCommitAfterExpiryAndConcurrentFrontInvalidatesItsResult() throws Exception {
+		preparePdf();
+		Instant expires = Instant.now().plusSeconds(2);
+		jdbc.update("update social_auth_session set expires_at = ?", java.sql.Timestamp.from(expires));
+		when(ocr.recognizeStayDocument(any())).thenAnswer(invocation -> {
+			long wait = expires.toEpochMilli() - System.currentTimeMillis() + 100;
+			if (wait > 0) { Thread.sleep(wait); }
+			return pdfResult(NUMBER, today);
+		});
+		assertError(uploadPdf(), 401, "INVALID_SOCIAL_SESSION");
+		assertThat(payload()).isNull();
+		assertThat(jdbc.queryForObject("select document_verified_at from social_signup_registration", Object.class)).isNull();
+		setSession(MemberRole.STUDENT);
+		preparePdf();
+		CountDownLatch entered = new CountDownLatch(1);
+		CountDownLatch release = new CountDownLatch(1);
+		doAnswer(invocation -> {
+			entered.countDown();
+			if (!release.await(5, TimeUnit.SECONDS)) { throw new IllegalStateException(); }
+			return pdfResult(NUMBER, today);
+		}).when(ocr).recognizeStayDocument(any());
+		var pdf = browser.sendAsync(uploadRequest("stay-document", "%PDF-test".getBytes(StandardCharsets.UTF_8), "application/pdf", csrf, "", false), HttpResponse.BodyHandlers.ofString());
+		assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+		var front = browser.sendAsync(uploadRequest("front", PNG, "image/png", csrf, "", false), HttpResponse.BodyHandlers.ofString());
+		release.countDown();
+		assertThat(pdf.get(10, TimeUnit.SECONDS).statusCode()).isEqualTo(200);
+		assertThat(front.get(10, TimeUnit.SECONDS).statusCode()).isEqualTo(200);
+		assertThat(jdbc.queryForObject("select document_verified_at from social_signup_registration", Object.class)).isNull();
+		assertThat(decrypted().path("registrationNumber").asString()).isEqualTo(NUMBER);
+	}
+
+	@Test
+	void pdfOpenApiDescribesOneBinaryPartAndSpecificFailures() throws Exception {
+		JsonNode document = JSON.readTree(get("/v3/api-docs").body());
+		JsonNode operation = document.path("paths").path(PATH + "stay-document").path("post");
+		assertThat(operation.path("security").isEmpty()).isTrue();
+		JsonNode schema = resolve(document, operation.path("requestBody").path("content").path("multipart/form-data").path("schema"));
+		assertThat(schema.path("properties").propertyNames()).containsExactly("stayDocument");
+		assertThat(schema.path("properties").path("stayDocument").path("format").asString()).isEqualTo("binary");
+		assertThat(operation.path("responses").propertyNames()).contains("200", "400", "401", "403", "409", "413", "415", "422", "502", "503", "500");
+		assertThat(operation.path("responses").path("422").toString()).contains("STAY_DOCUMENT_MISMATCH", "STAY_DOCUMENT_EXPIRED", "UNREADABLE_STAY_DOCUMENT");
+		assertThat(operation.path("parameters").toString()).contains("socialSignup", "X-XSRF-TOKEN", "XSRF-TOKEN");
+	}
+
+	private void preparePdf() throws Exception {
+		agree();
+		when(ocr.recognize(any(), anyString(), eq(false))).thenReturn(backResult(today.minusDays(1), "00000000001"));
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertThat(upload("back").statusCode()).isEqualTo(200);
+		clearInvocations(ocr, apick);
+	}
+	private JsonNode pdfResult(String number, LocalDate expiry) {
+		return JSON.createObjectNode().put("registrationNumber", number).put("stayExpiresOn", expiry.toString());
+	}
+	private HttpResponse<String> uploadPdf() throws Exception {
+		return send(uploadRequest("stay-document", "%PDF-test".getBytes(StandardCharsets.UTF_8), "application/pdf", csrf, "", false));
+	}
+
 	private JsonNode resolve(JsonNode document, JsonNode schema) {
 		return schema.has("$ref") ? document.at(schema.path("$ref").asString().substring(1)) : schema;
 	}
@@ -305,7 +449,8 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		return send(uploadRequest(side, PNG, "image/png", csrf, "", false));
 	}
 	private HttpRequest uploadRequest(String side, byte[] image, String kind, String csrfValue, String extra, boolean duplicate) {
-		String header = "--boundary\r\nContent-Disposition: form-data; name=\"registrationFile\"; filename=\"capture.png\"\r\nContent-Type: " + kind + "\r\n\r\n";
+		String part = side.equals("stay-document") ? "stayDocument" : "registrationFile";
+		String header = "--boundary\r\nContent-Disposition: form-data; name=\"" + part + "\"; filename=\"capture\"\r\nContent-Type: " + kind + "\r\n\r\n";
 		byte[] prefix = header.getBytes(StandardCharsets.UTF_8);
 		byte[] suffix = ("\r\n" + extra + "--boundary--\r\n").getBytes(StandardCharsets.UTF_8);
 		var body = duplicate ? HttpRequest.BodyPublishers.concat(HttpRequest.BodyPublishers.ofByteArray(prefix),

@@ -2,4 +2,6 @@
 !Dockerfile
 !requirements.txt
 !recognition.py
+!registration.py
+!stay_document.py
 !main.py

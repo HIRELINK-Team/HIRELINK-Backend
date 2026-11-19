@@ -7,6 +7,7 @@ from starlette.concurrency import run_in_threadpool
 
 from recognition import UnreadableDocument, create_engine, recognize_document
 from registration import extract_front, extract_back
+from stay_document import extract_stay_document
 
 
 MAX_FILE_SIZE = 5 * 1024 * 1024
@@ -47,9 +48,17 @@ async def registration_back(request: Request):
     return await recognize_request(request, lambda engine, data, kind: recognize_document(engine, data, kind, extract_back), True)
 
 
-async def recognize_request(request: Request, recognizer, image_only=False):
+@app.post("/registration/stay-document")
+async def registration_stay_document(request: Request):
+    return await recognize_request(request, lambda engine, data, kind: recognize_document(
+        engine, data, kind, extract_stay_document, max_pages=3), pdf_only=True)
+
+
+async def recognize_request(request: Request, recognizer, image_only=False, pdf_only=False):
     content_type = request.headers.get("content-type", "").split(";")[0]
     allowed = {"image/png", "image/jpeg"} if image_only else {"image/png", "image/jpeg", "application/pdf"}
+    if pdf_only:
+        allowed = {"application/pdf"}
     if content_type not in allowed:
         return failure(415)
     try:

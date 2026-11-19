@@ -30,6 +30,14 @@ public class RegistrationOcrClient {
 	}
 
 	public JsonNode recognize(byte[] bytes, String contentType, boolean front) {
+		return request(bytes, contentType, front ? "/registration/front" : "/registration/back", false);
+	}
+
+	public JsonNode recognizeStayDocument(byte[] bytes) {
+		return request(bytes, "application/pdf", "/registration/stay-document", true);
+	}
+
+	private JsonNode request(byte[] bytes, String contentType, String path, boolean document) {
 		try {
 			URI uri = URI.create(baseUrl);
 			if (!"http".equals(uri.getScheme()) || !("localhost".equals(uri.getHost())
@@ -38,10 +46,10 @@ public class RegistrationOcrClient {
 					|| !(uri.getPath().isEmpty() || uri.getPath().equals("/"))) {
 				throw failed();
 			}
-			JsonNode response = client.post().uri(uri.resolve(front ? "/registration/front" : "/registration/back"))
+			JsonNode response = client.post().uri(uri.resolve(path))
 					.contentType(MediaType.parseMediaType(contentType)).accept(MediaType.APPLICATION_JSON).body(bytes)
 					.retrieve().onStatus(status -> status.value() != 200, (request, result) -> {
-						if (result.getStatusCode().value() == 422) { throw unreadable(); }
+						if (result.getStatusCode().value() == 422) { throw document ? unreadableDocument() : unreadable(); }
 						throw failed();
 					}).body(JsonNode.class);
 			if (response == null || !response.isObject()) { throw failed(); }
@@ -53,6 +61,10 @@ public class RegistrationOcrClient {
 
 	public static SocialAuthException unreadable() {
 		return new SocialAuthException(HttpStatus.UNPROCESSABLE_ENTITY, "UNREADABLE_REGISTRATION", "등록증 정보를 확인하지 못했습니다. 선명하게 다시 촬영해주세요.");
+	}
+
+	public static SocialAuthException unreadableDocument() {
+		return new SocialAuthException(HttpStatus.UNPROCESSABLE_ENTITY, "UNREADABLE_STAY_DOCUMENT", "체류기간 증빙을 읽을 수 없습니다. 외국인등록 사실증명 PDF를 다시 선택해주세요.");
 	}
 
 	private SocialAuthException failed() {

@@ -85,7 +85,7 @@ def reading_lines(result):
     return [" ".join(text for _, text in sorted(row[2])) for row in rows]
 
 
-def recognize_document(engine, data, content_type, extractor=extract_registration):
+def recognize_document(engine, data, content_type, extractor=extract_registration, max_pages=None):
     import numpy as np
     import pypdfium2 as pdfium
     from PIL import Image, ImageOps, UnidentifiedImageError
@@ -108,6 +108,8 @@ def recognize_document(engine, data, content_type, extractor=extract_registratio
     try:
         if content_type == "application/pdf":
             with pdfium.PdfDocument(data) as document:
+                if max_pages is not None and not 1 <= len(document) <= max_pages:
+                    raise UnreadableDocument()
                 for index in range(len(document)):
                     page = document[index]
                     try:

@@ -51,8 +51,10 @@ public class SecurityConfig {
 				.matcher(HttpMethod.POST, "/api/auth/social/registration/front");
 		PathPatternRequestMatcher registrationBack = PathPatternRequestMatcher.withDefaults()
 				.matcher(HttpMethod.POST, "/api/auth/social/registration/back");
+		PathPatternRequestMatcher stayDocument = PathPatternRequestMatcher.withDefaults()
+				.matcher(HttpMethod.POST, "/api/auth/social/registration/stay-document");
 		OrRequestMatcher cookieAuthenticatedRequests = new OrRequestMatcher(refreshRequest, logoutRequest,
-				socialResultRequest, socialTermsUpdate, signupPhoneRequest, signupPhoneConfirm, registrationFront, registrationBack);
+				socialResultRequest, socialTermsUpdate, signupPhoneRequest, signupPhoneConfirm, registrationFront, registrationBack, stayDocument);
 		PathPatternRequestMatcher csrfRequest = PathPatternRequestMatcher.withDefaults()
 				.matcher(HttpMethod.GET, "/api/auth/csrf");
 		CookieCsrfTokenRepository csrfTokenRepository = new CookieCsrfTokenRepository();
