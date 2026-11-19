@@ -90,7 +90,7 @@ class SocialSignupPhoneIntegrationTest extends PostgreSQLIntegrationTest {
 	@BeforeEach
 	void prepare() {
 		jdbc.execute("truncate table user_account, social_auth_session restart identity cascade");
-		doNothing().when(smsSender).send(any(SmsSendRequest.class));
+		doNothing().when(smsSender).sendAndWait(any(SmsSendRequest.class));
 	}
 
 	@ParameterizedTest
@@ -268,17 +268,15 @@ class SocialSignupPhoneIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
-	void smsFailureCountsWithoutReplacingPreviousCode() throws Exception {
+	void smsFailureCountsAndInvalidatesPreviousCode() throws Exception {
 		Browser browser = signup(AuthProvider.GOOGLE, "sms-failure", MemberRole.STUDENT, true);
-		String code = sendCode(browser, PHONE);
-		String hash = jdbc.queryForObject("select code_hash from phone_verification", String.class);
+		sendCode(browser, PHONE);
 		ageAttempts(61);
-		doThrow(new SmsDeliveryException()).when(smsSender).send(any(SmsSendRequest.class));
+		doThrow(new SmsDeliveryException()).when(smsSender).sendAndWait(any(SmsSendRequest.class));
 		assertError(requestCode(browser, PHONE), 500, "SMS_DELIVERY_FAILED");
 		assertThat(count("phone_verification_send_attempt")).isEqualTo(2);
-		assertThat(jdbc.queryForObject("select code_hash from phone_verification", String.class)).isEqualTo(hash);
+		assertThat(count("phone_verification")).isZero();
 		assertError(requestCode(browser, PHONE), 429, "PHONE_VERIFICATION_RATE_LIMIT");
-		assertThat(confirm(browser, PHONE, code).statusCode()).isEqualTo(201);
 	}
 
 	@Test
@@ -338,7 +336,7 @@ class SocialSignupPhoneIntegrationTest extends PostgreSQLIntegrationTest {
 				.POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(Map.of("phoneNumber", PHONE)))).build();
 		assertThat(memberClient.send(memberSend, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(200);
 		ArgumentCaptor<SmsSendRequest> captured = ArgumentCaptor.forClass(SmsSendRequest.class);
-		verify(smsSender).send(captured.capture());
+		verify(smsSender).sendAndWait(captured.capture());
 		String memberCode = verificationCode(captured.getValue());
 		ageAttempts(61);
 		Browser browser = signup(AuthProvider.GOOGLE, "competing-signup", MemberRole.EMPLOYER, true);
@@ -400,7 +398,7 @@ class SocialSignupPhoneIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
 		assertThat(JSON.readTree(response.body()).path("expiresIn").asInt()).isEqualTo(300);
 		ArgumentCaptor<SmsSendRequest> requests = ArgumentCaptor.forClass(SmsSendRequest.class);
-		verify(smsSender, atLeastOnce()).send(requests.capture());
+		verify(smsSender, atLeastOnce()).sendAndWait(requests.capture());
 		return verificationCode(requests.getValue());
 	}
 

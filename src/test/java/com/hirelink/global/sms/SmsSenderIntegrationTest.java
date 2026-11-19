@@ -76,6 +76,27 @@ class SmsSenderIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
+	void synchronousSendMarksSentBeforeReturning() {
+		sender.sendAndWait(new SmsSendRequest(RECIPIENT, MESSAGE, "verification:sent"));
+
+		assertThat(jdbc.queryForObject("select status from sms_send_history", String.class)).isEqualTo("SENT");
+		verify(gateway).send(RECIPIENT, MESSAGE);
+	}
+
+	@Test
+	void synchronousSendSavesFailedStatusAndReturnsDeliveryError() {
+		when(gateway.send(anyString(), anyString())).thenThrow(new SmsDeliveryException());
+
+		assertThatThrownBy(() -> sender.sendAndWait(
+				new SmsSendRequest(RECIPIENT, MESSAGE, "verification:failed")))
+				.isInstanceOf(SmsDeliveryException.class);
+
+		assertThat(jdbc.queryForObject("select status from sms_send_history", String.class)).isEqualTo("FAILED");
+		assertThat(jdbc.queryForObject("select failed_at is not null from sms_send_history", Boolean.class)).isTrue();
+		verify(gateway).send(RECIPIENT, MESSAGE);
+	}
+
+	@Test
 	void rollbackRemovesPendingHistoryAndNeverCallsProvider() {
 		transactionTemplate.executeWithoutResult(status -> {
 			sender.send(new SmsSendRequest(RECIPIENT, MESSAGE, "event:rollback"));

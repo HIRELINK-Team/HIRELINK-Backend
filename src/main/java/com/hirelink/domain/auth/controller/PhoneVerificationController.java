@@ -65,9 +65,10 @@ public class PhoneVerificationController {
 						examples = {
 							@ExampleObject(name = "PHONE_VERIFICATION_RATE_LIMIT", value = "{\"code\":\"PHONE_VERIFICATION_RATE_LIMIT\",\"message\":\"인증 요청 횟수를 초과했습니다. 잠시 후 다시 시도해주세요.\"}")
 						})),
-		@ApiResponse(responseCode = "500", description = "예상하지 못한 서버 오류",
+		@ApiResponse(responseCode = "500", description = "인증 문자 발송 실패 / 예상하지 못한 서버 오류",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {
+							@ExampleObject(name = "SMS_DELIVERY_FAILED", value = "{\"code\":\"SMS_DELIVERY_FAILED\",\"message\":\"문자를 발송하지 못했습니다.\"}"),
 							@ExampleObject(name = "INTERNAL_SERVER_ERROR", value = "{\"code\":\"INTERNAL_SERVER_ERROR\",\"message\":\"서버 오류가 발생했습니다.\"}")
 						}))
 	})

@@ -88,7 +88,7 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 				+ "student_job_preference, student_priority, job_posting_work_time, job_posting, workplace, student_career, "
 				+ "student_profile, user_term_agreement, phone_verification, phone_verification_send_attempt, "
 				+ "refresh_token, auth_account, user_account RESTART IDENTITY");
-		doNothing().when(smsSender).send(any(SmsSendRequest.class));
+		doNothing().when(smsSender).sendAndWait(any(SmsSendRequest.class));
 	}
 
 	@ParameterizedTest
@@ -103,7 +103,7 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(mapper.readTree(response.body()).path("message").asString()).isEqualTo("인증번호가 전송되었습니다.");
 		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
 		ArgumentCaptor<SmsSendRequest> request = ArgumentCaptor.forClass(SmsSendRequest.class);
-		verify(smsSender).send(request.capture());
+		verify(smsSender).sendAndWait(request.capture());
 		assertThat(request.getValue().recipient()).isEqualTo(PHONE);
 		String code = verificationCode(request.getValue());
 		assertThat(code).matches("[0-9]{6}");
@@ -122,7 +122,7 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 	void rejectsInvalidPhone(String phone) throws Exception {
 		String token = createUser("STUDENT");
 		assertError(request(token, phone), 400, "INVALID_INPUT");
-		verify(smsSender, never()).send(any(SmsSendRequest.class));
+		verify(smsSender, never()).sendAndWait(any(SmsSendRequest.class));
 	}
 
 	@Test
@@ -148,7 +148,7 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(jdbc.queryForObject("select count(*) from phone_verification", Integer.class)).isEqualTo(1);
 		assertThat(jdbc.queryForObject("select code_hash from phone_verification", String.class)).isNotEqualTo(firstHash);
 		assertThat(jdbc.queryForObject("select failed_attempts from phone_verification", Integer.class)).isEqualTo(3);
-		verify(smsSender, times(2)).send(any(SmsSendRequest.class));
+		verify(smsSender, times(2)).sendAndWait(any(SmsSendRequest.class));
 	}
 
 	@Test
@@ -187,24 +187,31 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
-	void unconfiguredSenderFailsAndStillLimitsRetries() throws Exception {
+	void deliveryFailureInvalidatesCodeAndAllowsNewKeyAfterCooldown() throws Exception {
 		String token = createUser("STUDENT");
-		doThrow(new SmsDeliveryException()).when(smsSender).send(any(SmsSendRequest.class));
+		doThrow(new SmsDeliveryException()).when(smsSender).sendAndWait(any(SmsSendRequest.class));
 		assertError(request(token, PHONE), 500, "SMS_DELIVERY_FAILED");
 		assertThat(jdbc.queryForObject("select count(*) from phone_verification", Integer.class)).isZero();
 		assertThat(jdbc.queryForObject("select count(*) from phone_verification_send_attempt", Integer.class)).isEqualTo(1);
 		assertError(request(token, PHONE), 429, "PHONE_VERIFICATION_RATE_LIMIT");
+		ageRequests(61);
+		doNothing().when(smsSender).sendAndWait(any(SmsSendRequest.class));
+		assertThat(request(token, PHONE).statusCode()).isEqualTo(200);
+		ArgumentCaptor<SmsSendRequest> requests = ArgumentCaptor.forClass(SmsSendRequest.class);
+		verify(smsSender, times(2)).sendAndWait(requests.capture());
+		assertThat(requests.getAllValues()).extracting(SmsSendRequest::idempotencyKey)
+				.doesNotHaveDuplicates();
+		assertThat(jdbc.queryForObject("select count(*) from phone_verification", Integer.class)).isEqualTo(1);
 	}
 
 	@Test
-	void failedResendDoesNotReplacePreviousCode() throws Exception {
+	void failedResendInvalidatesPreviousCode() throws Exception {
 		String token = createUser("STUDENT");
 		assertThat(request(token, PHONE).statusCode()).isEqualTo(200);
-		Map<String, Object> before = jdbc.queryForMap("select * from phone_verification");
 		ageRequests(61);
-		doThrow(new SmsDeliveryException()).when(smsSender).send(any(SmsSendRequest.class));
+		doThrow(new SmsDeliveryException()).when(smsSender).sendAndWait(any(SmsSendRequest.class));
 		assertError(request(token, PHONE), 500, "SMS_DELIVERY_FAILED");
-		assertThat(jdbc.queryForMap("select * from phone_verification")).isEqualTo(before);
+		assertThat(jdbc.queryForObject("select count(*) from phone_verification", Integer.class)).isZero();
 	}
 
 	@ParameterizedTest
@@ -218,7 +225,7 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 		CompletableFuture<HttpResponse<String>> two = client.sendAsync(secondRequest, HttpResponse.BodyHandlers.ofString());
 		assertThat(List.of(one.get(15, TimeUnit.SECONDS).statusCode(), two.get(15, TimeUnit.SECONDS).statusCode()))
 				.containsExactlyInAnyOrder(200, 429);
-		verify(smsSender).send(any(SmsSendRequest.class));
+		verify(smsSender).sendAndWait(any(SmsSendRequest.class));
 	}
 
 	@ParameterizedTest
@@ -362,7 +369,7 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 	private String requestAndGetCode(String token, String phone) throws Exception {
 		assertThat(request(token, phone).statusCode()).isEqualTo(200);
 		ArgumentCaptor<SmsSendRequest> requests = ArgumentCaptor.forClass(SmsSendRequest.class);
-		verify(smsSender, atLeastOnce()).send(requests.capture());
+		verify(smsSender, atLeastOnce()).sendAndWait(requests.capture());
 		return verificationCode(requests.getValue());
 	}
 

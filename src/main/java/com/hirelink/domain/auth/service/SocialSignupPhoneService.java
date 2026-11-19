@@ -96,8 +96,6 @@ public class SocialSignupPhoneService {
 			code = String.format(Locale.ROOT, "%06d", random.nextInt(1_000_000));
 		} while (verification != null && passwordEncoder.matches(code, verification.getCodeHash()));
 		String codeHash = passwordEncoder.encode(code);
-		smsSender.send(new SmsSendRequest(phoneNumber, "[HIRELINK] 인증번호 [" + code + "]",
-				"social-phone-verification:" + sendAttempt.getId()));
 		Instant sentAt = Instant.now();
 		if (verification == null) {
 			verification = PhoneVerification.forSignup(session.getTokenHash(), phoneNumber, codeHash,
@@ -105,7 +103,15 @@ public class SocialSignupPhoneService {
 		} else {
 			verification.replaceCode(phoneNumber, codeHash, sentAt, sentAt.plus(PhoneVerificationService.CODE_TTL));
 		}
-		verifications.save(verification);
+		verifications.saveAndFlush(verification);
+		try {
+			smsSender.sendAndWait(new SmsSendRequest(phoneNumber, "[HIRELINK] 인증번호 [" + code + "]",
+					"social-phone-verification:" + sendAttempt.getId()));
+		} catch (SmsDeliveryException exception) {
+			verifications.delete(verification);
+			verifications.flush();
+			throw exception;
+		}
 	}
 
 	@Transactional(noRollbackFor = {InvalidPhoneVerificationCodeException.class, PhoneVerificationRateLimitException.class})

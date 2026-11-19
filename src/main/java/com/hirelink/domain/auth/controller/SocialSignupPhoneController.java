@@ -66,7 +66,7 @@ public class SocialSignupPhoneController {
 		this.secureCookie = secureCookie;
 	}
 
-	@Operation(summary = "소셜 가입 휴대전화 인증번호 요청", description = "계정 생성 전 API. socialSignup 및 CSRF 쿠키·헤더가 필요하며 Bearer 토큰은 사용하지 않는다. 필수 약관 동의를 검사하고 국내 010 번호에 6자리 인증번호 발송을 요청한다. 번호 유효시간 300초, 소셜 사용자·전화번호별 60초 재전송 간격 및 최근 1시간 최대 5회. 번호별 제한은 기존 회원 인증과 공유하며 가입 재시작·완료로 초기화하지 않는다. 발송 요청은 횟수에 포함하고 커밋 뒤 SOLAPI 실패는 발송 이력에 기록한다. 재전송 요청은 이전 번호를 무효화하지만 유효한 인증의 실패 횟수는 유지한다. 5회 오입력 후 해당 인증의 만료까지 재전송을 차단한다. 가입 진행 정보는 소셜 인증부터 30분이며 요청으로 연장되지 않는다. 브라우저를 닫아도 즉시 삭제되지 않고 만료 시 사용 불가, 정리 작업은 최초 60초 후 이전 작업 종료부터 60초 간격으로 수행한다. 가입을 다시 시작할 때는 소셜 인증부터 진행한다.")
+	@Operation(summary = "소셜 가입 휴대전화 인증번호 요청", description = "계정 생성 전 API. socialSignup 및 CSRF 쿠키·헤더가 필요하며 Bearer 토큰은 사용하지 않는다. 필수 약관 동의를 검사하고 국내 010 번호에 6자리 인증번호를 발송한다. 번호 유효시간 300초, 소셜 사용자·전화번호별 60초 재전송 간격 및 최근 1시간 최대 5회. 번호별 제한은 기존 회원 인증과 공유하며 가입 재시작·완료로 초기화하지 않는다. 발송 실패도 요청 횟수에 포함하고 인증번호를 무효화한다. 성공 재전송은 이전 번호를 무효화하지만 유효한 인증의 실패 횟수는 유지한다. 5회 오입력 후 해당 인증의 만료까지 재전송을 차단한다. 가입 진행 정보는 소셜 인증부터 30분이며 요청으로 연장되지 않는다. 브라우저를 닫아도 즉시 삭제되지 않고 만료 시 사용 불가, 정리 작업은 최초 60초 후 이전 작업 종료부터 60초 간격으로 수행한다. 가입을 다시 시작할 때는 소셜 인증부터 진행한다.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "400", description = "잘못된 입력 또는 필수 약관 미동의", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
 			@ExampleObject(name = "INVALID_INPUT", value = "{\"code\":\"INVALID_INPUT\",\"message\":\"010으로 시작하는 휴대전화 번호를 입력해주세요.\"}"),
@@ -74,7 +74,8 @@ public class SocialSignupPhoneController {
 		})),
 		@ApiResponse(responseCode = "409", description = "이미 가입된 소셜 계정", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "SOCIAL_ACCOUNT_ALREADY_REGISTERED", value = "{\"code\":\"SOCIAL_ACCOUNT_ALREADY_REGISTERED\",\"message\":\"이미 가입한 소셜 계정입니다. 다시 로그인해주세요.\"}"))),
 		@ApiResponse(responseCode = "200", description = "인증번호 발송 접수", content = @Content(mediaType = "application/json", schema = @Schema(implementation = PhoneVerificationRequestResponse.class), examples = @ExampleObject(name = "success", value = "{\"expiresIn\":300,\"message\":\"인증번호가 전송되었습니다.\"}"))),
-		@ApiResponse(responseCode = "500", description = "예상하지 못한 서버 오류", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
+		@ApiResponse(responseCode = "500", description = "문자 발송 실패 또는 서버 오류", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
+			@ExampleObject(name = "SMS_DELIVERY_FAILED", value = "{\"code\":\"SMS_DELIVERY_FAILED\",\"message\":\"문자를 발송하지 못했습니다.\"}"),
 			@ExampleObject(name = "INTERNAL_SERVER_ERROR", value = "{\"code\":\"INTERNAL_SERVER_ERROR\",\"message\":\"서버 오류가 발생했습니다.\"}")
 		}))
 	})
