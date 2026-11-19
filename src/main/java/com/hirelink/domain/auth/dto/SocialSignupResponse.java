@@ -3,7 +3,7 @@ package com.hirelink.domain.auth.dto;
 import com.hirelink.domain.member.entity.MemberRole;
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "소셜 계정 생성 결과. 온보딩 완료를 의미하지 않는다. 필수 온보딩 단계 조회·재개 판정은 후속 기능")
+@Schema(description = "소셜 계정 생성 결과. 온보딩 완료를 의미하지 않는다. 계정 생성 후 GET /api/users/me/onboarding으로 새 유학생 온보딩 적용 여부와 다음 단계를 조회한다. NOT_APPLICABLE은 기존 유형별 흐름을 사용한다.")
 public record SocialSignupResponse(
 		@Schema(description = "생성한 회원 ID", example = "1", requiredMode = Schema.RequiredMode.REQUIRED) Long userId,
 		@Schema(description = "소셜 인증 전에 선택한 회원 유형", allowableValues = {"STUDENT", "EMPLOYER"}, requiredMode = Schema.RequiredMode.REQUIRED) MemberRole role,
