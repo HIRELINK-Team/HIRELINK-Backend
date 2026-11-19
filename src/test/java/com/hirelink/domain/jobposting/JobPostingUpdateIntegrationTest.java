@@ -65,7 +65,7 @@ class JobPostingUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 		jdbc.execute("TRUNCATE TABLE employment_match, employment_offer, application, recommendation, recommendation_batch, "
 				+ "employer_profile, student_preferred_job, student_preferred_work_time, student_preferred_location, "
 				+ "student_job_preference, student_priority, job_posting_work_time, job_posting, workplace, student_career, student_profile, user_term_agreement, phone_verification, phone_verification_send_attempt, "
-				+ "refresh_token, auth_account, user_account RESTART IDENTITY");
+				+ "refresh_token, auth_account, student_registration_verification, user_account RESTART IDENTITY");
 		owner = createUser("EMPLOYER");
 		workplace = jdbc.queryForObject("""
 				insert into workplace(employer_user_id, workplace_name, representative_name,
