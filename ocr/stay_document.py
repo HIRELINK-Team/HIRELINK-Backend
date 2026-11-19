@@ -50,11 +50,11 @@ def extract_stay_document(pages):
         subject = []
         started = False
         for line in lines:
+            if SECTION_END.search(line):
+                break
             if not started and re.search(IDENTITY, line, re.I):
                 started = True
             if started:
-                if SECTION_END.search(line):
-                    break
                 subject.append(line)
         number = field(subject, IDENTITY)
         if not re.fullmatch(r"[0-9]{6}\s*-?\s*[5-8][0-9]{6}", number):
