@@ -20,6 +20,7 @@ import com.hirelink.domain.auth.client.ApickRegistrationClient;
 import com.hirelink.domain.auth.client.RegistrationOcrClient;
 import com.hirelink.domain.auth.dto.RegistrationBackResponse;
 import com.hirelink.domain.auth.dto.RegistrationFrontResponse;
+import com.hirelink.domain.auth.dto.RegistrationStayDocumentResponse;
 import com.hirelink.domain.auth.entity.SocialAuthSession;
 import com.hirelink.domain.auth.entity.SocialSignupRegistration;
 import com.hirelink.domain.auth.repository.SocialSignupRegistrationRepository;
@@ -98,7 +99,7 @@ public class SocialSignupRegistrationService {
 		SocialSignupRegistration registration = registrations.findById(session.getTokenHash()).orElseThrow(this::frontRequired);
 		if (registration.getFrontPayload() == null) { throw frontRequired(); }
 		JsonNode front = mapper.readTree(cipher.decrypt(registration.getFrontPayload(), session.getTokenHash()));
-		if (!front.path("registrationNumber").isString()) { throw frontRequired(); }
+		if (!front.path("registrationNumber").isString() || !front.path("issueDate").isString()) { throw frontRequired(); }
 		byte[] bytes = readImage(file);
 		try {
 			registration.resetBack();
@@ -116,6 +117,7 @@ public class SocialSignupRegistrationService {
 			apick.verify(text(front, "registrationNumber"), issued, serialNumber);
 			requireUnexpired(session, registration);
 			boolean requiresPdf = expiry.isBefore(LocalDate.now(KOREA));
+			((ObjectNode) front).remove("issueDate");
 			// PDF의 동일인 확인이 필요한 경우에만 세션 만료까지 번호를 유지한다.
 			if (!requiresPdf) { ((ObjectNode) front).remove("registrationNumber"); }
 			registration.verify(cipher.encrypt(mapper.writeValueAsString(front), session.getTokenHash()), expiry, Instant.now());
@@ -123,6 +125,46 @@ public class SocialSignupRegistrationService {
 		} finally {
 			Arrays.fill(bytes, (byte) 0);
 		}
+	}
+
+	@Transactional(noRollbackFor = SocialAuthException.class)
+	public RegistrationStayDocumentResponse stayDocument(String token, MultipartFile file) {
+		SocialAuthSession session = requireSession(token);
+		SocialSignupRegistration registration = registrations.findById(session.getTokenHash()).orElseThrow(this::backRequired);
+		if (registration.getCardVerifiedAt() == null) { throw backRequired(); }
+		if (!registration.getStayExpiresOn().isBefore(LocalDate.now(KOREA))) {
+			throw new SocialAuthException(HttpStatus.CONFLICT, "STAY_DOCUMENT_NOT_REQUIRED", "카드의 체류기간이 유효하여 PDF 제출이 필요하지 않습니다.");
+		}
+		ObjectNode front = (ObjectNode) mapper.readTree(cipher.decrypt(registration.getFrontPayload(), session.getTokenHash()));
+		if (!front.path("registrationNumber").isString()) { throw frontRequired(); }
+		byte[] bytes = readFile(file, true);
+		try {
+			registration.resetDocument();
+			registrations.flush();
+			JsonNode result = ocr.recognizeStayDocument(bytes);
+			requireUnexpired(session, registration);
+			LocalDate expiry;
+			String number;
+			try {
+				number = text(result, "registrationNumber");
+				expiry = date(result, "stayExpiresOn");
+			} catch (SocialAuthException exception) { throw RegistrationOcrClient.unreadableDocument(); }
+			if (!number.matches("[0-9]{6}[5-8][0-9]{6}")) { throw RegistrationOcrClient.unreadableDocument(); }
+			if (!number.equals(text(front, "registrationNumber"))) {
+				throw new SocialAuthException(HttpStatus.UNPROCESSABLE_ENTITY, "STAY_DOCUMENT_MISMATCH", "등록증과 증빙서류의 등록번호가 일치하지 않습니다. 본인의 PDF를 다시 선택해주세요.");
+			}
+			if (expiry.isBefore(LocalDate.now(KOREA))) {
+				throw new SocialAuthException(HttpStatus.UNPROCESSABLE_ENTITY, "STAY_DOCUMENT_EXPIRED", "증빙서류의 체류기간이 지났습니다. 유효한 PDF를 다시 선택해주세요.");
+			}
+			front.remove("registrationNumber");
+			front.remove("issueDate");
+			registration.verifyDocument(cipher.encrypt(mapper.writeValueAsString(front), session.getTokenHash()), expiry, Instant.now());
+			return new RegistrationStayDocumentResponse(true, expiry, session.getExpiresAt());
+		} finally { Arrays.fill(bytes, (byte) 0); }
+	}
+
+	private SocialAuthException backRequired() {
+		return new SocialAuthException(HttpStatus.CONFLICT, "REGISTRATION_BACK_REQUIRED", "등록증 앞면과 뒷면의 진위 확인을 먼저 완료해주세요.");
 	}
 
 	private SocialAuthSession requireSession(String token) {
@@ -156,7 +198,11 @@ public class SocialSignupRegistrationService {
 	}
 
 	private byte[] readImage(MultipartFile file) {
-		if (file.isEmpty()) { throw new SocialAuthException(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "등록증 촬영 이미지를 첨부해주세요."); }
+		return readFile(file, false);
+	}
+
+	private byte[] readFile(MultipartFile file, boolean document) {
+		if (file.isEmpty()) { throw new SocialAuthException(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "등록증 이미지 또는 체류기간 증빙 파일을 첨부해주세요."); }
 		if (file.getSize() > MAX_FILE_SIZE) { throw tooLarge(); }
 		byte[] bytes = null;
 		try (InputStream input = file.getInputStream()) {
@@ -164,14 +210,16 @@ public class SocialSignupRegistrationService {
 			if (bytes.length > MAX_FILE_SIZE) { throw tooLarge(); }
 			boolean png = "image/png".equals(file.getContentType()) && startsWith(bytes, new byte[]{(byte) 137, 80, 78, 71, 13, 10, 26, 10});
 			boolean jpg = "image/jpeg".equals(file.getContentType()) && startsWith(bytes, new byte[]{(byte) 255, (byte) 216, (byte) 255});
-			if (!png && !jpg) {
-				throw new SocialAuthException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "UNSUPPORTED_FILE_TYPE", "등록증 촬영 이미지는 JPG, PNG만 사용할 수 있습니다.");
+			boolean pdf = "application/pdf".equals(file.getContentType()) && startsWith(bytes, new byte[]{37, 80, 68, 70, 45});
+			if (document ? !pdf : !png && !jpg) {
+				throw new SocialAuthException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "UNSUPPORTED_FILE_TYPE", document
+						? "체류기간 증빙은 PDF만 사용할 수 있습니다." : "등록증 촬영 이미지는 JPG, PNG만 사용할 수 있습니다.");
 			}
 			return bytes;
 		} catch (IOException | RuntimeException exception) {
 			if (bytes != null) { Arrays.fill(bytes, (byte) 0); }
 			if (exception instanceof SocialAuthException social) { throw social; }
-			throw new SocialAuthException(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "등록증 촬영 이미지를 읽을 수 없습니다.");
+			throw new SocialAuthException(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "등록증 이미지 또는 체류기간 증빙 파일을 읽을 수 없습니다.");
 		}
 	}
 
@@ -180,7 +228,7 @@ public class SocialSignupRegistrationService {
 	}
 
 	private SocialAuthException tooLarge() {
-		return new SocialAuthException(HttpStatus.PAYLOAD_TOO_LARGE, "FILE_TOO_LARGE", "등록증 촬영 이미지는 5MB 이하여야 합니다.");
+		return new SocialAuthException(HttpStatus.PAYLOAD_TOO_LARGE, "FILE_TOO_LARGE", "등록증 이미지 또는 체류기간 증빙 파일은 5MB 이하여야 합니다.");
 	}
 
 	private SocialAuthException frontRequired() {

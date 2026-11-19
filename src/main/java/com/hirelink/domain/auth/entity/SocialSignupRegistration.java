@@ -21,6 +21,10 @@ public class SocialSignupRegistration {
 	private LocalDate stayExpiresOn;
 	@Column(name = "card_verified_at")
 	private Instant cardVerifiedAt;
+	@Column(name = "document_expires_on")
+	private LocalDate documentExpiresOn;
+	@Column(name = "document_verified_at")
+	private Instant documentVerifiedAt;
 
 	protected SocialSignupRegistration() { }
 	public SocialSignupRegistration(String tokenHash) { this.tokenHash = tokenHash; }
@@ -33,6 +37,18 @@ public class SocialSignupRegistration {
 	public void resetBack() {
 		stayExpiresOn = null;
 		cardVerifiedAt = null;
+		resetDocument();
+	}
+
+	public void resetDocument() {
+		documentExpiresOn = null;
+		documentVerifiedAt = null;
+	}
+
+	public void verifyDocument(String encryptedPayload, LocalDate expiry, Instant verifiedAt) {
+		frontPayload = encryptedPayload;
+		documentExpiresOn = expiry;
+		documentVerifiedAt = verifiedAt;
 	}
 
 	public void saveFront(String encryptedPayload) { frontPayload = encryptedPayload; }

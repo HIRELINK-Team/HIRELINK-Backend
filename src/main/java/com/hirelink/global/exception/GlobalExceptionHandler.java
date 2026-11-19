@@ -121,7 +121,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 	protected ResponseEntity<Object> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException exception,
 			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
 		String message = request.getDescription(false).startsWith("uri=/api/auth/social/registration/")
-				? "등록증 촬영 이미지는 5MB 이하여야 합니다." : "사업자등록증 파일은 5MB 이하여야 합니다.";
+				? "등록증 이미지 또는 체류기간 증빙 파일은 5MB 이하여야 합니다." : "사업자등록증 파일은 5MB 이하여야 합니다.";
 		return new ResponseEntity<>(new ErrorResponse("FILE_TOO_LARGE", message), headers, status);
 	}
 
