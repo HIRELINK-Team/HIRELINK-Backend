@@ -43,7 +43,7 @@ public class StudentProfileController {
 	}
 
 	@Operation(summary = "내 유학생 프로필 조회",
-			description = "로그인한 유학생 본인의 프로필과 경력을 조회한다. 경력은 시작월 내림차순·같으면 ID 내림차순이며 없으면 []다. 사진 미등록은 null, 등록된 사진 URL 발급 실패는 500이다. 등록되지 않은 선택 정보는 null이다. 조회 중 프로필을 만들지 않는다.")
+			description = "로그인한 유학생 본인의 프로필과 경력을 조회한다. 체류자격은 D-2, D-4 상위 코드와 기존 세부 코드를 저장된 값 그대로 반환한다. 학업 상태 등 등록되지 않은 선택 정보는 null이다. 경력은 시작월 내림차순 · 같으면 ID 내림차순이며 없으면 []다. 사진 미등록은 null, 등록된 사진 URL 발급 실패는 500이다. 조회 중 프로필을 만들지 않는다. 이 응답은 온보딩 전체 완료 판정이 아니다.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = StudentProfileResponse.class),
@@ -77,7 +77,7 @@ public class StudentProfileController {
 	}
 
 	@Operation(summary = "유학생 프로필 등록",
-			description = "휴대전화 인증을 완료한 유학생이 본인 프로필을 최초 등록한다. 이름·생년월일·국적·거주지역·한국어 수준이 필수다. 한국 기준 만 18세 이상, 국적은 유효한 두 자리 국가 코드여야 한다. 전화번호는 이미 인증된 회원 정보에서 가져온다. 이름 저장과 프로필 생성은 하나의 트랜잭션이다.")
+			description = "휴대전화 인증을 완료한 유학생이 본인 프로필을 최초 등록한다. 이름 · 생년월일 · 국적 · 거주지역 · 한국어 수준이 필수다. 한국 기준 만 18세 이상, 국적은 유효한 두 자리 국가 코드여야 한다. 전화번호는 이미 인증된 회원 정보에서 가져온다. 이름 저장과 프로필 생성은 하나의 트랜잭션이며 요청 성공 시 즉시 저장된다. 임시 저장이나 온보딩 전체 일괄 저장 API가 아니며, 성공 응답은 온보딩 전체 완료를 의미하지 않는다. 체류자격 · 학업 상태는 최초 등록 항목이 아니며 이후 프로필 수정 API에서 처리한다.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "201", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = StudentProfileCreateResponse.class),
@@ -118,7 +118,7 @@ public class StudentProfileController {
 	}
 
 	@Operation(summary = "내 유학생 프로필 수정",
-			description = "보내지 않은 필드는 유지한다. 빈 요청과 수정 대상이 아닌 필드는 400이다. topikLevel만 null로 지울 수 있으며 다른 필드의 null은 400이다. studyProgramId·gradeLevel은 수정 대상에서 제외되며 기존 값은 유지한다. 비자와 학업 상태는 기존 값과 합쳐 검사한다. 비자 변경 후 기존 상태가 허용되지 않으면 새 상태를 함께 보내야 하며 자동으로 지우지 않는다. 과거 체류 만료일도 허용하되 기존 시작일보다 앞설 수 없다. 사진 URL은 수정 응답에 포함하지 않는다.")
+			description = "보내지 않은 필드는 유지한다. 빈 요청과 수정 대상이 아닌 필드는 400이다. topikLevel만 null로 지울 수 있으며 다른 필드의 null은 400이다. studyProgramId · gradeLevel은 수정 대상에서 제외되며 기존 값은 유지한다. 체류자격은 D-2, D-4 상위 코드와 기존 세부 코드를 지원하며, 학업 상태가 없으면 코드만 전송할 수 있다. D-2는 기존 D-2 세부 코드의 상태 전체, D-4는 IN_PROGRESS, COMPLETED, DISCONTINUED를 허용한다. 체류자격과 학업 상태는 기존 값과 합쳐 검사한다. 코드 변경 후 기존 상태가 허용되지 않으면 새 상태를 함께 보내야 하며 자동으로 지우지 않는다. 과거 체류 만료일도 허용하되 기존 시작일보다 앞설 수 없다. 사진 URL은 수정 응답에 포함하지 않는다. 요청 성공 시 즉시 저장되며, 임시 저장이나 온보딩 전체 일괄 저장 API가 아니다. 성공 응답은 온보딩 전체 완료를 의미하지 않는다.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = StudentProfileUpdateResponse.class),

@@ -15,7 +15,7 @@ import tools.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(description = "보낸 필드만 수정한다. 빈 요청·알 수 없는 필드·topikLevel 외 null은 400. studyProgramId와 gradeLevel은 수정 대상에서 제외된다.",
-		example = "{\"name\":\"김하늘\",\"visaCode\":\"D-2-2\",\"academicState\":\"ENROLLED\",\"topikLevel\":null}")
+		example = "{\"visaCode\":\"D-2\",\"topikLevel\":null}")
 public class StudentProfileUpdateRequest {
 
 	@Pattern(regexp = "(?s).*\\S.*", message = "이름은 공백일 수 없습니다.")
@@ -52,9 +52,9 @@ public class StudentProfileUpdateRequest {
 	private String koreanLevel;
 
 	@Size(min = 1, max = 20, message = "올바른 비자 코드를 입력해주세요.")
-	@Schema(description = "비자 코드. 생략하면 기존 값 유지, null 불가",
-			allowableValues = {"D-2-1", "D-2-2", "D-2-3", "D-2-4", "D-2-6", "D-2-7", "D-2-8", "D-4-1", "D-4-7"},
-			example = "D-2-2",
+	@Schema(description = "체류자격 코드. D-2, D-4 상위 코드와 기존 세부 코드를 지원한다. 학업 상태가 없으면 코드만 전송할 수 있다. 생략하면 기존 값 유지, null 불가",
+			allowableValues = {"D-2", "D-4", "D-2-1", "D-2-2", "D-2-3", "D-2-4", "D-2-6", "D-2-7", "D-2-8", "D-4-1", "D-4-7"},
+			example = "D-2",
 			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String visaCode;
 
@@ -71,7 +71,7 @@ public class StudentProfileUpdateRequest {
 	private String universityName;
 
 	@Size(min = 1, max = 30, message = "올바른 학업 상태를 입력해주세요.")
-	@Schema(description = "학업 상태. D-2-1/2/3/4: ENROLLED, ON_LEAVE, COMPLETED, GRADUATED; D-2-6/8, D-4-1/7: IN_PROGRESS, COMPLETED, DISCONTINUED; D-2-7: IN_PROGRESS, ON_LEAVE_OR_DISCONTINUED, COMPLETED. 생략하면 기존 값 유지, null 불가",
+	@Schema(description = "선택 입력인 학업 상태. D-2는 기존 D-2 세부 코드의 상태 전체를 허용하고 D-4는 IN_PROGRESS, COMPLETED, DISCONTINUED를 허용한다. D-2-1/2/3/4: ENROLLED, ON_LEAVE, COMPLETED, GRADUATED; D-2-6/8, D-4-1/7: IN_PROGRESS, COMPLETED, DISCONTINUED; D-2-7: IN_PROGRESS, ON_LEAVE_OR_DISCONTINUED, COMPLETED. 생략하면 기존 값 유지, null 불가",
 			allowableValues = {"ENROLLED", "ON_LEAVE", "COMPLETED", "GRADUATED", "IN_PROGRESS", "DISCONTINUED", "ON_LEAVE_OR_DISCONTINUED"},
 			example = "ENROLLED",
 			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)

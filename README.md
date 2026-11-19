@@ -522,7 +522,7 @@ smsSender.send(new SmsSendRequest(
 
 ### 유학생 프로필 등록 API
 
-`POST /api/students/me/profile`은 Access Token으로 식별한 유학생의 기본 프로필을 생성합니다.
+`POST /api/students/me/profile`은 Access Token으로 식별한 유학생의 기본 프로필을 생성합니다. 요청 성공 시 즉시 DB에 저장되며, 임시 저장이나 온보딩 전체 일괄 저장 API가 아닙니다. 프로필 생성 성공만으로 온보딩 전체가 완료되는 것은 아닙니다.
 
 ```json
 {
@@ -539,7 +539,7 @@ smsSender.send(new SmsSendRequest(
 - 생년월일은 `YYYY-MM-DD` 형식이며 한국 날짜(`Asia/Seoul`) 기준으로 만 18세가 되는 생일부터 등록할 수 있습니다.
 - 휴대전화 번호와 인증 완료 시각이 모두 저장된 `STUDENT` 계정만 등록할 수 있습니다.
 - 이름은 `user_account`, 나머지 입력값은 `student_profile`에 하나의 트랜잭션으로 저장합니다. 프로필 ID는 회원 ID와 같습니다.
-- 학교·비자·체류 정보 등 나머지 프로필 컬럼은 ERD대로 유지하며 등록 시 `NULL`입니다. `visa_type`에는 V7 마이그레이션으로 9종을 등록하고, `study_program`의 초기 데이터는 추가하지 않습니다.
+- 학교 · 체류자격 · 체류 정보 등 나머지 프로필 컬럼은 ERD대로 유지하며 등록 시 `NULL`입니다. `visa_type`에는 V7의 세부 코드 9종과 V21의 상위 코드 `D-2`, `D-4`가 등록됩니다. `study_program`의 초기 데이터는 추가하지 않습니다.
 - 성공 응답은 `201 Created`이며 `studentId`, `name`, `phoneNumber`, `birthDate`, `nationality`, `currentRegion`, `koreanLevel`을 반환합니다. 전화번호는 `010-0000-0000` 형식입니다.
 - 입력 오류·만 18세 미만은 `400 INVALID_INPUT`, 로그인 필요는 `401 UNAUTHORIZED`, 유학생이 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다.
 - 휴대전화 미인증은 `409 PHONE_NOT_VERIFIED`, 이미 등록된 프로필은 `409 DUPLICATE_STUDENT_PROFILE`, 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
@@ -552,6 +552,7 @@ smsSender.send(new SmsSendRequest(
 
 - 성공 응답은 `200 OK`이며 `studentId`, `name`, `email`, `phoneNumber`, `birthDate`, `nationality`, `currentRegion`, `koreanLevel`을 포함합니다.
 - 온보딩 정보는 `visaCode`, `universityName`, `enrollmentStartDate`, `studyProgramId`, `gradeLevel`, `academicState`, `topikLevel`, `stayStartDate`, `stayExpirationDate`, `hirelinkBadgeIssuedAt`으로 반환합니다. 미입력 값은 `null`입니다.
+- `visaCode`는 `D-2`, `D-4` 또는 기존 세부 코드를 저장된 값 그대로 반환하며 상위 코드로 자동 변환하지 않습니다. 이 조회 응답은 온보딩 전체 완료 판정이 아닙니다.
 - 경력은 `careers` 배열로 반환합니다. 각 항목은 `careerId`, `careerName`, `startMonth`, `endMonth`, `description`이며, 경력이 없으면 `[]`입니다.
 - 경력은 시작월 내림차순, 시작월이 같으면 ID 내림차순입니다. `startMonth`, `endMonth`는 `YYYY-MM` 형식이며 ERD에 따라 둘 다 필수입니다. `description`은 `null`일 수 있습니다.
 - 사진 경로가 없으면 `profileImageUrl`은 `null`입니다. 사진 경로가 있으면 Supabase Storage에서 15분(900초) 유효한 임시 URL을 발급해 반환합니다. DB의 `profile_image_key`는 응답에 포함하지 않습니다.
@@ -617,12 +618,11 @@ smsSender.send(new SmsSendRequest(
 
 ### 내 유학생 프로필 수정 API
 
-`PATCH /api/students/me/profile`은 Access Token으로 식별한 유학생 본인의 프로필에서 요청에 포함된 항목만 수정합니다.
+`PATCH /api/students/me/profile`은 Access Token으로 식별한 유학생 본인의 프로필에서 요청에 포함된 항목만 수정합니다. 성공 시 즉시 저장되며 온보딩 전체 완료를 처리하지 않습니다. 기존 프로필 등록 · 수정, 경력 추가 · 수정 · 삭제, 매칭 조건 수정 API는 각각 독립적으로 저장되므로 여러 호출을 하나의 일괄 저장으로 취급하면 안 됩니다. 온보딩 전체 일괄 저장 API는 아직 제공하지 않습니다.
 
 ```json
 {
-  "visaCode": "D-4-1",
-  "academicState": "IN_PROGRESS",
+  "visaCode": "D-2",
   "topikLevel": null
 }
 ```
@@ -634,6 +634,8 @@ smsSender.send(new SmsSendRequest(
 - 체류 만료일은 과거 날짜도 저장할 수 있습니다. 기존 체류 시작일이 있으면 그 날짜보다 앞선 만료일은 허용하지 않습니다.
 - 비자 또는 학업 상태를 보냈을 때 기존 값과 합친 최종 조합을 검사합니다. 비자 변경 후 기존 학업 상태가 맞지 않으면 `400 INVALID_INPUT`이며, 맞는 `academicState`를 함께 보내야 합니다. 서버가 기존 상태를 자동으로 삭제하지 않습니다.
 - 아직 학업 상태를 입력하지 않은 회원은 비자만 먼저 저장할 수 있습니다. 학업 상태를 입력하려면 요청 또는 기존 프로필에 비자가 있어야 합니다.
+- `D-2`, `D-4` 상위 코드와 기존 세부 코드를 모두 허용합니다. 상위 코드만으로 세부 코드나 학업 상태를 추정하지 않습니다. 기존 학업 상태와의 호환성을 위해 `D-2`는 기존 D-2 세부 코드의 상태 전체를, `D-4`는 `IN_PROGRESS`, `COMPLETED`, `DISCONTINUED`를 허용합니다. 기존 세부 코드의 검증 규칙은 유지합니다.
+- `V21__add_parent_visa_types.sql`은 상위 코드 두 건만 추가하며 기존 코드와 회원 정보를 변경하지 않습니다.
 - `study_program_id`, `grade_level`을 비롯한 수정 대상 외 컬럼은 그대로 보존합니다. 비자에 따라 학업과정을 자동 지정하지 않습니다.
 - 이름과 프로필 수정은 하나의 트랜잭션으로 처리합니다. 같은 회원의 동시 수정은 순서대로 처리하고, 실패한 요청의 변경사항은 모두 취소합니다.
 - 성공 응답은 `200 OK`이며 `studentId`, `name`, `email`, `phoneNumber`, `birthDate`, `nationality`, `currentRegion`, `koreanLevel`, `visaCode`, `universityName`, `studyProgramId`, `gradeLevel`, `academicState`, `topikLevel`, `stayExpirationDate`, `hirelinkBadgeIssuedAt`을 반환합니다.
