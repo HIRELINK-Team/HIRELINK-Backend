@@ -66,6 +66,12 @@ business-registration:
   paddle:
     url: ${PADDLE_OCR_URL:http://localhost:8091/recognize}
 
+registration-verification:
+  enabled: ${REGISTRATION_VERIFICATION_ENABLED:false}
+  encryption-key: ${REGISTRATION_ENCRYPTION_KEY:}
+  paddle-url: ${REGISTRATION_PADDLE_URL:http://localhost:8091}
+  apick-key: ${APICK_API_KEY:}
+
 sms:
   solapi:
     api-key: ${SOLAPI_API_KEY:}

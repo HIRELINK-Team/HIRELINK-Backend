@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from recognition import UnreadableDocument, create_engine, recognize_document
+from registration import extract_front, extract_back
 
 
 MAX_FILE_SIZE = 5 * 1024 * 1024
@@ -33,8 +34,23 @@ async def health():
 
 @app.post("/recognize")
 async def recognize(request: Request):
+    return await recognize_request(request, recognize_document)
+
+
+@app.post("/registration/front")
+async def registration_front(request: Request):
+    return await recognize_request(request, lambda engine, data, kind: recognize_document(engine, data, kind, extract_front), True)
+
+
+@app.post("/registration/back")
+async def registration_back(request: Request):
+    return await recognize_request(request, lambda engine, data, kind: recognize_document(engine, data, kind, extract_back), True)
+
+
+async def recognize_request(request: Request, recognizer, image_only=False):
     content_type = request.headers.get("content-type", "").split(";")[0]
-    if content_type not in {"image/png", "image/jpeg", "application/pdf"}:
+    allowed = {"image/png", "image/jpeg"} if image_only else {"image/png", "image/jpeg", "application/pdf"}
+    if content_type not in allowed:
         return failure(415)
     try:
         await asyncio.wait_for(request.app.state.lock.acquire(), timeout=1)
@@ -49,7 +65,7 @@ async def recognize(request: Request):
                 data.extend(chunk)
         if not data:
             return failure(422)
-        result = await run_in_threadpool(recognize_document, request.app.state.engine, bytes(data), content_type)
+        result = await run_in_threadpool(recognizer, request.app.state.engine, bytes(data), content_type)
         return JSONResponse(result, headers={"Cache-Control": "no-store"})
     except UnreadableDocument:
         return failure(422)

@@ -77,7 +77,7 @@ class SocialSignupTermsIntegrationTest extends PostgreSQLIntegrationTest {
 		cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
 		browser = HttpClient.newBuilder().cookieHandler(cookies).connectTimeout(Duration.ofSeconds(10)).build();
 		requiredIds = jdbc.queryForList(
-				"select id from term_type where is_social_signup and is_required order by id", Long.class);
+				"select id from term_type where is_social_signup and is_required and not is_student_registration order by id", Long.class);
 		optionalId = jdbc.queryForObject(
 				"select id from term_type where is_social_signup and not is_required", Long.class);
 		setSignupCookie(socialAuthService.createSession(AuthProvider.GOOGLE, "new-student", MemberRole.STUDENT, null));

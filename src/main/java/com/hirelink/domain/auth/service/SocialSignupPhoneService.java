@@ -27,7 +27,6 @@ import com.hirelink.domain.member.entity.TermType;
 import com.hirelink.domain.member.entity.UserAccount;
 import com.hirelink.domain.member.entity.UserTermAgreement;
 import com.hirelink.domain.member.entity.UserTermAgreementId;
-import com.hirelink.domain.member.repository.TermTypeRepository;
 import com.hirelink.domain.member.repository.UserAccountRepository;
 import com.hirelink.domain.member.repository.UserTermAgreementRepository;
 import com.hirelink.global.exception.InvalidPhoneVerificationCodeException;
@@ -46,7 +45,7 @@ public class SocialSignupPhoneService {
 	private final PhoneVerificationSendAttemptRepository attempts;
 	private final UserAccountRepository users;
 	private final AuthAccountRepository accounts;
-	private final TermTypeRepository terms;
+	private final SocialSignupTermsService terms;
 	private final UserTermAgreementRepository agreements;
 	private final PasswordEncoder passwordEncoder;
 	private final SmsSender smsSender;
@@ -55,7 +54,7 @@ public class SocialSignupPhoneService {
 
 	public SocialSignupPhoneService(SocialAuthService socialAuthService, SocialAuthSessionRepository sessions,
 			PhoneVerificationRepository verifications, PhoneVerificationSendAttemptRepository attempts,
-			UserAccountRepository users, AuthAccountRepository accounts, TermTypeRepository terms,
+			UserAccountRepository users, AuthAccountRepository accounts, SocialSignupTermsService terms,
 			UserTermAgreementRepository agreements, PasswordEncoder passwordEncoder, SmsSender smsSender,
 			TokenService tokenService) {
 		this.socialAuthService = socialAuthService;
@@ -158,7 +157,7 @@ public class SocialSignupPhoneService {
 	}
 
 	private List<TermType> requireAgreements(SocialAuthSession session) {
-		List<TermType> signupTerms = terms.findBySocialSignupTrueOrderByIdAsc();
+		List<TermType> signupTerms = terms.signupTerms(session);
 		Map<Long, SocialSignupAgreement> saved = agreementMap(session);
 		for (TermType term : signupTerms) {
 			SocialSignupAgreement consent = saved.get(term.getId());

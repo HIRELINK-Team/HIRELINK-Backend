@@ -374,7 +374,7 @@ class SocialSignupPhoneIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	private void agree(Browser browser) throws Exception {
-		List<Map<String, Object>> values = jdbc.queryForList("select id from term_type where is_social_signup and is_required", Long.class)
+		List<Map<String, Object>> values = jdbc.queryForList("select id from term_type where is_social_signup and is_required and not is_student_registration", Long.class)
 				.stream().map(id -> Map.<String, Object>of("termTypeId", id, "isAgreed", true)).toList();
 		HttpRequest request = HttpRequest.newBuilder(uri("/api/auth/social/terms")).header("Content-Type", "application/json")
 				.header("X-XSRF-TOKEN", browser.csrf()).PUT(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(Map.of("agreements", values)))).build();

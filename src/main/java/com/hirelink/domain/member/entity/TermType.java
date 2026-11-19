@@ -27,10 +27,14 @@ public class TermType {
 	@Column(name = "is_social_signup", nullable = false)
 	private boolean socialSignup;
 
+	@Column(name = "is_student_registration", nullable = false)
+	private boolean studentRegistration;
+
 	protected TermType() {
 	}
 
 	public Long getId() { return id; }
 	public String getTermTypeName() { return termTypeName; }
 	public boolean isRequired() { return required; }
+	public boolean isStudentRegistration() { return studentRegistration; }
 }
