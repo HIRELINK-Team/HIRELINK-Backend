@@ -97,7 +97,7 @@ public record StudentProfileResponse(
 					example = "2026-06", type = "string",
 					requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 			String endMonth,
-			@Schema(description = "근무 내용. null 또는 빈 문자열 허용", example = "음료 제조 및 고객 응대", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
+			@Schema(description = "저장된 근무 내용. 기존 경력에는 null 또는 빈 값이 남아 있을 수 있다. 경력 추가 · 수정 시에는 필수", example = "음료 제조 및 고객 응대", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
 			String description) {
 	}
 }

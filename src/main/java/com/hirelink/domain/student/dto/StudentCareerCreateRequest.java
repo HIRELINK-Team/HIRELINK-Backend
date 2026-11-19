@@ -12,7 +12,7 @@ import tools.jackson.databind.JsonNode;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "경력 추가. 경력명·시작월·종료월 필수, 근무 내용 선택.")
+@Schema(description = "경력 추가. 경력명 · 시작월 · 종료월 · 근무 내용 모두 필수.")
 public class StudentCareerCreateRequest {
 
 	@NotBlank(message = "경력명을 입력해주세요.")
@@ -34,7 +34,8 @@ public class StudentCareerCreateRequest {
 			requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 	private YearMonth endMonth;
 
-	@Schema(description = "근무 내용. null 또는 빈 문자열 허용", example = "음료 제조 및 고객 응대", requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = true)
+	@NotBlank(message = "근무 내용을 입력해주세요.")
+	@Schema(description = "필수 근무 내용. 생략 · null · 빈 문자열 · 공백만 입력 불가", example = "음료 제조 및 고객 응대", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 	private String description;
 
 	@JsonSetter

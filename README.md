@@ -554,7 +554,7 @@ smsSender.send(new SmsSendRequest(
 - 온보딩 정보는 `visaCode`, `universityName`, `enrollmentStartDate`, `studyProgramId`, `gradeLevel`, `academicState`, `topikLevel`, `stayStartDate`, `stayExpirationDate`, `hirelinkBadgeIssuedAt`으로 반환합니다. 미입력 값은 `null`입니다.
 - `visaCode`는 `D-2`, `D-4` 또는 기존 세부 코드를 저장된 값 그대로 반환하며 상위 코드로 자동 변환하지 않습니다. 이 조회 응답은 온보딩 전체 완료 판정이 아닙니다.
 - 경력은 `careers` 배열로 반환합니다. 각 항목은 `careerId`, `careerName`, `startMonth`, `endMonth`, `description`이며, 경력이 없으면 `[]`입니다.
-- 경력은 시작월 내림차순, 시작월이 같으면 ID 내림차순입니다. `startMonth`, `endMonth`는 `YYYY-MM` 형식이며 ERD에 따라 둘 다 필수입니다. `description`은 `null`일 수 있습니다.
+- 경력은 시작월 내림차순, 시작월이 같으면 ID 내림차순입니다. `startMonth`, `endMonth`는 `YYYY-MM` 형식이며 ERD에 따라 둘 다 필수입니다. 기존 경력의 `description`은 `null` 또는 빈 값일 수 있으며 조회 시 그대로 반환합니다. 새 경력 추가 · 수정에서는 근무 내용이 필수입니다.
 - 사진 경로가 없으면 `profileImageUrl`은 `null`입니다. 사진 경로가 있으면 Supabase Storage에서 15분(900초) 유효한 임시 URL을 발급해 반환합니다. DB의 `profile_image_key`는 응답에 포함하지 않습니다.
 - 임시 URL이 만료된 뒤 사진을 다시 불러오려면 프로필을 다시 조회합니다. 사진 파일은 주소 만료로 삭제되지 않습니다. 응답에는 `Cache-Control: no-store`를 설정합니다.
 - `401 UNAUTHORIZED`는 인증 정보가 없거나 유효하지 않은 경우, `403 FORBIDDEN`은 유학생이 아닌 경우, `403 WITHDRAWN_ACCOUNT`는 탈퇴한 회원입니다.
@@ -578,10 +578,11 @@ smsSender.send(new SmsSendRequest(
 - `careerName`은 필수이며 공백만 입력할 수 없고 최대 150자입니다.
 - `startMonth`, `endMonth`는 모두 필수이며 JSON 문자열 `YYYY-MM` 형식으로 전달합니다. 종료월은 시작월과 같거나 뒤여야 합니다.
 - 두 날짜 모두 한국 날짜(`Asia/Seoul`) 기준 현재 월까지만 허용합니다. 다음 달 이후의 시작월·종료월은 `400 INVALID_INPUT`입니다.
-- `description`은 선택 입력이며 생략하거나 `null`을 보내면 `NULL`로 저장합니다.
+- `description`은 필수입니다. 생략 · `null` · 빈 문자열 · 공백만 입력하면 `400 INVALID_INPUT`이며 경력을 저장하지 않습니다.
 - 필수값 누락, 잘못된 자료형·월 형식·근무기간, 허용되지 않은 요청 항목은 `400 INVALID_INPUT`입니다.
 - 성공 응답은 `201 Created`이며 `careerId`, `careerName`, `startMonth`, `endMonth`, `description`을 반환합니다. 응답에는 `Cache-Control: no-store`를 설정합니다.
 - 한 회원은 여러 경력을 등록할 수 있습니다. 저장된 경력은 기존 `GET /api/students/me/profile` 응답의 `careers`에 포함됩니다.
+- 이 API는 성공 시 즉시 저장합니다. 온보딩 전체 일괄 저장 API가 아니므로 마지막 제출 전 임시 경력 목록을 관리하는 용도로 호출하지 않습니다.
 - 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`, 본인 프로필 미등록은 `404 STUDENT_PROFILE_NOT_FOUND`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
 - 기존 V6의 `student_career` 테이블을 사용하며 이번 기능을 위한 새 마이그레이션은 없습니다. 실제 Supabase DB에 V6가 적용되어 있어야 하며, Redis·Storage 설정은 추가로 필요하지 않습니다.
 
@@ -592,16 +593,18 @@ smsSender.send(new SmsSendRequest(
 ```json
 {
   "endMonth": "2023-10",
-  "description": null
+  "description": "음료 제조 및 고객 응대"
 }
 ```
 
-- 수정 가능한 항목은 `careerName`, `startMonth`, `endMonth`, `description`입니다. 생략한 항목은 유지하고 `description: null`은 근무 내용을 삭제합니다.
-- 경력명은 공백만 입력할 수 없으며 최대 150자입니다. 경력명·시작월·종료월에 명시적인 `null`을 보내거나, 빈 객체·잘못된 자료형·허용하지 않은 항목을 보내면 `400 INVALID_INPUT`입니다.
+- 수정 가능한 항목은 `careerName`, `startMonth`, `endMonth`, `description`입니다. 생략한 항목은 유지합니다. `description`의 명시적인 `null` · 빈 문자열 · 공백만 입력은 `400 INVALID_INPUT`이며 내용을 삭제할 수 없습니다.
+- 기존 경력의 근무 내용이 비어 있으면 다른 항목을 수정할 때도 `description`을 함께 보내야 합니다. 검증에 실패하면 요청 전체를 저장하지 않습니다. 기존 빈 내용은 일괄 변경하지 않으며 조회 · 경력 삭제는 계속 가능합니다.
+- 경력명은 공백만 입력할 수 없으며 최대 150자입니다. 모든 필드의 명시적인 `null`, 빈 객체 · 잘못된 자료형 · 허용하지 않은 항목은 `400 INVALID_INPUT`입니다.
 - 근무기간은 JSON 문자열 `YYYY-MM` 형식입니다. 기존 값과 합친 최종 근무기간에서 종료월은 시작월과 같거나 뒤여야 하며, 두 날짜 모두 한국 날짜(`Asia/Seoul`) 기준 이번 달까지만 허용합니다.
 - 성공 응답은 `200 OK`와 기존 `StudentCareerResponse`의 다섯 항목이며 `Cache-Control: no-store`를 설정합니다. 수정 결과는 프로필 조회의 `careers`에도 반영됩니다.
 - 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아니거나 다른 사람의 경력은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`, 없는 경력은 `404 STUDENT_CAREER_NOT_FOUND`입니다. 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
 - 같은 경력의 동시 수정은 순서대로 처리합니다. 저장 실패 시 요청의 변경사항은 모두 취소됩니다.
+- 성공 시 즉시 저장하며 온보딩 전체 일괄 저장 API가 아닙니다.
 - 기존 V6의 `student_career` 테이블을 사용합니다. 추가 마이그레이션이나 Redis·Storage 설정은 필요하지 않습니다.
 
 ### 경력 삭제 API

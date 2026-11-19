@@ -72,6 +72,7 @@ class StudentCareerDeleteIntegrationTest extends PostgreSQLIntegrationTest {
 	void deletesOnlySelectedCareerAndRemovesItFromProfile() throws Exception {
 		long userId = createUser("STUDENT", true);
 		long careerId = createCareer(userId);
+		jdbc.update("update student_career set description = null where id = ?", careerId);
 		long remainingCareerId = createCareer(userId);
 		long otherCareerId = createCareer(createUser("STUDENT", true));
 		Map<String, Object> remainingBefore = career(remainingCareerId);
