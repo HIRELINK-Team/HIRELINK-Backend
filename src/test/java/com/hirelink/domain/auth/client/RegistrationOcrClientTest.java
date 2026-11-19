@@ -12,6 +12,34 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class RegistrationOcrClientTest {
 	@Test
+	void pdfUsesSeparateEndpointAndSanitizesUnreadableAndUpstreamFailures() throws Exception {
+		HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+		AtomicInteger status = new AtomicInteger(200);
+		server.createContext("/registration/stay-document", exchange -> {
+			assertThat(exchange.getRequestHeaders().getFirst("Content-Type")).isEqualTo("application/pdf");
+			assertThat(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)).isEqualTo("%PDF-test");
+			byte[] body = (status.get() == 200 ? "{\"stayExpiresOn\":\"2027-01-01\"}" : "private number").getBytes(StandardCharsets.UTF_8);
+			exchange.getResponseHeaders().set("Content-Type", "application/json");
+			exchange.sendResponseHeaders(status.get(), body.length);
+			exchange.getResponseBody().write(body);
+			exchange.close();
+		});
+		server.start();
+		try {
+			RegistrationOcrClient client = new RegistrationOcrClient("http://127.0.0.1:" + server.getAddress().getPort());
+			byte[] pdf = "%PDF-test".getBytes(StandardCharsets.UTF_8);
+			assertThat(client.recognizeStayDocument(pdf).path("stayExpiresOn").asString()).isEqualTo("2027-01-01");
+			for (int code : List.of(422, 503)) {
+				status.set(code);
+				assertThatThrownBy(() -> client.recognizeStayDocument(pdf))
+						.isInstanceOfSatisfying(SocialAuthException.class, error -> assertThat(error.getCode())
+								.isEqualTo(code == 422 ? "UNREADABLE_STAY_DOCUMENT" : "REGISTRATION_OCR_FAILED"))
+						.hasNoCause().hasMessageNotContaining("private");
+			}
+		} finally { server.stop(0); }
+	}
+
+	@Test
 	void usesInternalImageEndpointsAndDoesNotExposeUpstreamErrors() throws Exception {
 		HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
 		AtomicInteger calls = new AtomicInteger();
