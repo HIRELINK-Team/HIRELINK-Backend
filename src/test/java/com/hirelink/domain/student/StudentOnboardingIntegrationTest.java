@@ -380,6 +380,9 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(schema.path("properties").has("topikLevelProvided")).isFalse();
 		assertThat(schema.path("properties").has("topikAnswerPresent")).isFalse();
 		assertThat(schema.path("properties").path("topikLevel").toString()).contains("null");
+		JsonNode matching = document.path("components").path("schemas").path("StudentOnboardingMatchingPreferenceRequest");
+		assertThat(matching.path("required").toString()).contains("businessTypeFlexible", "preferredJobs", "preferredWorkTimes", "preferredLocation", "priorities");
+		assertThat(matching.path("properties").path("preferredWorkTimes").path("minItems").asInt()).isEqualTo(1);
 	}
 
 	private void seedIncomplete(long user) {
