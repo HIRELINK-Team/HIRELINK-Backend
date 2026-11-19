@@ -68,7 +68,7 @@ public class PhoneVerificationController {
 		@ApiResponse(responseCode = "500", description = "인증 문자 발송 실패 / 예상하지 못한 서버 오류",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {
-							@ExampleObject(name = "SMS_DELIVERY_FAILED", value = "{\"code\":\"SMS_DELIVERY_FAILED\",\"message\":\"인증번호를 전송하지 못했습니다.\"}"),
+							@ExampleObject(name = "SMS_DELIVERY_FAILED", value = "{\"code\":\"SMS_DELIVERY_FAILED\",\"message\":\"문자를 발송하지 못했습니다.\"}"),
 							@ExampleObject(name = "INTERNAL_SERVER_ERROR", value = "{\"code\":\"INTERNAL_SERVER_ERROR\",\"message\":\"서버 오류가 발생했습니다.\"}")
 						}))
 	})

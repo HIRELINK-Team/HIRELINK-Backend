@@ -24,6 +24,8 @@ import com.hirelink.global.exception.SmsDeliveryException;
 import com.hirelink.global.exception.WithdrawnAccountException;
 import com.hirelink.global.exception.DuplicatePhoneNumberException;
 import com.hirelink.global.exception.InvalidPhoneVerificationCodeException;
+import com.hirelink.global.sms.SmsSendRequest;
+import com.hirelink.global.sms.SmsSender;
 
 @Service
 public class PhoneVerificationService {
@@ -64,21 +66,29 @@ public class PhoneVerificationService {
 			throw new PhoneVerificationRateLimitException();
 		}
 		sendAttemptRepository.deleteExpiredAttempts(userId, phoneNumber, now.minusSeconds(3600));
-		// 발송 실패도 요청 횟수에 포함하되 기존 인증번호는 유지한다.
-		sendAttemptRepository.saveAndFlush(new PhoneVerificationSendAttempt(userId, phoneNumber, now));
+		// 발송 실패도 요청 횟수에 포함한다.
+		PhoneVerificationSendAttempt sendAttempt = sendAttemptRepository.saveAndFlush(
+				new PhoneVerificationSendAttempt(userId, phoneNumber, now));
 		String code;
 		do {
 			code = String.format(Locale.ROOT, "%06d", secureRandom.nextInt(1_000_000));
 		} while (verification != null && passwordEncoder.matches(code, verification.getCodeHash()));
 		String codeHash = passwordEncoder.encode(code);
-		smsSender.sendVerificationCode(phoneNumber, code);
 		Instant sentAt = Instant.now();
 		if (verification == null) {
 			verification = new PhoneVerification(userId, phoneNumber, codeHash, sentAt.plus(CODE_TTL));
 		} else {
 			verification.replaceCode(phoneNumber, codeHash, sentAt, sentAt.plus(CODE_TTL));
 		}
-		verificationRepository.save(verification);
+		verificationRepository.saveAndFlush(verification);
+		try {
+			smsSender.sendAndWait(new SmsSendRequest(phoneNumber, "[HIRELINK] 인증번호 [" + code + "]",
+					"phone-verification:" + sendAttempt.getId()));
+		} catch (SmsDeliveryException exception) {
+			verificationRepository.delete(verification);
+			verificationRepository.flush();
+			throw exception;
+		}
 	}
 
 	// 입력 오류 응답을 반환해도 실패 횟수는 커밋한다. 저장 오류와 중복 번호는 롤백한다.

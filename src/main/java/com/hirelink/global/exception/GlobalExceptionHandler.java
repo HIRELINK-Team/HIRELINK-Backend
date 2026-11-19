@@ -271,6 +271,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 				.body(new ErrorResponse("SMS_DELIVERY_FAILED", exception.getMessage()));
 	}
 
+	@ExceptionHandler(InvalidSmsRequestException.class)
+	public ResponseEntity<ErrorResponse> handleInvalidSmsRequest(InvalidSmsRequestException exception) {
+		return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_SMS_REQUEST", exception.getMessage()));
+	}
+
+	@ExceptionHandler(DuplicateSmsException.class)
+	public ResponseEntity<ErrorResponse> handleDuplicateSms(DuplicateSmsException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ErrorResponse("DUPLICATE_SMS_REQUEST", exception.getMessage()));
+	}
+
 	@ExceptionHandler(InvalidRefreshTokenException.class)
 	public ResponseEntity<ErrorResponse> handleInvalidRefreshToken(InvalidRefreshTokenException exception) {
 		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
