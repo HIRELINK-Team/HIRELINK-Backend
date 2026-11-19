@@ -97,7 +97,7 @@ public class StudentCareerService {
 	}
 
 	private void validateStudent(Long userId) {
-		UserAccount user = userAccountRepository.findById(userId)
+		UserAccount user = userAccountRepository.findByIdForUpdate(userId)
 				.orElseThrow(() -> new AuthenticationCredentialsNotFoundException("로그인이 필요합니다."));
 		if (user.isWithdrawn()) {
 			throw new WithdrawnAccountException();
