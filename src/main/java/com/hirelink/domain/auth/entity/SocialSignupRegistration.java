@@ -62,4 +62,6 @@ public class SocialSignupRegistration {
 	public String getFrontPayload() { return frontPayload; }
 	public LocalDate getStayExpiresOn() { return stayExpiresOn; }
 	public Instant getCardVerifiedAt() { return cardVerifiedAt; }
+	public LocalDate getDocumentExpiresOn() { return documentExpiresOn; }
+	public Instant getDocumentVerifiedAt() { return documentVerifiedAt; }
 }

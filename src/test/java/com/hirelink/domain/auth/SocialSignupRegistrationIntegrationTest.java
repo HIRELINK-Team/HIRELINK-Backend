@@ -27,14 +27,23 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.mockito.ArgumentCaptor;
 
 import com.hirelink.domain.auth.client.ApickRegistrationClient;
 import com.hirelink.domain.auth.client.RegistrationOcrClient;
 import com.hirelink.domain.auth.entity.AuthProvider;
 import com.hirelink.domain.auth.service.RegistrationCipher;
 import com.hirelink.domain.auth.service.SocialAuthService;
+import com.hirelink.domain.auth.service.TokenService;
+import com.hirelink.domain.auth.repository.PhoneVerificationSendAttemptRepository;
 import com.hirelink.domain.member.entity.MemberRole;
+import com.hirelink.domain.member.entity.UserAccount;
+import com.hirelink.domain.member.repository.UserAccountRepository;
+import com.hirelink.domain.student.repository.StudentRegistrationVerificationRepository;
 import com.hirelink.global.exception.SocialAuthException;
+import com.hirelink.global.sms.SmsSender;
+import com.hirelink.global.sms.SmsSendRequest;
 import com.hirelink.support.PostgreSQLIntegrationTest;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -56,6 +65,11 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 	@Autowired RegistrationCipher cipher;
 	@MockitoBean RegistrationOcrClient ocr;
 	@MockitoBean ApickRegistrationClient apick;
+	@MockitoBean SmsSender smsSender;
+	@MockitoSpyBean StudentRegistrationVerificationRepository verifiedRegistrations;
+	@MockitoSpyBean PhoneVerificationSendAttemptRepository attempts;
+	@MockitoSpyBean TokenService tokenService;
+	@Autowired UserAccountRepository users;
 	private CookieManager cookies;
 	private HttpClient browser;
 	private String csrf;
@@ -396,6 +410,256 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		assertThat(operation.path("responses").propertyNames()).contains("200", "400", "401", "403", "409", "413", "415", "422", "502", "503", "500");
 		assertThat(operation.path("responses").path("422").toString()).contains("STAY_DOCUMENT_MISMATCH", "STAY_DOCUMENT_EXPIRED", "UNREADABLE_STAY_DOCUMENT");
 		assertThat(operation.path("parameters").toString()).contains("socialSignup", "X-XSRF-TOKEN", "XSRF-TOKEN");
+	}
+
+	@Test
+	void phoneSignupTransfersCardResultAndOriginalConsentWithoutCreatingProfile() throws Exception {
+		agree();
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertThat(upload("back").statusCode()).isEqualTo(200);
+		Object cardAt = jdbc.queryForObject("select card_verified_at from social_signup_registration", Object.class);
+		var consent = jdbc.queryForList("select term_type_id, is_agreed, agreed_at from social_auth_session_term_agreement order by term_type_id");
+		String code = sendPhoneCode();
+		assertThat(users.count()).isZero();
+		HttpResponse<String> response = phoneConfirm(code);
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
+		assertThat(JSON.readTree(response.body()).path("onboardingRequired").asBoolean()).isTrue();
+		assertThat(response.headers().allValues("Set-Cookie")).anyMatch(value -> value.startsWith("socialSignup=") && value.contains("Max-Age=0"));
+		assertThat(jdbc.queryForObject("select name from user_account", String.class)).isEqualTo("TEST STUDENT");
+		assertThat(jdbc.queryForObject("select nationality from student_registration_verification", String.class)).isEqualTo("VN");
+		assertThat(jdbc.queryForObject("select visa_code from student_registration_verification", String.class)).isEqualTo("D-2");
+		assertThat(jdbc.queryForObject("select stay_expires_on from student_registration_verification", LocalDate.class)).isEqualTo(today);
+		assertThat(jdbc.queryForObject("select card_verified_at from student_registration_verification", Object.class)).isEqualTo(cardAt);
+		assertThat(jdbc.queryForObject("select document_verified_at from student_registration_verification", Object.class)).isNull();
+		assertThat(jdbc.queryForList("select term_type_id, is_agreed, agreed_at from user_term_agreement order by term_type_id")).isEqualTo(consent);
+		for (String table : List.of("student_profile", "social_auth_session", "social_signup_registration", "phone_verification")) {
+			assertThat(count(table)).as(table).isZero();
+		}
+		assertThat(count("auth_account")).isEqualTo(1);
+		assertThat(count("refresh_token")).isEqualTo(1);
+	}
+
+	@Test
+	void phoneSignupTransfersPdfExpiryAndVerificationTime() throws Exception {
+		preparePdf();
+		when(ocr.recognizeStayDocument(any())).thenReturn(pdfResult(NUMBER, today.plusDays(30)));
+		assertThat(uploadPdf().statusCode()).isEqualTo(200);
+		Object documentAt = jdbc.queryForObject("select document_verified_at from social_signup_registration", Object.class);
+		String code = sendPhoneCode();
+		assertThat(phoneConfirm(code).statusCode()).isEqualTo(201);
+		assertThat(jdbc.queryForObject("select stay_expires_on from student_registration_verification", LocalDate.class)).isEqualTo(today.plusDays(30));
+		assertThat(jdbc.queryForObject("select document_verified_at from student_registration_verification", Object.class)).isEqualTo(documentAt);
+		assertThat(count("social_signup_registration")).isZero();
+		verifyNoInteractions(apick);
+	}
+
+	@Test
+	void bothPhoneEndpointsBlockMissingCardAndPendingPdfBeforeSmsOrAccountCreation() throws Exception {
+		agree();
+		assertError(phoneRequest(), 409, "REGISTRATION_VERIFICATION_REQUIRED");
+		assertError(phoneConfirm("123456"), 409, "REGISTRATION_VERIFICATION_REQUIRED");
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertError(phoneRequest(), 409, "REGISTRATION_VERIFICATION_REQUIRED");
+		when(ocr.recognize(any(), anyString(), eq(false))).thenReturn(backResult(today.minusDays(1), "00000000001"));
+		assertThat(upload("back").statusCode()).isEqualTo(200);
+		assertError(phoneRequest(), 409, "STAY_DOCUMENT_REQUIRED");
+		assertError(phoneConfirm("123456"), 409, "STAY_DOCUMENT_REQUIRED");
+		assertThat(count("phone_verification_send_attempt")).isZero();
+		assertThat(count("phone_verification")).isZero();
+		assertThat(users.count()).isZero();
+		verifyNoInteractions(smsSender);
+	}
+
+	@Test
+	void phoneConfirmationRechecksRecaptureAndStayValidityAfterCodeWasSent() throws Exception {
+		preparePdf();
+		when(ocr.recognizeStayDocument(any())).thenReturn(pdfResult(NUMBER, today));
+		assertThat(uploadPdf().statusCode()).isEqualTo(200);
+		String code = sendPhoneCode();
+		jdbc.update("update social_signup_registration set document_expires_on = ?", today.minusDays(1));
+		assertError(phoneConfirm(code), 422, "STAY_DOCUMENT_EXPIRED");
+		jdbc.update("update social_signup_registration set document_expires_on = ?", today);
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertError(phoneConfirm(code), 409, "REGISTRATION_VERIFICATION_REQUIRED");
+		assertThat(users.count()).isZero();
+		assertThat(count("student_registration_verification")).isZero();
+		assertThat(count("phone_verification")).isEqualTo(1);
+	}
+
+	@Test
+	void cardExpiringAfterSmsRequiresRecaptureWhenNumberWasAlreadyDeleted() throws Exception {
+		agree();
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertThat(upload("back").statusCode()).isEqualTo(200);
+		String code = sendPhoneCode();
+		jdbc.update("update social_signup_registration set stay_expires_on = ?", today.minusDays(1));
+		assertError(phoneConfirm(code), 409, "REGISTRATION_VERIFICATION_REQUIRED");
+		assertThat(users.count()).isZero();
+	}
+
+	@Test
+	void duplicatePhoneDeletesTemporaryRegistrationAndPreservesExistingUser() throws Exception {
+		UserAccount existing = new UserAccount("existing@example.com", MemberRole.EMPLOYER);
+		existing.verifyPhoneNumber("01000000000", Instant.now());
+		users.saveAndFlush(existing);
+		var before = jdbc.queryForList("select * from user_account");
+		agree();
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertThat(upload("back").statusCode()).isEqualTo(200);
+		String code = sendPhoneCode();
+		HttpResponse<String> response = phoneConfirm(code);
+		assertError(response, 409, "DUPLICATE_PHONE_NUMBER");
+		assertThat(response.headers().allValues("Set-Cookie")).hasSize(1);
+		assertThat(jdbc.queryForList("select * from user_account")).isEqualTo(before);
+		assertThat(count("social_signup_registration")).isZero();
+		assertThat(count("student_registration_verification")).isZero();
+		assertThat(count("social_auth_session")).isZero();
+	}
+
+	@Test
+	void transferFailureRollsBackUserIdentityTokensAndLeavesRetryableSession() throws Exception {
+		agree();
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertThat(upload("back").statusCode()).isEqualTo(200);
+		String code = sendPhoneCode();
+		doThrow(new IllegalStateException("Storage unavailable")).when(verifiedRegistrations).saveAndFlush(any());
+		HttpResponse<String> response = phoneConfirm(code);
+		assertError(response, 500, "INTERNAL_SERVER_ERROR");
+		assertThat(response.headers().allValues("Set-Cookie")).isEmpty();
+		for (String table : List.of("user_account", "auth_account", "user_term_agreement", "refresh_token", "student_registration_verification")) {
+			assertThat(count(table)).as(table).isZero();
+		}
+		assertThat(count("social_auth_session")).isEqualTo(1);
+		assertThat(count("social_signup_registration")).isEqualTo(1);
+		assertThat(count("phone_verification")).isEqualTo(1);
+	}
+
+	@Test
+	void tokenFailureRollsBackAlreadyPersistedVerificationAndConsent() throws Exception {
+		agree();
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertThat(upload("back").statusCode()).isEqualTo(200);
+		String code = sendPhoneCode();
+		doThrow(new IllegalStateException("Token unavailable")).when(tokenService).issueTokens(any());
+		assertError(phoneConfirm(code), 500, "INTERNAL_SERVER_ERROR");
+		verify(verifiedRegistrations).saveAndFlush(any());
+		for (String table : List.of("user_account", "auth_account", "user_term_agreement", "refresh_token", "student_registration_verification")) {
+			assertThat(count(table)).as(table).isZero();
+		}
+		assertThat(count("social_auth_session")).isEqualTo(1);
+		assertThat(count("social_signup_registration")).isEqualTo(1);
+		assertThat(count("phone_verification")).isEqualTo(1);
+	}
+
+	@Test
+	void phoneOpenApiIncludesRegistrationErrorsAndPreservesSuccessContracts() throws Exception {
+		JsonNode document = JSON.readTree(get("/v3/api-docs").body());
+		for (String suffix : List.of("", "/verify")) {
+			JsonNode operation = document.path("paths").path("/api/auth/social/phone-verifications" + suffix).path("post");
+			assertThat(operation.path("responses").path("409").toString()).contains("REGISTRATION_VERIFICATION_REQUIRED", "STAY_DOCUMENT_REQUIRED");
+			assertThat(operation.path("responses").path("422").toString()).contains("STAY_DOCUMENT_EXPIRED");
+			assertThat(operation.path("responses").path("503").toString()).contains("REGISTRATION_VERIFICATION_UNAVAILABLE", "SOCIAL_LOGIN_UNAVAILABLE");
+			assertThat(operation.path("responses").has(suffix.isEmpty() ? "200" : "201")).isTrue();
+		}
+	}
+
+	@Test
+	void phoneSignupStillRequiresIdentityConsentAfterSms() throws Exception {
+		agree();
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertThat(upload("back").statusCode()).isEqualTo(200);
+		String code = sendPhoneCode();
+		jdbc.update("delete from social_auth_session_term_agreement where term_type_id in (select id from term_type where is_student_registration)");
+		assertError(phoneConfirm(code), 400, "REQUIRED_TERMS_NOT_AGREED");
+		assertThat(users.count()).isZero();
+	}
+
+	@Test
+	void phoneLockWaitCannotSendSmsAfterSessionExpiry() throws Exception {
+		agree();
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertThat(upload("back").statusCode()).isEqualTo(200);
+		Instant expires = Instant.now().plusSeconds(2);
+		jdbc.update("update social_auth_session set expires_at = ?", java.sql.Timestamp.from(expires));
+		delayPhoneLockUntil(expires);
+		assertError(phoneRequest(), 401, "INVALID_SOCIAL_SESSION");
+		verifyNoInteractions(smsSender);
+		assertThat(count("phone_verification_send_attempt")).isZero();
+	}
+
+	@Test
+	void phoneLockWaitRechecksCodeAndSessionExpiryBeforeAccountCreation() throws Exception {
+		agree();
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertThat(upload("back").statusCode()).isEqualTo(200);
+		String code = sendPhoneCode();
+		Instant expires = Instant.now().plusSeconds(2);
+		jdbc.update("update phone_verification set expires_at = ?", java.sql.Timestamp.from(expires));
+		delayPhoneLockUntil(expires);
+		assertError(phoneConfirm(code), 400, "INVALID_VERIFICATION_CODE");
+		Instant sessionExpiry = Instant.now().plusSeconds(2);
+		jdbc.update("update phone_verification set expires_at = now() + interval '300 seconds'");
+		jdbc.update("update social_auth_session set expires_at = ?", java.sql.Timestamp.from(sessionExpiry));
+		delayPhoneLockUntil(sessionExpiry);
+		assertError(phoneConfirm(code), 401, "INVALID_SOCIAL_SESSION");
+		assertThat(users.count()).isZero();
+		assertThat(count("student_registration_verification")).isZero();
+	}
+
+	@Test
+	void employerDoesNotRequireRegistrationWhenFeatureIsEnabled() throws Exception {
+		setSession(MemberRole.EMPLOYER);
+		List<Map<String, Object>> values = jdbc.queryForList("select id from term_type where is_social_signup and is_required and not is_student_registration", Long.class)
+				.stream().map(id -> Map.<String, Object>of("termTypeId", id, "isAgreed", true)).toList();
+		assertThat(saveTerms(values).statusCode()).isEqualTo(200);
+		assertThat(phoneConfirm(sendPhoneCode()).statusCode()).isEqualTo(201);
+		assertThat(jdbc.queryForObject("select role from user_account", String.class)).isEqualTo("EMPLOYER");
+		assertThat(count("student_registration_verification")).isZero();
+		verifyNoInteractions(ocr, apick);
+	}
+
+	@Test
+	void parallelPhoneConfirmationsCreateOnlyOneVerifiedRegistration() throws Exception {
+		agree();
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertThat(upload("back").statusCode()).isEqualTo(200);
+		String code = sendPhoneCode();
+		HttpRequest request = phoneHttpRequest("/verify", Map.of("phoneNumber", "01000000000", "code", code));
+		var first = browser.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+		var second = browser.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+		List<Integer> statuses = List.of(first.get(15, TimeUnit.SECONDS).statusCode(), second.get(15, TimeUnit.SECONDS).statusCode());
+		assertThat(statuses).containsOnlyOnce(201).allMatch(status -> status == 201 || status == 401 || status == 409);
+		assertThat(users.count()).isEqualTo(1);
+		assertThat(count("student_registration_verification")).isEqualTo(1);
+	}
+
+	private void delayPhoneLockUntil(Instant expires) {
+		doAnswer(invocation -> {
+			long wait = expires.toEpochMilli() - System.currentTimeMillis() + 100;
+			if (wait > 0) { Thread.sleep(wait); }
+			return true;
+		}).when(attempts).lockPhoneNumber(anyString());
+	}
+	private long count(String table) { return jdbc.queryForObject("select count(*) from " + table, Long.class); }
+	private HttpRequest phoneHttpRequest(String suffix, Map<String, String> value) {
+		return HttpRequest.newBuilder(uri("/api/auth/social/phone-verifications" + suffix))
+				.header("Content-Type", "application/json").header("X-XSRF-TOKEN", csrf)
+				.header("Authorization", "Bearer ignored-for-cookie-auth")
+				.POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(value))).build();
+	}
+	private HttpResponse<String> phoneRequest() throws Exception {
+		return send(phoneHttpRequest("", Map.of("phoneNumber", "01000000000")));
+	}
+	private HttpResponse<String> phoneConfirm(String code) throws Exception {
+		return send(phoneHttpRequest("/verify", Map.of("phoneNumber", "01000000000", "code", code)));
+	}
+	private String sendPhoneCode() throws Exception {
+		HttpResponse<String> response = phoneRequest();
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		ArgumentCaptor<SmsSendRequest> sent = ArgumentCaptor.forClass(SmsSendRequest.class);
+		verify(smsSender, atLeastOnce()).sendAndWait(sent.capture());
+		String message = sent.getValue().message();
+		return message.substring("[HIRELINK] 인증번호 [".length(), message.length() - 1);
 	}
 
 	private void preparePdf() throws Exception {

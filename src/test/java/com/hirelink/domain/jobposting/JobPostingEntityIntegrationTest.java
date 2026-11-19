@@ -60,7 +60,7 @@ class JobPostingEntityIntegrationTest extends PostgreSQLIntegrationTest {
 				+ "student_job_preference, student_priority, job_posting_work_time, job_posting, workplace, business_type, "
 				+ "student_career, student_profile, "
 				+ "user_term_agreement, phone_verification, phone_verification_send_attempt, "
-				+ "refresh_token, auth_account, user_account RESTART IDENTITY");
+				+ "refresh_token, auth_account, student_registration_verification, user_account RESTART IDENTITY");
 		transactions = new TransactionTemplate(transactionManager);
 	}
 
