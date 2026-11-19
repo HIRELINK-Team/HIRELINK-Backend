@@ -150,8 +150,8 @@ class StudentCareerDeleteIntegrationTest extends PostgreSQLIntegrationTest {
 		CompletableFuture<HttpResponse<String>> second;
 		try (Connection connection = dataSource.getConnection()) {
 			connection.setAutoCommit(false);
-			try (var statement = connection.prepareStatement("select id from student_career where id = ? for update")) {
-				statement.setLong(1, careerId);
+			try (var statement = connection.prepareStatement("select id from user_account where id = ? for update")) {
+				statement.setLong(1, userId);
 				statement.executeQuery().close();
 			}
 			try {
@@ -159,7 +159,7 @@ class StudentCareerDeleteIntegrationTest extends PostgreSQLIntegrationTest {
 				second = client.sendAsync(request("DELETE", CAREER_PATH + careerId, token), HttpResponse.BodyHandlers.ofString());
 				await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(jdbc.queryForObject("""
 						select count(*) from pg_stat_activity where datname = current_database()
-						and wait_event_type = 'Lock' and query like '%student_career%'
+						and wait_event_type = 'Lock' and query like '%user_account%'
 						""", Integer.class)).isGreaterThanOrEqualTo(2));
 			} finally {
 				connection.rollback();

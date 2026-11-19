@@ -81,6 +81,9 @@ public class StudentProfile {
 	@Column(name = "hirelink_badge_issued_at")
 	private Instant hirelinkBadgeIssuedAt;
 
+	@Column(name = "onboarding_completed_at")
+	private Instant onboardingCompletedAt;
+
 	protected StudentProfile() {
 	}
 
@@ -171,5 +174,13 @@ public class StudentProfile {
 
 	public Instant getHirelinkBadgeIssuedAt() {
 		return hirelinkBadgeIssuedAt;
+	}
+
+	public Instant getOnboardingCompletedAt() { return onboardingCompletedAt; }
+
+	public void completeOnboarding(Instant completedAt) {
+		if (onboardingCompletedAt == null) {
+			onboardingCompletedAt = completedAt;
+		}
 	}
 }

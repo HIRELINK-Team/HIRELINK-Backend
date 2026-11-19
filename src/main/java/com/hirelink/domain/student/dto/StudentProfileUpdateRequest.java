@@ -18,6 +18,20 @@ import io.swagger.v3.oas.annotations.media.Schema;
 		example = "{\"visaCode\":\"D-2\",\"topikLevel\":null}")
 public class StudentProfileUpdateRequest {
 
+	public static StudentProfileUpdateRequest forOnboarding(LocalDate birthDate, String nationality,
+			String currentRegion, String koreanLevel, String visaCode, LocalDate stayExpirationDate, Integer topikLevel) {
+		StudentProfileUpdateRequest request = new StudentProfileUpdateRequest();
+		request.birthDate = birthDate;
+		request.nationality = nationality;
+		request.currentRegion = currentRegion;
+		request.koreanLevel = koreanLevel;
+		request.visaCode = visaCode;
+		request.stayExpirationDate = stayExpirationDate;
+		request.topikLevel = topikLevel;
+		request.topikLevelProvided = true;
+		return request;
+	}
+
 	@Pattern(regexp = "(?s).*\\S.*", message = "이름은 공백일 수 없습니다.")
 	@Size(max = 100, message = "이름은 100자 이하여야 합니다.")
 	@Schema(description = "회원 이름. 생략하면 기존 값 유지, null 불가", maxLength = 100,
