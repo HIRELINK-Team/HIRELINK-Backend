@@ -18,6 +18,6 @@ public record StudentCareerResponse(
 				example = "2026-06", type = "string",
 				requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 		String endMonth,
-		@Schema(description = "근무 내용. null 또는 빈 문자열 허용", example = "음료 제조 및 고객 응대", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
+		@Schema(description = "추가 · 수정 후 저장된 근무 내용. null · 빈 문자열 · 공백만인 값은 반환하지 않는다", example = "음료 제조 및 고객 응대", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 		String description) {
 }

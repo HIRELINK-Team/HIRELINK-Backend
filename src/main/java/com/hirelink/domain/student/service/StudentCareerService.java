@@ -76,6 +76,9 @@ public class StudentCareerService {
 				? request.getEndMonth() : YearMonth.parse(career.getEndMonth());
 		String description = request.hasDescription() ? request.getDescription() : career.getDescription();
 		validatePeriod(startMonth, endMonth);
+		if (description == null || description.isBlank()) {
+			throw new InvalidStudentCareerException("근무 내용을 입력해주세요.");
+		}
 
 		career.updateInformation(careerName, startMonth.toString(), endMonth.toString(), description);
 		return new StudentCareerResponse(career.getId(), career.getCareerName(), career.getStartMonth(),

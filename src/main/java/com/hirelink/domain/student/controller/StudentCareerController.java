@@ -43,7 +43,7 @@ public class StudentCareerController {
 	}
 
 	@Operation(summary = "경력 추가",
-			description = "프로필이 등록된 유학생 본인의 경력을 추가한다. 경력명·시작월·종료월 필수, 근무 내용 선택이다. 시작월과 종료월은 YYYY-MM이며 한국 기준 이번 달까지 허용한다. 종료월은 시작월 이상이어야 한다.")
+			description = "프로필이 등록된 유학생 본인의 경력을 추가한다. 경력명 · 시작월 · 종료월 · 근무 내용 모두 필수다. 근무 내용 생략 · null · 빈 문자열 · 공백만 입력은 400 INVALID_INPUT이다. 시작월과 종료월은 YYYY-MM이며 한국 기준 이번 달까지 허용한다. 종료월은 시작월 이상이어야 한다. 성공 시 즉시 DB에 저장하며 온보딩 전체 일괄 저장 API가 아니다.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "201", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = StudentCareerResponse.class),
@@ -51,7 +51,8 @@ public class StudentCareerController {
 		@ApiResponse(responseCode = "400", description = "입력 형식 또는 값 오류",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {
-							@ExampleObject(name = "INVALID_INPUT", value = "{\"code\":\"INVALID_INPUT\",\"message\":\"요청 형식이 올바르지 않습니다.\"}")
+							@ExampleObject(name = "INVALID_INPUT", value = "{\"code\":\"INVALID_INPUT\",\"message\":\"요청 형식이 올바르지 않습니다.\"}"),
+							@ExampleObject(name = "REQUIRED_DESCRIPTION", value = "{\"code\":\"INVALID_INPUT\",\"message\":\"근무 내용을 입력해주세요.\"}")
 						})),
 		@ApiResponse(responseCode = "401", description = "유효한 인증 정보 없음",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
@@ -83,7 +84,7 @@ public class StudentCareerController {
 	}
 
 	@Operation(summary = "경력 수정",
-			description = "보내지 않은 필드는 유지한다. 빈 요청과 수정 대상이 아닌 필드는 400이다. 본인 경력만 수정한다. description의 null은 근무 내용 삭제이며 빈 문자열도 허용한다. 나머지 필드는 null 불가다. 수정 후 시작월·종료월은 한국 기준 이번 달까지, 종료월은 시작월 이상이어야 한다.")
+			description = "보내지 않은 필드는 유지한다. 빈 요청과 수정 대상이 아닌 필드는 400이다. 본인 경력만 수정한다. description의 null · 빈 문자열 · 공백만 입력은 400 INVALID_INPUT이며 내용을 삭제할 수 없다. 생략하면 기존 내용을 유지하되 기존 내용이 비어 있으면 description을 함께 보내야 한다. 나머지 필드도 null 불가다. 수정 후 시작월 · 종료월은 한국 기준 이번 달까지, 종료월은 시작월 이상이어야 한다. 성공 시 즉시 DB에 저장하며 검증 실패 시 기존 경력을 변경하지 않는다. 온보딩 전체 일괄 저장 API가 아니다.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = StudentCareerResponse.class),
@@ -91,7 +92,8 @@ public class StudentCareerController {
 		@ApiResponse(responseCode = "400", description = "입력 형식 또는 값 오류",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {
-							@ExampleObject(name = "INVALID_INPUT", value = "{\"code\":\"INVALID_INPUT\",\"message\":\"요청 형식이 올바르지 않습니다.\"}")
+							@ExampleObject(name = "INVALID_INPUT", value = "{\"code\":\"INVALID_INPUT\",\"message\":\"요청 형식이 올바르지 않습니다.\"}"),
+							@ExampleObject(name = "REQUIRED_DESCRIPTION", value = "{\"code\":\"INVALID_INPUT\",\"message\":\"근무 내용을 입력해주세요.\"}")
 						})),
 		@ApiResponse(responseCode = "401", description = "유효한 인증 정보 없음",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),

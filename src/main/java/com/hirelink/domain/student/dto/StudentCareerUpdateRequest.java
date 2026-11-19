@@ -12,7 +12,7 @@ import tools.jackson.databind.JsonNode;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "보낸 필드만 수정한다. 빈 요청·알 수 없는 필드·description 외 null은 400.", example = "{\"careerName\":\"카페 매장 근무\",\"description\":null}")
+@Schema(description = "보낸 필드만 수정한다. 빈 요청 · 알 수 없는 필드 · 명시적인 null은 400. 기존 근무 내용이 비어 있으면 description을 함께 보내야 한다.", example = "{\"careerName\":\"카페 매장 근무\",\"description\":\"음료 제조 및 고객 응대\"}")
 public class StudentCareerUpdateRequest {
 
 	@Pattern(regexp = "(?s).*\\S.*", message = "경력명은 공백일 수 없습니다.")
@@ -32,9 +32,10 @@ public class StudentCareerUpdateRequest {
 			example = "2026-06", type = "string",
 			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private YearMonth endMonth;
-	@Schema(description = "근무 내용. null 또는 빈 문자열 허용. 생략하면 기존 값 유지, null이면 값 삭제",
+	@Pattern(regexp = "(?s).*\\S.*", message = "근무 내용을 입력해주세요.")
+	@Schema(description = "근무 내용. 생략하면 기존 값 유지. null · 빈 문자열 · 공백만 입력 불가. 기존 내용이 비어 있으면 함께 입력해야 한다",
 			example = "음료 제조 및 고객 응대",
-			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = true)
+			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String description;
 	@Schema(hidden = true)
 	private boolean descriptionProvided;
@@ -54,10 +55,10 @@ public class StudentCareerUpdateRequest {
 		endMonth = parseMonth(value);
 	}
 
-	@JsonSetter
+	@JsonSetter(nulls = Nulls.FAIL)
 	public void setDescription(JsonNode value) {
 		descriptionProvided = true;
-		description = value == null || value.isNull() ? null : requireText(value);
+		description = requireText(value);
 	}
 
 	@JsonAnySetter
