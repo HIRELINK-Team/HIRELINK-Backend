@@ -33,6 +33,7 @@ class StayDocumentTest(unittest.TestCase):
 
     def test_missing_masked_conflicting_and_ambiguous_fields_fail_closed(self):
         bad = [[], SUBJECT[1:], [line for line in SUBJECT if not line.startswith("체류기간 (Period")],
+               [line for line in SUBJECT if not line.startswith("외국인등록번호 (Foreign")],
                [line.replace("000101-5000000", "000101-5******") for line in SUBJECT],
                SUBJECT[:5] + ["체류기간: 2028.07.27"],
                SUBJECT[:3] + ["외국인등록번호: 000101-6000000"] + SUBJECT[3:],
