@@ -229,6 +229,33 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
+	void studentProfileDocumentsParentVisaCodesAndImmediatePersistence() throws Exception {
+		JsonNode document = openApiDocument();
+		List<String> codes = List.of("D-2", "D-4", "D-2-1", "D-2-2", "D-2-3", "D-2-4",
+				"D-2-6", "D-2-7", "D-2-8", "D-4-1", "D-4-7");
+		JsonNode request = schema(document, "StudentProfileUpdateRequest");
+		JsonNode visa = request.path("properties").path("visaCode");
+		assertThat(visa.path("enum").size()).isEqualTo(codes.size());
+		for (String code : codes) {
+			assertThat(contains(visa.path("enum"), code)).as(code).isTrue();
+		}
+		assertThat(nullable(visa)).isFalse();
+		assertThat(contains(request.path("required"), "academicState")).isFalse();
+		for (String name : List.of("StudentProfileResponse", "StudentProfileUpdateResponse")) {
+			JsonNode outputVisa = schema(document, name).path("properties").path("visaCode");
+			assertThat(nullable(outputVisa)).isTrue();
+			for (String code : codes) {
+				assertThat(code.matches(outputVisa.path("pattern").asString())).as(name + code).isTrue();
+			}
+			assertThat("D-2-5".matches(outputVisa.path("pattern").asString())).isFalse();
+		}
+		for (String method : List.of("post", "patch")) {
+			String description = operation(document, "/api/students/me/profile", method).path("description").asString();
+			assertThat(description).contains("즉시 저장", "온보딩 전체 일괄 저장 API가 아니", "온보딩 전체 완료를 의미하지 않는다");
+		}
+	}
+
+	@Test
 	void matchingPreferenceNestedRequestAndResponseSchemasDoNotCollide() throws Exception {
 		JsonNode document = openApiDocument();
 		JsonNode request = schema(document, "StudentMatchingPreferenceUpdateRequest");

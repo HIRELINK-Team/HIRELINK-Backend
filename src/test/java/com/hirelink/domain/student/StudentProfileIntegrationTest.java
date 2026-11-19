@@ -102,7 +102,7 @@ class StudentProfileIntegrationTest extends PostgreSQLIntegrationTest {
 				.containsEntry("stay_start_date", null).containsEntry("stay_expiration_date", null)
 				.containsEntry("profile_image_key", null).containsEntry("certification_prompt_dismissed_at", null)
 				.containsEntry("hirelink_badge_issued_at", null);
-		assertThat(jdbc.queryForObject("select count(*) from visa_type", Integer.class)).isEqualTo(9);
+		assertThat(jdbc.queryForObject("select count(*) from visa_type", Integer.class)).isEqualTo(11);
 		assertThat(jdbc.queryForObject("select count(*) from study_program", Integer.class)).isZero();
 	}
 
