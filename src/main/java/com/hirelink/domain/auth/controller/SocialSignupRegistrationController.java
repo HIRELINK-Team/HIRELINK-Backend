@@ -47,14 +47,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 		@ExampleObject(name = "INVALID_CSRF_TOKEN", value = "{\"code\":\"INVALID_CSRF_TOKEN\",\"message\":\"CSRF 보안 확인값이 없거나 올바르지 않습니다.\"}"),
 		@ExampleObject(name = "SOCIAL_ROLE_MISMATCH", value = "{\"code\":\"SOCIAL_ROLE_MISMATCH\",\"message\":\"가입한 회원 유형으로 로그인해주세요.\"}"),
 		@ExampleObject(name = "WITHDRAWN_ACCOUNT", value = "{\"code\":\"WITHDRAWN_ACCOUNT\",\"message\":\"탈퇴한 계정입니다.\"}") })),
-	@ApiResponse(responseCode = "409", description = "앞면 재촬영 필요 또는 이미 가입된 소셜 계정", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
-		@ExampleObject(name = "REGISTRATION_FRONT_REQUIRED", value = "{\"code\":\"REGISTRATION_FRONT_REQUIRED\",\"message\":\"등록증 앞면을 먼저 촬영해주세요. 확인 완료 후 재촬영도 앞면부터 진행해주세요.\"}"),
-		@ExampleObject(name = "SOCIAL_ACCOUNT_ALREADY_REGISTERED", value = "{\"code\":\"SOCIAL_ACCOUNT_ALREADY_REGISTERED\",\"message\":\"이미 가입한 소셜 계정입니다. 다시 로그인해주세요.\"}") })),
+
 	@ApiResponse(responseCode = "413", description = "파일 5MB 또는 전체 요청 6MB 초과", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "FILE_TOO_LARGE", value = "{\"code\":\"FILE_TOO_LARGE\",\"message\":\"등록증 이미지 또는 체류기간 증빙 파일은 5MB 이하여야 합니다.\"}"))),
-	@ApiResponse(responseCode = "415", description = "JPG·PNG 이외 형식 또는 파일 시그니처 불일치", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "UNSUPPORTED_FILE_TYPE", value = "{\"code\":\"UNSUPPORTED_FILE_TYPE\",\"message\":\"등록증 촬영 이미지는 JPG, PNG만 사용할 수 있습니다.\"}"))),
-	@ApiResponse(responseCode = "422", description = "필수 필드 인식 실패·지원하지 않는 체류자격 또는 기재 정보 불일치", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
-		@ExampleObject(name = "UNREADABLE_REGISTRATION", value = "{\"code\":\"UNREADABLE_REGISTRATION\",\"message\":\"등록증 정보를 확인하지 못했습니다. 선명하게 다시 촬영해주세요.\"}"),
-		@ExampleObject(name = "REGISTRATION_NOT_VERIFIED", value = "{\"code\":\"REGISTRATION_NOT_VERIFIED\",\"message\":\"등록증 정보가 일치하지 않습니다. 등록증을 다시 촬영해주세요.\"}") })),
+
+
 	@ApiResponse(responseCode = "502", description = "OCR 또는 APICK 연결·응답·판정 실패", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
 		@ExampleObject(name = "REGISTRATION_OCR_FAILED", value = "{\"code\":\"REGISTRATION_OCR_FAILED\",\"message\":\"등록증 인식 서비스를 이용할 수 없습니다.\"}"),
 		@ExampleObject(name = "REGISTRATION_VERIFICATION_FAILED", value = "{\"code\":\"REGISTRATION_VERIFICATION_FAILED\",\"message\":\"등록증 진위 확인을 완료하지 못했습니다. 잠시 후 다시 시도해주세요.\"}") })),
@@ -72,7 +68,16 @@ public class SocialSignupRegistrationController {
 		@Parameter(name = "XSRF-TOKEN", in = ParameterIn.COOKIE, required = true, description = "같은 브라우저의 CSRF 쿠키", schema = @Schema(type = "string"))
 	})
 	@Operation(summary = "유학생 가입 등록증 앞면 인식", description = "유학생 소셜 가입 세션과 별도 고유식별정보 동의를 포함한 필수 약관 동의가 필요하다. 프론트는 카메라 촬영만 제공하며 registrationFile에 JPG·PNG 한 개(5MB 이하)를 보낸다. 추가 파일·폼 필드와 OCR 값 직접 수정은 허용하지 않는다. 서버는 파일의 실제 촬영 출처를 증명하지 않는다. 정상 형식의 이미지로 인식을 시작하면 이전 앞면·뒷면·진위·PDF 결과를 먼저 무효화하며 인식 실패에도 이전 결과는 복구하지 않는다. 추출값은 암호화 임시 저장하며 원본 이미지는 보관하지 않는다. 가입 세션 30분 만료는 연장되지 않고, 만료 시 사용 불가·정기 정리 시 삭제된다. 회원·JWT·프로필은 생성하지 않는다.")
-	@ApiResponse(responseCode = "200", description = "앞면 인식 성공. 다음은 뒷면 촬영", content = @Content(mediaType = "application/json", schema = @Schema(implementation = RegistrationFrontResponse.class)))
+	@ApiResponses({
+	@ApiResponse(responseCode = "200", description = "앞면 인식 성공. 다음은 뒷면 촬영", content = @Content(mediaType = "application/json", schema = @Schema(implementation = RegistrationFrontResponse.class))),
+		@ApiResponse(responseCode = "409", description = "앞면 재촬영 필요 또는 이미 가입된 소셜 계정", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
+			@ExampleObject(name = "REGISTRATION_FRONT_REQUIRED", value = "{\"code\":\"REGISTRATION_FRONT_REQUIRED\",\"message\":\"등록증 앞면을 먼저 촬영해주세요. 확인 완료 후 재촬영도 앞면부터 진행해주세요.\"}"),
+			@ExampleObject(name = "SOCIAL_ACCOUNT_ALREADY_REGISTERED", value = "{\"code\":\"SOCIAL_ACCOUNT_ALREADY_REGISTERED\",\"message\":\"이미 가입한 소셜 계정입니다. 다시 로그인해주세요.\"}") })),
+		@ApiResponse(responseCode = "415", description = "JPG·PNG 이외 형식 또는 파일 시그니처 불일치", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "UNSUPPORTED_FILE_TYPE", value = "{\"code\":\"UNSUPPORTED_FILE_TYPE\",\"message\":\"등록증 촬영 이미지는 JPG, PNG만 사용할 수 있습니다.\"}"))),
+		@ApiResponse(responseCode = "422", description = "필수 필드 인식 실패·지원하지 않는 체류자격 또는 기재 정보 불일치", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
+			@ExampleObject(name = "UNREADABLE_REGISTRATION", value = "{\"code\":\"UNREADABLE_REGISTRATION\",\"message\":\"등록증 정보를 확인하지 못했습니다. 선명하게 다시 촬영해주세요.\"}"),
+			@ExampleObject(name = "REGISTRATION_NOT_VERIFIED", value = "{\"code\":\"REGISTRATION_NOT_VERIFIED\",\"message\":\"등록증 정보가 일치하지 않습니다. 등록증을 다시 촬영해주세요.\"}") }))
+	})
 	@PostMapping(value = "/front", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 	public ResponseEntity<RegistrationFrontResponse> front(
 			@Parameter(hidden = true) @CookieValue(name = SocialLoginCookie.NAME, required = false) String token,
@@ -89,7 +94,16 @@ public class SocialSignupRegistrationController {
 		@Parameter(name = "XSRF-TOKEN", in = ParameterIn.COOKIE, required = true, description = "같은 브라우저의 CSRF 쿠키", schema = @Schema(type = "string"))
 	})
 	@Operation(summary = "유학생 가입 등록증 뒷면 인식 · 진위 확인", description = "앞면 인식 후 카메라로 촬영한 뒷면 JPG·PNG 한 개를 registrationFile로 보낸다. 추가 파일·폼 필드는 허용하지 않는다. 정상 형식의 이미지로 처리를 시작하면 이전 뒷면·진위 결과를 무효화한다. 최신 체류 만료일과 일련번호를 읽고 서버에 보관한 앞면 값으로 APICK을 호출한다. 2011-01-01 이전 발급 카드만 일련번호 생략이 가능하다. APICK data.result=1만 통과시키며 과금·HTTP 성공만으로 통과시키지 않는다. 기재 정보 일치 확인이며 얼굴 대조·실물 위변조·최신 체류자격 확인을 보장하지 않는다. 한국 날짜 기준 만료일 당일까지 유효하고 지난 경우 requiresStayDocument=true다. 진위 확인 성공 시 발급일자를 제거하고, PDF 확인이 필요하지 않으면 등록번호도 즉시 제거한다. 진위 확인 성공 후 뒷면 재촬영은 앞면부터 한다. PDF 필요 시 번호는 동일인 확인용으로 기존 세션 만료까지 암호화 보관한다. PDF 필요 시 stay-document API로 확인한다. 휴대전화 가입의 검증 필수 연결은 후속 작업이며 이 응답으로 계정·온보딩을 완료하지 않는다.")
-	@ApiResponse(responseCode = "200", description = "기재 정보 일치 확인 성공. requiresStayDocument로 PDF 필요 여부 판단", content = @Content(mediaType = "application/json", schema = @Schema(implementation = RegistrationBackResponse.class)))
+	@ApiResponses({
+	@ApiResponse(responseCode = "200", description = "기재 정보 일치 확인 성공. requiresStayDocument로 PDF 필요 여부 판단", content = @Content(mediaType = "application/json", schema = @Schema(implementation = RegistrationBackResponse.class))),
+		@ApiResponse(responseCode = "409", description = "앞면 재촬영 필요 또는 이미 가입된 소셜 계정", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
+			@ExampleObject(name = "REGISTRATION_FRONT_REQUIRED", value = "{\"code\":\"REGISTRATION_FRONT_REQUIRED\",\"message\":\"등록증 앞면을 먼저 촬영해주세요. 확인 완료 후 재촬영도 앞면부터 진행해주세요.\"}"),
+			@ExampleObject(name = "SOCIAL_ACCOUNT_ALREADY_REGISTERED", value = "{\"code\":\"SOCIAL_ACCOUNT_ALREADY_REGISTERED\",\"message\":\"이미 가입한 소셜 계정입니다. 다시 로그인해주세요.\"}") })),
+		@ApiResponse(responseCode = "415", description = "JPG·PNG 이외 형식 또는 파일 시그니처 불일치", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "UNSUPPORTED_FILE_TYPE", value = "{\"code\":\"UNSUPPORTED_FILE_TYPE\",\"message\":\"등록증 촬영 이미지는 JPG, PNG만 사용할 수 있습니다.\"}"))),
+		@ApiResponse(responseCode = "422", description = "필수 필드 인식 실패·지원하지 않는 체류자격 또는 기재 정보 불일치", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
+			@ExampleObject(name = "UNREADABLE_REGISTRATION", value = "{\"code\":\"UNREADABLE_REGISTRATION\",\"message\":\"등록증 정보를 확인하지 못했습니다. 선명하게 다시 촬영해주세요.\"}"),
+			@ExampleObject(name = "REGISTRATION_NOT_VERIFIED", value = "{\"code\":\"REGISTRATION_NOT_VERIFIED\",\"message\":\"등록증 정보가 일치하지 않습니다. 등록증을 다시 촬영해주세요.\"}") }))
+	})
 	@PostMapping(value = "/back", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 	public ResponseEntity<RegistrationBackResponse> back(
 			@Parameter(hidden = true) @CookieValue(name = SocialLoginCookie.NAME, required = false) String token,
