@@ -103,24 +103,23 @@ class StudentCareerCreateIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
-	void permitsMissingOrNullDescriptionAndMultipleCareers() throws Exception {
+	void permitsMultipleCareersWithMultilineDescription() throws Exception {
 		long userId = createUser("STUDENT", true);
 		String token = token(userId, "STUDENT");
 		Map<String, Object> request = validRequest();
-		request.remove("description");
-		HttpResponse<String> missing = create(token, mapper.writeValueAsString(request));
-		request.put("description", null);
-		HttpResponse<String> explicitNull = create(token, mapper.writeValueAsString(request));
-		assertThat(missing.statusCode()).isEqualTo(201);
-		assertThat(explicitNull.statusCode()).isEqualTo(201);
-		for (HttpResponse<String> response : List.of(missing, explicitNull)) {
+		request.put("description", "음료 제조\n고객 응대");
+		HttpResponse<String> first = create(token, mapper.writeValueAsString(request));
+		HttpResponse<String> second = create(token, mapper.writeValueAsString(request));
+		assertThat(first.statusCode()).isEqualTo(201);
+		assertThat(second.statusCode()).isEqualTo(201);
+		for (HttpResponse<String> response : List.of(first, second)) {
 			JsonNode body = mapper.readTree(response.body());
-			assertThat(body.has("description")).isTrue();
-			assertThat(body.path("description").isNull()).isTrue();
+			assertThat(body.path("description").asString()).isEqualTo(request.get("description"));
 		}
-		assertThat(mapper.readTree(missing.body()).path("careerId"))
-				.isNotEqualTo(mapper.readTree(explicitNull.body()).path("careerId"));
-		assertThat(jdbc.queryForObject("select count(*) from student_career where description is null", Integer.class)).isEqualTo(2);
+		assertThat(mapper.readTree(first.body()).path("careerId"))
+				.isNotEqualTo(mapper.readTree(second.body()).path("careerId"));
+		assertThat(jdbc.queryForList("select description from student_career", String.class))
+				.containsExactly("음료 제조\n고객 응대", "음료 제조\n고객 응대");
 	}
 
 	@Test
@@ -140,7 +139,7 @@ class StudentCareerCreateIntegrationTest extends PostgreSQLIntegrationTest {
 	@Test
 	void rejectsMissingNullBlankOrOversizedRequiredValues() throws Exception {
 		String token = token(createUser("STUDENT", true), "STUDENT");
-		for (String field : List.of("careerName", "startMonth", "endMonth")) {
+		for (String field : List.of("careerName", "startMonth", "endMonth", "description")) {
 			Map<String, Object> request = validRequest();
 			request.remove(field);
 			assertError(create(token, mapper.writeValueAsString(request)), 400, "INVALID_INPUT");
@@ -151,6 +150,13 @@ class StudentCareerCreateIntegrationTest extends PostgreSQLIntegrationTest {
 			Map<String, Object> request = validRequest();
 			request.put("careerName", name);
 			assertError(create(token, mapper.writeValueAsString(request)), 400, "INVALID_INPUT");
+		}
+		for (String description : List.of("", "   ", "\t\r\n", "\u3000")) {
+			Map<String, Object> request = validRequest();
+			request.put("description", description);
+			HttpResponse<String> response = create(token, mapper.writeValueAsString(request));
+			assertError(response, 400, "INVALID_INPUT");
+			assertThat(mapper.readTree(response.body()).path("message").asString()).isEqualTo("근무 내용을 입력해주세요.");
 		}
 		assertNoCareers();
 	}

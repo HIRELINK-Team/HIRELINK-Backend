@@ -223,9 +223,35 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 		JsonNode employer = schema(document, "EmployerProfileUpdateRequest");
 		assertThat(employer.path("properties").propertyNames()).containsExactlyInAnyOrder("name", "position");
 		assertThat(nullable(employer.path("properties").path("position"))).isTrue();
-		assertThat(nullable(schema(document, "StudentCareerUpdateRequest").path("properties").path("description"))).isTrue();
+		assertThat(nullable(schema(document, "StudentCareerUpdateRequest").path("properties").path("description"))).isFalse();
 		assertThat(schema(document, "WorkplaceUpdateRequest").path("properties").propertyNames())
 				.containsExactlyInAnyOrder("workplaceName", "businessTypeId", "workplaceAddress", "latitude", "longitude");
+	}
+
+	@Test
+	void careerSchemasRequireDescriptionForWritesAndPreserveLegacyReadNullability() throws Exception {
+		JsonNode document = openApiDocument();
+		JsonNode create = schema(document, "StudentCareerCreateRequest");
+		assertThat(contains(create.path("required"), "description")).isTrue();
+		assertThat(nullable(create.path("properties").path("description"))).isFalse();
+		JsonNode update = schema(document, "StudentCareerUpdateRequest");
+		assertThat(contains(update.path("required"), "description")).isFalse();
+		assertThat(nullable(update.path("properties").path("description"))).isFalse();
+		assertThat(update.path("properties").path("description").path("description").asString())
+				.contains("생략하면 기존 값 유지", "기존 내용이 비어 있으면");
+		assertThat(nullable(schema(document, "StudentCareerResponse").path("properties").path("description"))).isFalse();
+		JsonNode career = resolve(document, schema(document, "StudentProfileResponse").path("properties")
+				.path("careers").path("items"));
+		assertThat(nullable(career.path("properties").path("description"))).isTrue();
+		for (String path : List.of("/api/students/me/careers", "/api/students/me/careers/{careerId}")) {
+			JsonNode operation = operation(document, path, path.endsWith("{careerId}") ? "patch" : "post");
+			assertThat(operation.path("description").asString()).contains("즉시 DB에 저장", "온보딩 전체 일괄 저장 API가 아니다");
+			JsonNode example = operation.path("responses").path("400").path("content").path("application/json")
+					.path("examples").path("REQUIRED_DESCRIPTION").path("value");
+			JsonNode value = example.isString() ? objectMapper.readTree(example.asString()) : example;
+			assertThat(value.path("code").asString()).isEqualTo("INVALID_INPUT");
+			assertThat(value.path("message").asString()).isEqualTo("근무 내용을 입력해주세요.");
+		}
 	}
 
 	@Test

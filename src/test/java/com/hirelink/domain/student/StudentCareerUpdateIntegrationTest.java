@@ -101,7 +101,7 @@ class StudentCareerUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
-	void distinguishesOmittedDescriptionFromExplicitNullAndAcceptsRepeatedValues() throws Exception {
+	void preservesOmittedDescriptionRejectsClearingAndAcceptsRepeatedValues() throws Exception {
 		long userId = createUser("STUDENT", true);
 		long careerId = createCareer(userId);
 		String token = token(userId, "STUDENT");
@@ -113,15 +113,38 @@ class StudentCareerUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(mapper.readTree(repeated.body())).isEqualTo(mapper.readTree(first.body()));
 		assertThat(career(careerId)).containsEntry("description", "음료 제조");
 
-		HttpResponse<String> cleared = patch(careerId, token, "{\"description\":null}");
-		assertThat(cleared.statusCode()).isEqualTo(200);
-		JsonNode body = mapper.readTree(cleared.body());
-		assertThat(body.has("description")).isTrue();
-		assertThat(body.path("description").isNull()).isTrue();
-		assertThat(career(careerId)).containsEntry("description", null).containsEntry("career_name", "매장 아르바이트")
-				.containsEntry("start_month", "2023-03").containsEntry("end_month", "2023-09");
-		assertThat(patch(careerId, token, "{\"description\":\"\"}").statusCode()).isEqualTo(200);
-		assertThat(career(careerId)).containsEntry("description", "");
+		Map<String, Object> before = career(careerId);
+		assertError(patch(careerId, token, "{\"description\":null}"), 400, "INVALID_INPUT");
+		for (String description : List.of("", "   ", "\t\r\n", "\u3000")) {
+			assertError(patch(careerId, token, mapper.writeValueAsString(
+					Map.of("careerName", "저장되면 안 됨", "description", description))), 400, "INVALID_INPUT");
+			assertThat(career(careerId)).isEqualTo(before);
+		}
+		assertThat(patch(careerId, token, "{\"description\":\"음료 제조\\n매장 정리\"}").statusCode()).isEqualTo(200);
+		assertThat(career(careerId)).containsEntry("description", "음료 제조\n매장 정리");
+	}
+
+	@Test
+	void legacyEmptyDescriptionsRemainReadableAndRequireContentOnUpdate() throws Exception {
+		long userId = createUser("STUDENT", true);
+		String token = token(userId, "STUDENT");
+		for (String legacy : new String[] {null, "", "   ", "\t\n", "\u3000"}) {
+			long careerId = createCareer(userId);
+			jdbc.update("update student_career set description = ? where id = ?", legacy, careerId);
+			Map<String, Object> before = career(careerId);
+			HttpResponse<String> read = send("GET", "/api/students/me/profile", token, null);
+			assertThat(read.statusCode()).isEqualTo(200);
+			JsonNode stored = java.util.stream.StreamSupport.stream(mapper.readTree(read.body()).path("careers").spliterator(), false)
+					.filter(item -> item.path("careerId").asLong() == careerId).findFirst().orElseThrow();
+			assertThat(stored.path("description")).isEqualTo(mapper.valueToTree(legacy));
+			HttpResponse<String> rejected = patch(careerId, token, "{\"careerName\":\"저장되면 안 됨\"}");
+			assertError(rejected, 400, "INVALID_INPUT");
+			assertThat(mapper.readTree(rejected.body()).path("message").asString()).isEqualTo("근무 내용을 입력해주세요.");
+			assertThat(career(careerId)).isEqualTo(before);
+			assertThat(patch(careerId, token, "{\"careerName\":\"수정 경력\",\"description\":\"고객 응대\"}").statusCode())
+					.isEqualTo(200);
+			assertThat(career(careerId)).containsEntry("career_name", "수정 경력").containsEntry("description", "고객 응대");
+		}
 	}
 
 	@Test
@@ -148,7 +171,7 @@ class StudentCareerUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 		for (String name : List.of("", "   ", "가".repeat(151))) {
 			assertError(patch(careerId, token, mapper.writeValueAsString(Map.of("careerName", name))), 400, "INVALID_INPUT");
 		}
-		for (String field : List.of("careerName", "startMonth", "endMonth")) {
+		for (String field : List.of("careerName", "startMonth", "endMonth", "description")) {
 			Map<String, Object> request = new LinkedHashMap<>();
 			request.put(field, null);
 			assertError(patch(careerId, token, mapper.writeValueAsString(request)), 400, "INVALID_INPUT");
@@ -189,7 +212,7 @@ class StudentCareerUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 		long userId = createUser("STUDENT", true);
 		long careerId = createCareer(userId);
 		Map<String, Object> before = career(careerId);
-		String json = "{\"description\":null}";
+		String json = "{\"description\":\"고객 응대\"}";
 		assertError(patch(careerId, null, json), 401, "UNAUTHORIZED");
 		assertError(patch(careerId, "invalid-token", json), 401, "UNAUTHORIZED");
 		assertError(patch(careerId, token(99999, "STUDENT"), json), 401, "UNAUTHORIZED");
@@ -208,8 +231,8 @@ class StudentCareerUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 	void returnsNotFoundForMissingCareer() throws Exception {
 		long userId = createUser("STUDENT", true);
 		createCareer(userId);
-		assertError(patch(99999, token(userId, "STUDENT"), "{\"description\":null}"), 404, "STUDENT_CAREER_NOT_FOUND");
-		assertError(patch(-1, token(userId, "STUDENT"), "{\"description\":null}"), 404, "STUDENT_CAREER_NOT_FOUND");
+		assertError(patch(99999, token(userId, "STUDENT"), "{\"description\":\"고객 응대\"}"), 404, "STUDENT_CAREER_NOT_FOUND");
+		assertError(patch(-1, token(userId, "STUDENT"), "{\"description\":\"고객 응대\"}"), 404, "STUDENT_CAREER_NOT_FOUND");
 		assertThat(jdbc.queryForObject("select count(*) from student_career", Integer.class)).isEqualTo(1);
 	}
 
@@ -253,7 +276,7 @@ class StudentCareerUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 		jdbc.execute("alter table student_career add constraint test_reject_update check (career_name <> '수정된 경력')");
 		try {
 			HttpResponse<String> response = patch(careerId, token(userId, "STUDENT"),
-					"{\"careerName\":\"수정된 경력\",\"endMonth\":\"2023-10\",\"description\":null}");
+					"{\"careerName\":\"수정된 경력\",\"endMonth\":\"2023-10\",\"description\":\"고객 응대\"}");
 			assertError(response, 500, "INTERNAL_SERVER_ERROR");
 			assertThat(mapper.readTree(response.body()).path("message").asString()).isEqualTo("서버 오류가 발생했습니다.");
 			assertThat(career(careerId)).isEqualTo(before);
