@@ -72,7 +72,7 @@ public class SocialSignupRegistrationService {
 			SocialSignupRegistration registration = registrations.findById(session.getTokenHash())
 					.orElseGet(() -> new SocialSignupRegistration(session.getTokenHash()));
 			registration.resetFront();
-			registrations.saveAndFlush(registration);
+			registration = registrations.saveAndFlush(registration);
 			JsonNode result = ocr.recognize(bytes, file.getContentType(), true);
 			String name = text(result, "name");
 			String country = countryCode(text(result, "nationality"));
