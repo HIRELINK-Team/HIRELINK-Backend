@@ -35,6 +35,7 @@ import com.hirelink.domain.application.repository.ApplicationRepository;
 import com.hirelink.domain.employmentmatch.entity.EmploymentMatch;
 import com.hirelink.domain.employmentmatch.repository.EmploymentMatchRepository;
 import com.hirelink.domain.employmentnotification.EmploymentSmsNotificationPublisher;
+import com.hirelink.domain.employmentnotification.service.EmploymentPopupNotificationService;
 import com.hirelink.domain.employmentoffer.entity.EmploymentOffer;
 import com.hirelink.domain.employmentoffer.repository.EmploymentOfferRepository;
 import com.hirelink.domain.jobposting.entity.JobPosting;
@@ -86,6 +87,7 @@ public class ApplicationService {
 	private final StudentPreferredWorkTimeRepository studentPreferredWorkTimeRepository;
 	private final EmploymentOfferRepository employmentOfferRepository;
 	private final EmploymentMatchRepository employmentMatchRepository;
+	private final EmploymentPopupNotificationService popupNotifications;
 	private final EmploymentSmsNotificationPublisher smsNotifications;
 	private final SupabaseStorageClient storageClient;
 	private final Clock clock;
@@ -97,6 +99,7 @@ public class ApplicationService {
 			StudentPreferredWorkTimeRepository studentPreferredWorkTimeRepository,
 			EmploymentOfferRepository employmentOfferRepository,
 			EmploymentMatchRepository employmentMatchRepository,
+			EmploymentPopupNotificationService popupNotifications,
 			EmploymentSmsNotificationPublisher smsNotifications, SupabaseStorageClient storageClient, Clock clock) {
 		this.userAccountRepository = userAccountRepository;
 		this.applicationRepository = applicationRepository;
@@ -107,6 +110,7 @@ public class ApplicationService {
 		this.studentPreferredWorkTimeRepository = studentPreferredWorkTimeRepository;
 		this.employmentOfferRepository = employmentOfferRepository;
 		this.employmentMatchRepository = employmentMatchRepository;
+		this.popupNotifications = popupNotifications;
 		this.smsNotifications = smsNotifications;
 		this.storageClient = storageClient;
 		this.clock = clock;
@@ -155,6 +159,7 @@ public class ApplicationService {
 				request.desiredStartDate(), SNAPSHOT_VERSION, snapshot, ApplicationStatus.WAITING_RESPONSE,
 				null, appliedAt.plus(24, ChronoUnit.HOURS), appliedAt, null);
 		applicationRepository.saveAndFlush(application);
+		popupNotifications.applicationCreated(application);
 		smsNotifications.applicationCreated(application);
 		return new ApplicationCreateResponse(application.getId(), recommendation.getId(), jobPosting.getId(),
 				application.getDesiredStartDate(), application.getStatus(), application.getEmployerResponseDeadline(),
@@ -212,6 +217,7 @@ public class ApplicationService {
 			throw new ApplicationStateConflictException();
 		}
 		applicationRepository.flush();
+		popupNotifications.applicationRejected(application);
 		smsNotifications.applicationRejected(application);
 		return new ApplicationRejectResponse(application.getId(), application.getStatus(),
 				application.getEndReason(), application.getEndedAt());
