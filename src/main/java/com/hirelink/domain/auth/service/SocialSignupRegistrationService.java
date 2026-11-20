@@ -87,7 +87,7 @@ public class SocialSignupRegistrationService {
 			payload.put("name", name).put("nationalityCode", country).put("visaCode", visa)
 					.put("registrationNumber", number).put("issueDate", issued.toString());
 			registration.saveFront(cipher.encrypt(mapper.writeValueAsString(payload), session.getTokenHash()));
-			return new RegistrationFrontResponse(name, country, visa, number.substring(0, 6) + "-*******", issued, session.getExpiresAt());
+			return new RegistrationFrontResponse(name, country, visa, number.substring(0, 6) + "-" + number.substring(6), issued, session.getExpiresAt());
 		} finally {
 			Arrays.fill(bytes, (byte) 0);
 		}
