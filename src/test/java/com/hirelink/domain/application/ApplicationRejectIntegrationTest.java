@@ -79,7 +79,7 @@ class ApplicationRejectIntegrationTest extends PostgreSQLIntegrationTest {
 
 	@BeforeEach
 	void clearTestDatabase() {
-		jdbc.execute("TRUNCATE TABLE employment_match, employment_offer, application, recommendation, recommendation_batch, "
+		jdbc.execute("TRUNCATE TABLE employment_popup_notification, employment_match, employment_offer, application, recommendation, recommendation_batch, "
 				+ "employer_profile, student_preferred_job, student_preferred_work_time, student_preferred_location, "
 				+ "student_job_preference, student_priority, job_posting_work_time, job_posting, workplace, student_career, "
 				+ "student_profile, user_term_agreement, phone_verification, phone_verification_send_attempt, "
@@ -116,6 +116,11 @@ class ApplicationRejectIntegrationTest extends PostgreSQLIntegrationTest {
 				"desired_start_date", "snapshot_version", "application_snapshot", "employer_response_deadline", "applied_at")) {
 			assertThat(saved.get(unchanged)).as(unchanged).isEqualTo(before.get(unchanged));
 		}
+		assertThat(jdbc.queryForMap("select * from employment_popup_notification"))
+				.containsEntry("recipient_user_id", fixture.studentId())
+				.containsEntry("notification_type", "APPLICATION_REJECTED")
+				.containsEntry("application_id", fixture.applicationId())
+				.containsEntry("employment_offer_id", null);
 		verify(smsNotifications).applicationRejected(any(Application.class));
 	}
 
@@ -174,6 +179,8 @@ class ApplicationRejectIntegrationTest extends PostgreSQLIntegrationTest {
 		assertError(reject(token(fixture.employerId(), "EMPLOYER"), Long.toString(fixture.applicationId())),
 				409, "APPLICATION_STATE_CONFLICT");
 		assertThat(application(fixture.applicationId())).isEqualTo(before);
+		assertThat(jdbc.queryForObject("select count(*) from employment_popup_notification",
+				Integer.class)).isZero();
 	}
 
 	@Test
@@ -201,6 +208,8 @@ class ApplicationRejectIntegrationTest extends PostgreSQLIntegrationTest {
 				409, "APPLICATION_STATE_CONFLICT");
 		assertThat(application(fixture.applicationId())).isEqualTo(rejected);
 		assertThat(endedAt(fixture.applicationId())).isEqualTo(firstEndedAt);
+		assertThat(jdbc.queryForObject("select count(*) from employment_popup_notification",
+				Integer.class)).isEqualTo(1);
 		verify(smsNotifications, times(1)).applicationRejected(any(Application.class));
 	}
 

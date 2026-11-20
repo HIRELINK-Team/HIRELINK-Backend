@@ -17,6 +17,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - Flyway 마이그레이션과 JPA 스키마 검증
 - Testcontainers PostgreSQL을 사용한 인증 통합 테스트
 - SOLAPI 문자 발송 공통 인터페이스와 발송 이력·중복 방지
+- 채용 이벤트별 사용자 계정 기반 1회성 팝업 알림 저장·조회·확인
 - 로그인한 회원의 약관별 동의 상태 저장
 - 휴대전화 인증을 완료한 유학생의 기본 프로필 등록
 - 휴대전화 인증을 완료한 사업주의 프로필 등록
@@ -153,6 +154,42 @@ smsSender.send(new SmsSendRequest(
 - 수신번호는 이력에 저장하지만 문자 본문은 저장하지 않습니다. 인증번호 원문은 기존과 같이 DB에 남지 않습니다. API Key, API Secret, 발신번호, 수신번호, 문자 내용은 애플리케이션 로그에 기록하지 않습니다.
 - `SOLAPI_API_KEY`, `SOLAPI_API_SECRET`, `SOLAPI_SENDER_NUMBER`는 서버 환경변수로만 설정합니다. 테스트는 공통 게이트웨이를 대체하거나 로컬 테스트 서버를 사용하므로 실제 SOLAPI를 호출하지 않습니다.
 - V20 마이그레이션이 `sms_send_history`와 상태·중복 방지 제약을 생성합니다.
+
+### 채용 1회성 팝업 알림 API
+
+지원 생성, 지원 거절, 채용 제안, 제안 수락, 제안 거절이 완료되면 해당 상태 전환과 같은 트랜잭션에서 수신 사용자 계정의 팝업 알림을 저장합니다. 상태 전환이 실패하거나 트랜잭션이 롤백되면 알림도 저장되지 않습니다. 유형·지원 또는 제안 ID·수신 사용자 ID의 DB 유일 제약으로 같은 이벤트의 중복 알림을 방지합니다. 문자 알림과 인증 문자 정책은 변경하지 않습니다.
+
+- `GET /api/notifications/popups`: Access Token으로 식별한 회원의 미확인 알림을 `createdAt`, `notificationId` 오름차순으로 모두 반환합니다. 없으면 `200`과 `{ "notifications": [] }`입니다.
+- `PATCH /api/notifications/popups/{notificationId}/confirm`: 본인 알림의 최초 확인 시각을 저장합니다. 이미 확인한 알림은 `200`과 기존 `confirmedAt`을 반환하는 멱등 요청입니다. 다른 회원의 알림은 `403`, 없는 알림은 `404 EMPLOYMENT_POPUP_NOTIFICATION_NOT_FOUND`입니다.
+- 확인 여부는 기기·쿠키가 아니라 사용자 계정과 DB의 `confirmed_at`으로 관리하므로 다른 기기에서도 확인한 팝업은 다시 조회되지 않습니다.
+- 두 응답 모두 `Cache-Control: no-store`를 사용합니다. 목록·페이지네이션·삭제·전체 읽음·재노출·브라우저 푸시는 제공하지 않습니다.
+
+미확인 알림 항목은 `notificationId`, `type`, `message`, `applicationId`, `employmentOfferId`, `createdAt`을 포함합니다. 지원 생성·거절은 `employmentOfferId`가 `null`이고, 제안 관련 유형은 지원 ID와 제안 ID를 모두 반환합니다.
+
+| type | message | 이동 식별자 |
+| --- | --- | --- |
+| `APPLICATION_CREATED` | `새로운 지원자가 있습니다. 서비스에서 확인해 주세요.` | `applicationId` |
+| `APPLICATION_REJECTED` | `지원하신 일자리의 채용 결과를 서비스에서 확인해 주세요.` | `applicationId` |
+| `OFFER_CREATED` | `새로운 채용 제안이 도착했습니다. 서비스에서 응답해 주세요.` | `applicationId`, `employmentOfferId` |
+| `OFFER_ACCEPTED` | `채용 제안이 수락되었습니다. 서비스에서 확인해 주세요.` | `applicationId`, `employmentOfferId` |
+| `OFFER_REJECTED` | `채용 제안이 거절되었습니다. 서비스에서 확인해 주세요.` | `applicationId`, `employmentOfferId` |
+
+```json
+{
+  "notifications": [
+    {
+      "notificationId": 401,
+      "type": "OFFER_CREATED",
+      "message": "새로운 채용 제안이 도착했습니다. 서비스에서 응답해 주세요.",
+      "applicationId": 201,
+      "employmentOfferId": 301,
+      "createdAt": "2026-11-20T05:00:00Z"
+    }
+  ]
+}
+```
+
+확인 처리 응답은 `{ "notificationId": 401, "confirmedAt": "2026-11-20T05:05:00Z" }` 형식입니다. V28 마이그레이션이 `employment_popup_notification` 테이블과 참조·중복 방지 제약, 미확인 조회 인덱스를 생성합니다.
 
 ### 휴대전화 인증번호 확인 API
 

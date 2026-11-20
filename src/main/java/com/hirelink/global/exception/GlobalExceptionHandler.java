@@ -21,6 +21,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(EmploymentPopupNotificationNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleEmploymentPopupNotificationNotFound(
+			EmploymentPopupNotificationNotFoundException exception) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND)
+				.body(new ErrorResponse("EMPLOYMENT_POPUP_NOTIFICATION_NOT_FOUND", exception.getMessage()));
+	}
+
 	@ExceptionHandler(SocialAuthException.class)
 	public ResponseEntity<ErrorResponse> handleSocialAuth(SocialAuthException exception) {
 		return ResponseEntity.status(exception.getStatus())
