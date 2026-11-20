@@ -66,7 +66,7 @@ public class SocialSignupRegistrationController {
 		@Parameter(name = "X-XSRF-TOKEN", in = ParameterIn.HEADER, required = true, description = "GET /api/auth/csrf 응답 token", schema = @Schema(type = "string")),
 		@Parameter(name = "XSRF-TOKEN", in = ParameterIn.COOKIE, required = true, description = "같은 브라우저의 CSRF 쿠키", schema = @Schema(type = "string"))
 	})
-	@Operation(summary = "유학생 가입 등록증 앞면 인식", description = "유학생 소셜 가입 세션과 별도 고유식별정보 동의를 포함한 필수 약관 동의가 필요하다. 프론트는 카메라 촬영만 제공하며 registrationFile에 JPG·PNG 한 개(5MB 이하)를 보낸다. 추가 파일·폼 필드와 OCR 값 직접 수정은 허용하지 않는다. 서버는 파일의 실제 촬영 출처를 증명하지 않는다. 정상 형식의 이미지로 인식을 시작하면 이전 앞면·뒷면·진위·PDF 결과를 먼저 무효화하며 인식 실패에도 이전 결과는 복구하지 않는다. 성공 응답의 registrationNumber에 숫자 6자리-7자리 형식의 등록번호 전체를 반환한다. 기존 maskedRegistrationNumber 키는 제거한다. 응답은 no-store이며 프론트는 확인용 원문을 화면 이탈·인증 완료 시 정리한다. 추출값은 암호화 임시 저장하며 원본 이미지는 보관하지 않는다. 가입 세션 30분 만료는 연장되지 않고, 만료 시 사용 불가·정기 정리 시 삭제된다. 회원·JWT·프로필은 생성하지 않는다.")
+	@Operation(summary = "유학생 가입 등록증 앞면 인식", description = "유학생 소셜 가입 세션과 별도 고유식별정보 동의를 포함한 필수 약관 동의가 필요하다. 카메라 촬영 또는 앨범에서 선택한 이미지를 같은 API의 registrationFile에 JPG·PNG 한 개(5MB 이하)로 보낸다. 추가 파일·폼 필드와 OCR 값 직접 수정은 허용하지 않는다. 서버는 파일의 실제 촬영 출처를 증명하지 않는다. 정상 형식의 이미지로 인식을 시작하면 이전 앞면·뒷면·진위·PDF 결과를 먼저 무효화하며 인식 실패에도 이전 결과는 복구하지 않는다. 성공 응답의 registrationNumber에 숫자 6자리-7자리 형식의 등록번호 전체를 반환한다. 기존 maskedRegistrationNumber 키는 제거한다. 응답은 no-store이며 프론트는 확인용 원문을 화면 이탈·인증 완료 시 정리한다. 추출값은 암호화 임시 저장하며 원본 이미지는 보관하지 않는다. 가입 세션 30분 만료는 연장되지 않고, 만료 시 사용 불가·정기 정리 시 삭제된다. 회원·JWT·프로필은 생성하지 않는다.")
 	@ApiResponses({
 	@ApiResponse(responseCode = "200", description = "앞면 인식 성공. 등록번호 전체 확인 후 뒷면 촬영", content = @Content(mediaType = "application/json", schema = @Schema(implementation = RegistrationFrontResponse.class), examples = @ExampleObject(name = "success", value = """
 				{"name":"TEST STUDENT","nationalityCode":"VN","visaCode":"D-2","registrationNumber":"000101-5000000","issueDate":"2020-01-01","signupExpiresAt":"2026-11-20T10:30:00Z"}
@@ -82,7 +82,7 @@ public class SocialSignupRegistrationController {
 	@PostMapping(value = "/front", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 	public ResponseEntity<RegistrationFrontResponse> front(
 			@Parameter(hidden = true) @CookieValue(name = SocialLoginCookie.NAME, required = false) String token,
-			@Parameter(description = "카메라로 촬영한 등록증 앞면 JPG·PNG 한 개, 최대 5MB", schema = @Schema(type = "string", format = "binary"))
+			@Parameter(description = "촬영 또는 앨범에서 선택한 등록증 앞면 JPG·PNG 한 개, 최대 5MB", schema = @Schema(type = "string", format = "binary"))
 			@RequestPart("registrationFile") MultipartFile file,
 			@Parameter(hidden = true) MultipartHttpServletRequest request) {
 		validateParts(request);
@@ -94,7 +94,7 @@ public class SocialSignupRegistrationController {
 		@Parameter(name = "X-XSRF-TOKEN", in = ParameterIn.HEADER, required = true, description = "GET /api/auth/csrf 응답 token", schema = @Schema(type = "string")),
 		@Parameter(name = "XSRF-TOKEN", in = ParameterIn.COOKIE, required = true, description = "같은 브라우저의 CSRF 쿠키", schema = @Schema(type = "string"))
 	})
-	@Operation(summary = "유학생 가입 등록증 뒷면 인식 · 진위 확인", description = "앞면 인식 후 카메라로 촬영한 뒷면 JPG·PNG 한 개를 registrationFile로 보낸다. 추가 파일·폼 필드는 허용하지 않는다. 정상 형식의 이미지로 처리를 시작하면 이전 뒷면·진위 결과를 무효화한다. 최신 체류 만료일과 일련번호를 읽고 서버에 보관한 앞면 값으로 APICK을 호출한다. 2011-01-01 이전 발급 카드만 일련번호 생략이 가능하다. APICK data.result=1만 통과시키며 과금·HTTP 성공만으로 통과시키지 않는다. 기재 정보 일치 확인이며 얼굴 대조·실물 위변조·최신 체류자격 확인을 보장하지 않는다. 한국 날짜 기준 만료일 당일까지 유효하고 지난 경우 requiresStayDocument=true다. 진위 확인 성공 시 발급일자를 제거하고, PDF 확인이 필요하지 않으면 등록번호도 즉시 제거한다. 진위 확인 성공 후 뒷면 재촬영은 앞면부터 한다. 공통 응답의 serialNumber는 카드에서 읽은 11자리 문자열이며 일련번호 없는 구형 카드는 null이다. 허가일자·신고일은 반환하지 않는다. PDF 필요 시 등록번호와 카드 일련번호를 기존 세션 만료까지 암호화 보관하고, PDF가 필요하지 않으면 일련번호는 저장하지 않는다. PDF 필요 시 stay-document API로 확인한다. 활성화된 유학생 휴대전화 가입에서 이 결과와 체류기간을 재검사한다. 이 응답 자체로 계정·온보딩을 완료하지 않는다.")
+	@Operation(summary = "유학생 가입 등록증 뒷면 인식 · 진위 확인", description = "앞면 인식 후 카메라로 촬영하거나 앨범에서 선택한 뒷면 JPG·PNG 한 개를 registrationFile로 보낸다. 추가 파일·폼 필드는 허용하지 않는다. 정상 형식의 이미지로 처리를 시작하면 이전 뒷면·진위 결과를 무효화한다. 최신 체류 만료일과 일련번호를 읽고 서버에 보관한 앞면 값으로 APICK을 호출한다. 2011-01-01 이전 발급 카드만 일련번호 생략이 가능하다. APICK data.result=1만 통과시키며 과금·HTTP 성공만으로 통과시키지 않는다. 기재 정보 일치 확인이며 얼굴 대조·실물 위변조·최신 체류자격 확인을 보장하지 않는다. 한국 날짜 기준 만료일 당일까지 유효하고 지난 경우 requiresStayDocument=true다. 진위 확인 성공 시 발급일자를 제거하고, PDF 확인이 필요하지 않으면 등록번호도 즉시 제거한다. 진위 확인 성공 후 뒷면 재촬영은 앞면부터 한다. 공통 응답의 serialNumber는 카드에서 읽은 11자리 문자열이며 일련번호 없는 구형 카드는 null이다. 허가일자·신고일은 반환하지 않는다. PDF 필요 시 등록번호와 카드 일련번호를 기존 세션 만료까지 암호화 보관하고, PDF가 필요하지 않으면 일련번호는 저장하지 않는다. PDF 필요 시 stay-document API로 확인한다. 활성화된 유학생 휴대전화 가입에서 이 결과와 체류기간을 재검사한다. 이 응답 자체로 계정·온보딩을 완료하지 않는다.")
 	@ApiResponses({
 	@ApiResponse(responseCode = "200", description = "기재 정보 일치 확인 성공. 공통 응답의 requiresStayDocument로 PDF 필요 여부 판단", content = @Content(mediaType = "application/json", schema = @Schema(implementation = RegistrationVerificationResponse.class), examples = {
 				@ExampleObject(name = "cardValid", value = """
@@ -114,7 +114,7 @@ public class SocialSignupRegistrationController {
 	@PostMapping(value = "/back", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 	public ResponseEntity<RegistrationVerificationResponse> back(
 			@Parameter(hidden = true) @CookieValue(name = SocialLoginCookie.NAME, required = false) String token,
-			@Parameter(description = "카메라로 촬영한 등록증 뒷면 JPG·PNG 한 개, 최대 5MB", schema = @Schema(type = "string", format = "binary"))
+			@Parameter(description = "촬영 또는 앨범에서 선택한 등록증 뒷면 JPG·PNG 한 개, 최대 5MB", schema = @Schema(type = "string", format = "binary"))
 			@RequestPart("registrationFile") MultipartFile file,
 			@Parameter(hidden = true) MultipartHttpServletRequest request) {
 		validateParts(request);

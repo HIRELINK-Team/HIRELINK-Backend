@@ -9,14 +9,16 @@
 
 ## 프론트 연결
 
+전체 화면 순서와 API 연결은 [온보딩 화면별 연결표](student-onboarding.md#화면별-api-연결)를 참고한다. 아래에서 재촬영은 촬영 또는 앨범 이미지 재선택·업로드를 포함한다.
+
 1. 기존 소셜 인증으로 `socialSignup` 쿠키를 받는다. 계정은 아직 생성되지 않는다.
 2. `GET /api/auth/social/terms`에서 약관을 조회한다. 기능이 활성화된 유학생에게는 필수 `고유식별정보 수집·이용` 항목이 추가된다. 사업주 또는 기능 비활성 상태에는 기존 약관 목록을 유지한다. ID는 응답값을 사용한다.
 3. 확정된 약관 본문을 표시하고 별도 체크박스로 동의를 받는다. `PUT /api/auth/social/terms`에 다른 필수 약관과 함께 저장한다. 기존 동의 시각 보존 정책을 따른다. 동의 문서 · 번역은 프론트에서 제공하며 DB의 항목명만으로 법적 요건을 갖췄다고 간주하지 않는다.
-4. 카메라로 앞면을 촬영해 `POST /api/auth/social/registration/front`로 보낸다. 응답을 확인하고 틀리면 재촬영한다. 값을 직접 수정하는 API는 없다.
-5. 카메라로 뒷면을 촬영해 `POST /api/auth/social/registration/back`로 보낸다. 서버가 보관한 앞면 값과 뒷면 OCR 값으로 APICK을 호출한다.
+4. 카메라로 촬영하거나 앨범에서 선택한 앞면 이미지를 `POST /api/auth/social/registration/front`로 보낸다. 응답을 확인하고 틀리면 다시 촬영하거나 사진을 다시 선택한다. 값을 직접 수정하는 API는 없다.
+5. 카메라로 촬영하거나 앨범에서 선택한 뒷면 이미지를 `POST /api/auth/social/registration/back`로 보낸다. 서버가 보관한 앞면 값과 뒷면 OCR 값으로 APICK을 호출한다.
 6. 뒷면 응답의 `requiresStayDocument=true`이면 `POST /api/auth/social/registration/stay-document`로 PDF를 확인한다. 카드만으로 완료하거나 PDF로 완료한 경우 모두 같은 응답 형식의 `serialNumber`와 `stayExpiresOn`을 확인 화면에 사용한다. PDF를 쓰는 사람도 카드 앞면·뒷면을 먼저 제출해야 한다. 이 응답은 계정 생성 · 온보딩 완료가 아니다.
 
-두 POST는 `multipart/form-data`이며 **`registrationFile` 파일 파트 한 개만** 허용한다. JPG/PNG, 파일 최대 5MB, 전체 요청 최대 6MB다. PDF · 추가 파일 · 폼 필드는 거절한다. 파일 이름을 경로로 사용하거나 원본 이미지를 저장하지 않는다. 프론트는 사진 선택 UI 없이 촬영만 제공하지만, 서버가 이미지의 카메라 출처를 증명하는 기능은 아니다.
+두 POST는 `multipart/form-data`이며 **`registrationFile` 파일 파트 한 개만** 허용한다. JPG/PNG, 파일 최대 5MB, 전체 요청 최대 6MB다. PDF · 추가 파일 · 폼 필드는 거절한다. 파일 이름을 경로로 사용하거나 원본 이미지를 저장하지 않는다. 프론트는 카메라 촬영과 앨범 사진 선택을 모두 제공한다. 두 방식은 같은 업로드 API를 사용하며 서버는 이미지의 촬영·앨범 출처를 구분하지 않는다. 촬영·선택 UI와 기기 권한은 프론트에서 처리한다.
 
 쿠키와 `GET /api/auth/csrf`에서 받은 `X-XSRF-TOKEN` 헤더를 함께 보낸다. Bearer 토큰은 이 API의 인증 수단이 아니며 전달해도 CSRF를 우회하지 않는다. 응답은 `Cache-Control: no-store`로 취급하고 원문을 브라우저 영구 저장소 · 분석 도구에 기록하지 않는다.
 
