@@ -67,9 +67,11 @@ public class SocialSignupRegistrationController {
 		@Parameter(name = "X-XSRF-TOKEN", in = ParameterIn.HEADER, required = true, description = "GET /api/auth/csrf 응답 token", schema = @Schema(type = "string")),
 		@Parameter(name = "XSRF-TOKEN", in = ParameterIn.COOKIE, required = true, description = "같은 브라우저의 CSRF 쿠키", schema = @Schema(type = "string"))
 	})
-	@Operation(summary = "유학생 가입 등록증 앞면 인식", description = "유학생 소셜 가입 세션과 별도 고유식별정보 동의를 포함한 필수 약관 동의가 필요하다. 프론트는 카메라 촬영만 제공하며 registrationFile에 JPG·PNG 한 개(5MB 이하)를 보낸다. 추가 파일·폼 필드와 OCR 값 직접 수정은 허용하지 않는다. 서버는 파일의 실제 촬영 출처를 증명하지 않는다. 정상 형식의 이미지로 인식을 시작하면 이전 앞면·뒷면·진위·PDF 결과를 먼저 무효화하며 인식 실패에도 이전 결과는 복구하지 않는다. 추출값은 암호화 임시 저장하며 원본 이미지는 보관하지 않는다. 가입 세션 30분 만료는 연장되지 않고, 만료 시 사용 불가·정기 정리 시 삭제된다. 회원·JWT·프로필은 생성하지 않는다.")
+	@Operation(summary = "유학생 가입 등록증 앞면 인식", description = "유학생 소셜 가입 세션과 별도 고유식별정보 동의를 포함한 필수 약관 동의가 필요하다. 프론트는 카메라 촬영만 제공하며 registrationFile에 JPG·PNG 한 개(5MB 이하)를 보낸다. 추가 파일·폼 필드와 OCR 값 직접 수정은 허용하지 않는다. 서버는 파일의 실제 촬영 출처를 증명하지 않는다. 정상 형식의 이미지로 인식을 시작하면 이전 앞면·뒷면·진위·PDF 결과를 먼저 무효화하며 인식 실패에도 이전 결과는 복구하지 않는다. 성공 응답의 registrationNumber에 숫자 6자리-7자리 형식의 등록번호 전체를 반환한다. 기존 maskedRegistrationNumber 키는 제거한다. 응답은 no-store이며 프론트는 확인용 원문을 화면 이탈·인증 완료 시 정리한다. 추출값은 암호화 임시 저장하며 원본 이미지는 보관하지 않는다. 가입 세션 30분 만료는 연장되지 않고, 만료 시 사용 불가·정기 정리 시 삭제된다. 회원·JWT·프로필은 생성하지 않는다.")
 	@ApiResponses({
-	@ApiResponse(responseCode = "200", description = "앞면 인식 성공. 다음은 뒷면 촬영", content = @Content(mediaType = "application/json", schema = @Schema(implementation = RegistrationFrontResponse.class))),
+	@ApiResponse(responseCode = "200", description = "앞면 인식 성공. 등록번호 전체 확인 후 뒷면 촬영", content = @Content(mediaType = "application/json", schema = @Schema(implementation = RegistrationFrontResponse.class), examples = @ExampleObject(name = "success", value = """
+				{"name":"TEST STUDENT","nationalityCode":"VN","visaCode":"D-2","registrationNumber":"000101-5000000","issueDate":"2020-01-01","signupExpiresAt":"2026-11-20T10:30:00Z"}
+				"""))),
 		@ApiResponse(responseCode = "409", description = "앞면 재촬영 필요 또는 이미 가입된 소셜 계정", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
 			@ExampleObject(name = "REGISTRATION_FRONT_REQUIRED", value = "{\"code\":\"REGISTRATION_FRONT_REQUIRED\",\"message\":\"등록증 앞면을 먼저 촬영해주세요. 확인 완료 후 재촬영도 앞면부터 진행해주세요.\"}"),
 			@ExampleObject(name = "SOCIAL_ACCOUNT_ALREADY_REGISTERED", value = "{\"code\":\"SOCIAL_ACCOUNT_ALREADY_REGISTERED\",\"message\":\"이미 가입한 소셜 계정입니다. 다시 로그인해주세요.\"}") })),
