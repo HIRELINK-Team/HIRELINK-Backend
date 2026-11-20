@@ -57,7 +57,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 			    "preferredWorkTimes":[
 			      {"dayOfWeek":"MON","startTime":"22:00","endTime":"00:00"},
 			      {"dayOfWeek":"TUE","startTime":"00:00","endTime":"02:00"}],
-			    "preferredLocation":{"locationName":"강남역","latitude":37.4979,"longitude":127.0276,"radiusM":750},
+			    "preferredLocation":{"locationName":"강남역","latitude":37.4979,"longitude":127.0276,"radiusM":700},
 			    "priorities":[{"criterionId":1,"priorityOrder":1},{"criterionId":2,"priorityOrder":2},
 			      {"criterionId":3,"priorityOrder":3},{"criterionId":4,"priorityOrder":4}]
 			  }
@@ -102,12 +102,52 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(count("student_preferred_job", user)).isEqualTo(2);
 		assertThat(count("student_preferred_work_time", user)).isEqualTo(2);
 		assertThat(count("student_priority", user)).isEqualTo(4);
-		assertThat(jdbc.queryForObject("select radius_m from student_preferred_location where user_id = ?", Integer.class, user)).isEqualTo(750);
+		assertThat(jdbc.queryForObject("select radius_m from student_preferred_location where user_id = ?", Integer.class, user)).isEqualTo(700);
 		assertThat(jdbc.queryForObject("select minimum_hourly_wage from student_job_preference where user_id = ?", Integer.class, user)).isNull();
 		HttpResponse<String> read = send("GET", "/api/students/me/profile", token(user, "STUDENT"), null);
 		assertThat(read.statusCode()).isEqualTo(200);
 		assertThat(mapper.readTree(read.body()).path("careers").size()).isEqualTo(1);
 		assertThat(send("GET", "/api/students/me/matching-preferences", token(user, "STUDENT"), null).statusCode()).isEqualTo(200);
+	}
+
+	@Test
+	void acceptsEveryHundredMeterRadiusAtOnboardingCompletion() throws Exception {
+		for (int radius = 100; radius <= 1000; radius += 100) {
+			long user = verifiedStudent();
+			ObjectNode request = body();
+			((ObjectNode) preferences(request).path("preferredLocation")).put("radiusM", radius);
+			HttpResponse<String> response = post(user, request.toString());
+			assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+			assertThat(mapper.readTree(response.body()).path("completed").asBoolean()).isTrue();
+			assertThat(jdbc.queryForObject("select radius_m from student_preferred_location where user_id = ?", Integer.class, user)).isEqualTo(radius);
+		}
+	}
+
+	@Test
+	void rejectsInvalidRadiusWithoutCreatingOrReplacingAnyOnboardingData() throws Exception {
+		long newUser = verifiedStudent();
+		long existingUser = verifiedStudent();
+		seedIncomplete(existingUser);
+		jdbc.update("""
+				insert into student_preferred_location(user_id, location_name, latitude, longitude, radius_m)
+				values (?, '기존 지역', 37, 127, 5000)
+				""", existingUser);
+		List<List<Map<String, Object>>> before = snapshot(existingUser);
+		Map<String, Object> verification = verification(newUser);
+		for (String radius : List.of("-100", "0", "1", "99", "101", "150", "750", "999", "1001", "1100", "5000",
+				"2147483648", "100.0", "100.5", "\"100\"", "null", "true", "[]", "{}")) {
+			String request = FULL_REQUEST.replace("\"radiusM\":700", "\"radiusM\":" + radius);
+			assertError(post(newUser, request), 400, "INVALID_INPUT");
+			assertError(post(existingUser, request), 400, "INVALID_INPUT");
+			assertNoOnboarding(newUser);
+			assertThat(verification(newUser)).isEqualTo(verification);
+			assertThat(snapshot(existingUser)).as("radiusM=%s", radius).isEqualTo(before);
+		}
+		String missingRadius = FULL_REQUEST.replace(",\"radiusM\":700", "");
+		assertError(post(newUser, missingRadius), 400, "INVALID_INPUT");
+		assertError(post(existingUser, missingRadius), 400, "INVALID_INPUT");
+		assertNoOnboarding(newUser);
+		assertThat(snapshot(existingUser)).isEqualTo(before);
 	}
 
 	@Test

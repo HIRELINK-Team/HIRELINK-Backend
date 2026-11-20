@@ -307,6 +307,43 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
+	void matchingRadiusConstraintsAndExamplesMatchBothWriteApisAndLegacyResponses() throws Exception {
+		JsonNode document = openApiDocument();
+		for (String name : List.of("StudentMatchingPreferenceUpdateRequest", "StudentOnboardingMatchingPreferenceRequest")) {
+			JsonNode request = schema(document, name);
+			JsonNode location = resolve(document, request.path("properties").path("preferredLocation"));
+			JsonNode radius = location.path("properties").path("radiusM");
+			assertType(radius, "integer");
+			assertThat(contains(location.path("required"), "radiusM")).isTrue();
+			assertThat(nullable(radius)).isFalse();
+			assertThat(radius.path("minimum").asInt()).isEqualTo(100);
+			assertThat(radius.path("maximum").asInt()).isEqualTo(1000);
+			assertThat(radius.path("multipleOf").asInt()).isEqualTo(100);
+			assertThat(radius.path("example").asInt()).isEqualTo(500);
+		}
+		JsonNode requestExample = schema(document, "StudentMatchingPreferenceUpdateRequest").path("example");
+		if (requestExample.isString()) { requestExample = objectMapper.readTree(requestExample.asString()); }
+		assertThat(requestExample.path("preferredLocation").path("radiusM").asInt()).isEqualTo(500);
+		JsonNode outputLocation = resolve(document, schema(document, "StudentMatchingPreferenceResponse")
+				.path("properties").path("preferredLocation"));
+		JsonNode outputRadius = outputLocation.path("properties").path("radiusM");
+		assertThat(outputRadius.has("maximum")).isFalse();
+		assertThat(outputRadius.has("multipleOf")).isFalse();
+		assertThat(outputRadius.path("description").asString()).contains("기존 저장값은 그대로 반환");
+		for (String method : List.of("get", "patch")) {
+			JsonNode example = operation(document, "/api/students/me/matching-preferences", method)
+					.path("responses").path("200").path("content").path("application/json")
+					.path("examples").path("success").path("value");
+			if (example.isString()) { example = objectMapper.readTree(example.asString()); }
+			assertThat(example.path("preferredLocation").path("radiusM").asInt()).isEqualTo(500);
+		}
+		assertThat(operation(document, "/api/students/me/matching-preferences", "patch").path("description").asString())
+				.contains("100~1,000m", "100m 간격");
+		assertThat(operation(document, "/api/students/me/onboarding", "post").path("description").asString())
+				.contains("100~1,000m", "100m 간격");
+	}
+
+	@Test
 	void draftPostingsAndListFiltersExposeConditionalFields() throws Exception {
 		JsonNode document = openApiDocument();
 		JsonNode request = schema(document, "JobPostingCreateRequest");

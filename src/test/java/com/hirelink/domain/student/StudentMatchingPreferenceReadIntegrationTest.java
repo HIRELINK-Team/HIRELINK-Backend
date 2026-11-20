@@ -131,7 +131,7 @@ class StudentMatchingPreferenceReadIntegrationTest extends PostgreSQLIntegration
 				""", userId, userId, userId, userId, otherUserId);
 		jdbc.update("""
 				insert into student_preferred_location(user_id, location_name, latitude, longitude, radius_m)
-				values (?, '강남역', 37.4979123, 127.0276123, 3000), (?, '다른 지역', 35.1234567, 129.1234567, 1000)
+				values (?, '강남역', 37.4979123, 127.0276123, 500), (?, '다른 지역', 35.1234567, 129.1234567, 1000)
 				""", userId, otherUserId);
 		jdbc.update("""
 				insert into student_priority(user_id, criterion_id, priority_order, weight)
@@ -155,7 +155,7 @@ class StudentMatchingPreferenceReadIntegrationTest extends PostgreSQLIntegration
 				    {"dayOfWeek":"WED","startTime":"18:30","endTime":"22:00"},
 				    {"dayOfWeek":"SUN","startTime":"10:00","endTime":"12:00"}
 				  ],
-				  "preferredLocation": {"locationName":"강남역","latitude":37.4979123,"longitude":127.0276123,"radiusM":3000},
+				  "preferredLocation": {"locationName":"강남역","latitude":37.4979123,"longitude":127.0276123,"radiusM":500},
 				  "minimumHourlyWage":12000,
 				  "priorities": [
 				    {"criterionId":2,"criterionName":"WAGE","priorityOrder":1},
@@ -166,6 +166,23 @@ class StudentMatchingPreferenceReadIntegrationTest extends PostgreSQLIntegration
 				}
 				"""));
 		assertThat(jdbc.queryForList("select * from student_priority order by user_id, criterion_id")).isEqualTo(prioritiesBefore);
+	}
+
+	@Test
+	void returnsLegacyRadiusWithoutChangingTheStoredLocation() throws Exception {
+		long userId = createUser("STUDENT", true);
+		jdbc.update("""
+				insert into student_preferred_location(user_id, location_name, latitude, longitude, radius_m)
+				values (?, '기존 지역', 37, 127, 5000)
+				""", userId);
+		for (int radius : List.of(750, 5000)) {
+			jdbc.update("update student_preferred_location set radius_m = ? where user_id = ?", radius, userId);
+			Map<String, Object> before = jdbc.queryForMap("select * from student_preferred_location where user_id = ?", userId);
+			HttpResponse<String> response = get(PATH, token(userId, "STUDENT"));
+			assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+			assertThat(mapper.readTree(response.body()).path("preferredLocation").path("radiusM").asInt()).isEqualTo(radius);
+			assertThat(jdbc.queryForMap("select * from student_preferred_location where user_id = ?", userId)).isEqualTo(before);
+		}
 	}
 
 	@Test

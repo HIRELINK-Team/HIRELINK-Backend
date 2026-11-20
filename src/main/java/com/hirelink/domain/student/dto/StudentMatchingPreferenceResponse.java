@@ -75,7 +75,7 @@ public record StudentMatchingPreferenceResponse(
 					example = "126.978",
 					requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 			BigDecimal longitude,
-			@Schema(description = "희망 근무 반경 (미터), 1 이상의 정수", minimum = "1", example = "5000", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
+			@Schema(description = "저장된 희망 근무 반경 (미터). 새 입력은 100~1,000m의 100m 간격이며 기존 저장값은 그대로 반환한다", minimum = "1", example = "500", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 			Integer radiusM) {
 	}
 

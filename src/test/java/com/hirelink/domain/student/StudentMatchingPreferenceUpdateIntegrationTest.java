@@ -77,7 +77,7 @@ class StudentMatchingPreferenceUpdateIntegrationTest extends PostgreSQLIntegrati
 			    {"dayOfWeek":"MON","startTime":"00:00","endTime":"02:00"},
 			    {"dayOfWeek":"MON","startTime":"13:00","endTime":"15:00"}
 			  ],
-			  "preferredLocation":{"locationName":"강남역","latitude":37.4979123,"longitude":127.0276123,"radiusM":3000},
+			  "preferredLocation":{"locationName":"강남역","latitude":37.4979123,"longitude":127.0276123,"radiusM":500},
 			  "minimumHourlyWage":12000,
 			  "priorities":[
 			    {"criterionId":1,"priorityOrder":1},{"criterionId":2,"priorityOrder":2},
@@ -143,7 +143,7 @@ class StudentMatchingPreferenceUpdateIntegrationTest extends PostgreSQLIntegrati
 		assertThat(flexible.path("businessTypeFlexible").asBoolean()).isTrue();
 		assertThat(flexible.path("preferredJobs").isEmpty()).isTrue();
 		assertThat(patch("""
-				{"preferredLocation":{"locationName":"새 지역","latitude":-90,"longitude":180,"radiusM":1}}
+				{"preferredLocation":{"locationName":"새 지역","latitude":-90,"longitude":180,"radiusM":100}}
 				""", token).statusCode()).isEqualTo(200);
 		assertThat(jdbc.queryForObject("select count(*) from student_preferred_location where user_id = ?", Integer.class, userId)).isEqualTo(1);
 		assertThat(jdbc.queryForObject("select location_name from student_preferred_location where user_id = ?", String.class, userId)).isEqualTo("새 지역");
@@ -238,19 +238,72 @@ class StudentMatchingPreferenceUpdateIntegrationTest extends PostgreSQLIntegrati
 		assertThat(patch(FULL_REQUEST, token).statusCode()).isEqualTo(200);
 		List<List<Map<String, Object>>> before = snapshot(userId);
 		for (String location : List.of(
-				"{\"locationName\":\" \" ,\"latitude\":37,\"longitude\":127,\"radiusM\":3000}",
-				"{\"locationName\":\"지역\",\"latitude\":90.1,\"longitude\":127,\"radiusM\":3000}",
-				"{\"locationName\":\"지역\",\"latitude\":37,\"longitude\":-180.1,\"radiusM\":3000}",
-				"{\"locationName\":\"지역\",\"latitude\":37.12345678,\"longitude\":127,\"radiusM\":3000}",
+				"{\"locationName\":\" \" ,\"latitude\":37,\"longitude\":127,\"radiusM\":500}",
+				"{\"locationName\":\"지역\",\"latitude\":90.1,\"longitude\":127,\"radiusM\":500}",
+				"{\"locationName\":\"지역\",\"latitude\":37,\"longitude\":-180.1,\"radiusM\":500}",
+				"{\"locationName\":\"지역\",\"latitude\":37.12345678,\"longitude\":127,\"radiusM\":500}",
 				"{\"locationName\":\"지역\",\"latitude\":37,\"longitude\":127,\"radiusM\":0}",
 				"{\"locationName\":\"지역\",\"latitude\":37,\"longitude\":127}",
-				"{\"locationName\":\"" + "가".repeat(151) + "\",\"latitude\":37,\"longitude\":127,\"radiusM\":3000}")) {
+				"{\"locationName\":\"" + "가".repeat(151) + "\",\"latitude\":37,\"longitude\":127,\"radiusM\":500}")) {
 			assertError(patch("{\"preferredLocation\":" + location + "}", token), 400, "INVALID_INPUT");
 		}
 		for (String wage : List.of("0", "-1", "1.5", "\"12000\"", "2147483648", "true")) {
 			assertError(patch("{\"minimumHourlyWage\":" + wage + "}", token), 400, "INVALID_INPUT");
 		}
 		assertThat(snapshot(userId)).isEqualTo(before);
+	}
+
+	@Test
+	void acceptsEveryHundredMeterRadiusAndReturnsTheSavedValue() throws Exception {
+		long userId = createUser("STUDENT", true);
+		String token = token(userId, "STUDENT");
+		for (int radius = 100; radius <= 1000; radius += 100) {
+			String body = """
+					{"preferredLocation":{"locationName":"강남역","latitude":37.4979,"longitude":127.0276,"radiusM":%d}}
+					""".formatted(radius);
+			HttpResponse<String> response = patch(body, token);
+			assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+			assertThat(mapper.readTree(response.body()).path("preferredLocation").path("radiusM").asInt()).isEqualTo(radius);
+			assertThat(mapper.readTree(get(PATH, token).body()).path("preferredLocation").path("radiusM").asInt()).isEqualTo(radius);
+			assertThat(jdbc.queryForObject("select radius_m from student_preferred_location where user_id = ?", Integer.class, userId)).isEqualTo(radius);
+		}
+	}
+
+	@Test
+	void rejectsInvalidRadiusWithoutSavingOtherRequestedChanges() throws Exception {
+		long userId = createUser("STUDENT", true);
+		String token = token(userId, "STUDENT");
+		assertThat(patch(FULL_REQUEST, token).statusCode()).isEqualTo(200);
+		List<List<Map<String, Object>>> before = snapshot(userId);
+		for (String radius : List.of("-100", "0", "1", "99", "101", "150", "750", "999", "1001", "1100", "5000",
+				"2147483648", "100.0", "100.5", "\"100\"", "null", "true", "[]", "{}")) {
+			String body = FULL_REQUEST.replace("\"radiusM\":500", "\"radiusM\":" + radius)
+					.replace("12000", "15000").replace("강남역", "새 지역");
+			assertError(patch(body, token), 400, "INVALID_INPUT");
+			assertThat(snapshot(userId)).as("radiusM=%s", radius).isEqualTo(before);
+		}
+		assertError(patch(FULL_REQUEST.replace(",\"radiusM\":500", ""), token), 400, "INVALID_INPUT");
+		assertThat(snapshot(userId)).isEqualTo(before);
+	}
+
+	@Test
+	void preservesLegacyRadiusWhenLocationIsOmittedAndRequiresValidRadiusWhenResubmitted() throws Exception {
+		long userId = createUser("STUDENT", true);
+		String token = token(userId, "STUDENT");
+		assertThat(patch(FULL_REQUEST, token).statusCode()).isEqualTo(200);
+		for (int radius : List.of(750, 5000)) {
+			jdbc.update("update student_preferred_location set radius_m = ? where user_id = ?", radius, userId);
+			List<Map<String, Object>> location = snapshot(userId).get(2);
+			HttpResponse<String> response = patch("{\"minimumHourlyWage\":13000}", token);
+			assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+			assertThat(mapper.readTree(response.body()).path("preferredLocation").path("radiusM").asInt()).isEqualTo(radius);
+			assertThat(snapshot(userId).get(2)).isEqualTo(location);
+			List<List<Map<String, Object>>> before = snapshot(userId);
+			assertError(patch(FULL_REQUEST.replace("\"radiusM\":500", "\"radiusM\":" + radius), token), 400, "INVALID_INPUT");
+			assertThat(snapshot(userId)).isEqualTo(before);
+		}
+		assertThat(patch(FULL_REQUEST, token).statusCode()).isEqualTo(200);
+		assertThat(jdbc.queryForObject("select radius_m from student_preferred_location where user_id = ?", Integer.class, userId)).isEqualTo(500);
 	}
 
 	@Test
