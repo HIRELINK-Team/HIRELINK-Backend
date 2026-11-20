@@ -102,7 +102,7 @@ public class SocialSignupRegistrationController {
 						"""),
 				@ExampleObject(name = "requiresPdf", value = """
 						{"serialNumber":"00000000001","stayExpiresOn":"2026-11-19","cardVerified":true,"stayDocumentVerified":false,"requiresStayDocument":true,"signupExpiresAt":"2026-11-20T10:30:00Z"}
-						""") }))),
+						""") })),
 		@ApiResponse(responseCode = "409", description = "앞면 재촬영 필요 또는 이미 가입된 소셜 계정", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
 			@ExampleObject(name = "REGISTRATION_FRONT_REQUIRED", value = "{\"code\":\"REGISTRATION_FRONT_REQUIRED\",\"message\":\"등록증 앞면을 먼저 촬영해주세요. 확인 완료 후 재촬영도 앞면부터 진행해주세요.\"}"),
 			@ExampleObject(name = "SOCIAL_ACCOUNT_ALREADY_REGISTERED", value = "{\"code\":\"SOCIAL_ACCOUNT_ALREADY_REGISTERED\",\"message\":\"이미 가입한 소셜 계정입니다. 다시 로그인해주세요.\"}") })),
