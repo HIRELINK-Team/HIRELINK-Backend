@@ -1,6 +1,7 @@
 package com.hirelink.domain.auth.entity;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -43,6 +44,8 @@ public class SocialAuthSession {
 
 	@Column(name = "expires_at", nullable = false)
 	private Instant expiresAt;
+	@Column(name = "birth_date")
+	private LocalDate birthDate;
 
 	@ElementCollection
 	@CollectionTable(name = "social_auth_session_term_agreement", joinColumns = @JoinColumn(name = "token_hash"))
@@ -68,6 +71,8 @@ public class SocialAuthSession {
 	public MemberRole getRole() { return role; }
 	public String getEmail() { return email; }
 	public Instant getExpiresAt() { return expiresAt; }
+	public LocalDate getBirthDate() { return birthDate; }
+	public void saveBirthDate(LocalDate birthDate) { this.birthDate = birthDate; }
 	public List<SocialSignupAgreement> getAgreements() { return List.copyOf(agreements); }
 
 	public void saveAgreement(Long termTypeId, boolean agreed, Instant now) {
