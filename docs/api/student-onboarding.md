@@ -2,6 +2,31 @@
 
 `POST /api/students/me/onboarding`은 전화번호 인증으로 계정을 만든 뒤 마지막 **마치기**에서 호출한다. 로그인한 본인의 액세스 토큰을 사용하며, 회원 연결 등록증 인증 기록이 필요하다. LOCAL 테스트 계정은 기존 프로필 · 경력 · 구직조건 API를 사용한다.
 
+## 화면별 API 연결
+
+등록증 기능이 활성화된 신규 유학생의 흐름이다. 실제 서비스 로그인은 카카오·구글을 사용하며, LOCAL 테스트 계정·사업주·기능 비활성 가입은 기존 흐름을 유지한다.
+
+| 화면 · 동작 | API · 저장 시점 | 다음 단계 · 실패 처리 |
+| --- | --- | --- |
+| 소셜 인증 | `GET /api/auth/social/{provider}?role=STUDENT`로 전체 페이지 이동 → 콜백 후 `POST /api/auth/social/result` | `SIGNUP_REQUIRED`는 약관으로, `LOGIN`은 액세스 토큰으로 온보딩 상태 조회 |
+| 약관 동의 | `GET` / `PUT /api/auth/social/terms` | 응답의 약관 ID 사용. 별도 고유식별정보 동의를 포함한 필수 약관 동의 후 등록증 제출 |
+| 등록증 앞면 촬영 · 앨범 선택 | `POST /api/auth/social/registration/front` | `registrationNumber` 전체를 확인. 잘못 읽으면 이미지 재제출, OCR 값 직접 수정 API 없음 |
+| 등록증 뒷면 촬영 · 앨범 선택 | `POST /api/auth/social/registration/back` | `serialNumber`와 `stayExpiresOn` 확인. `requiresStayDocument=false`는 생년월일로, `true`는 PDF 제출로 |
+| 체류기간 PDF 선택 | `POST /api/auth/social/registration/stay-document` | 카드 앞면·뒷면 확인이 선행되어야 함. 성공 시 같은 응답 모델의 카드 일련번호와 PDF 만료일을 사용. PDF 인식·번호·기간 오류는 PDF 재선택, `REGISTRATION_FRONT_REQUIRED`는 앞면부터 재시작 |
+| 생년월일 직접 입력 | `PUT /api/auth/social/birth-date` | 한국 날짜 기준 만 18세 검사 성공 후 전화번호 인증. 등록번호에서 생년월일을 추출하지 않음 |
+| 전화번호 인증 · 계정 생성 | `POST /api/auth/social/phone-verifications` → `POST /api/auth/social/phone-verifications/verify` | 성공 `201`에서 계정·토큰 생성. 약관·등록증·체류기간·생년월일을 재검사하며 아직 온보딩 완료는 아님 |
+| 계정 생성 후 · 재로그인 | `GET /api/users/me/onboarding` | 아래 상태표의 `status`와 `nextStep`으로 이동. 미완료 신규 회원은 거주지역부터 다시 입력 |
+| 거주지역 · 희망 근무지에서 현재 위치 찾기 | 최초 GPS 사용 전 `GET /api/users/me/term-agreements/location`, 미동의면 `PUT /api/users/me/term-agreements` | 동의 저장 성공 후 프론트에서 기기 위치 권한·GPS 처리. 주소 직접 검색·선택은 위치 동의 없이 가능 |
+| 거주지역 → 한국어 수준 → 경력 → 희망 업종·시간·위치·반경 → TOPIK → 우선순위 | 화면 입력을 프론트에서 모음. 화면별 서버 저장 없음 | 반경은 100~1,000m의 100m 간격. 경력 없음은 `[]`, TOPIK 없음은 `null`. 중도 이탈 후 세부 화면 복구 없음 |
+| 마치기 | `POST /api/students/me/onboarding` | 전체 입력을 한 번에 저장. 성공 `completed=true` 후 상태 조회는 `COMPLETED/NONE`. 실패하면 이번 저장 전체 취소, 완료 후 재제출은 409 |
+
+- 계정 생성 전 변경 요청은 같은 브라우저의 `socialSignup` 쿠키와 `GET /api/auth/csrf`에서 얻은 CSRF 쿠키·헤더를 사용한다. 최초 가입 세션의 30분 만료는 연장하지 않으며 만료 시 소셜 인증부터 다시 시작한다. 계정 생성 후 API는 로그인 액세스 토큰을 사용한다.
+- 앞면·뒷면은 촬영·앨범 선택 모두 같은 JPG/PNG 업로드 API를 사용한다. 앞면 응답의 전체 등록번호와 뒷면/PDF 공통 응답의 일련번호를 프론트에서 구분한다. 일련번호 없는 구형 카드의 `serialNumber=null`은 정상 응답이다. 허가일자·신고일은 확인 화면 응답에 없다.
+- 등록증 확인 후 이미지를 바꾸려면 앞면부터 진행한다. PDF만 실패한 경우에는 같은 세션에서 PDF를 다시 제출할 수 있다. 앞면 재처리를 시작하면 이전 카드·PDF 결과를 무효화한다.
+- 촬영·앨범 선택·PDF 선택 UI, 약관 본문·번역, 기기 권한·지도 SDK·GPS, 마지막 저장 전 화면 상태 관리는 프론트 담당이다. 서버는 파일 출처를 판별하거나 기기 권한을 요청하지 않는다. 확인용 등록번호·일련번호는 브라우저 영구 저장소·분석 이벤트·로그에 남기지 않고 화면 이탈·재촬영 시작·가입 완료·세션 만료 시 정리한다.
+
+상세 요청·응답·오류는 [등록증·PDF 확인](student-registration.md), [생년월일 검사](signup-birth-date.md), [위치 동의](location-consent.md)와 Swagger를 따른다. 이 연결표는 프론트 구현이나 실물 OCR·APICK·SMS·GPS 연동 QA 완료를 의미하지 않는다.
+
 ## 상태 조회와 재진입
 
 `GET /api/users/me/onboarding`은 계정 생성 또는 재로그인 후 액세스 토큰으로 호출한다. 기존 로그인 · 가입 응답의 필드는 변경하지 않는다. 계정 생성 전 가입 쿠키만 있는 요청은 401이며, 회원이 생성된 뒤부터 이 조회를 사용한다.
