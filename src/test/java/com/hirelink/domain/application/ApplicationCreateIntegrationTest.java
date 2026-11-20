@@ -73,7 +73,7 @@ class ApplicationCreateIntegrationTest extends PostgreSQLIntegrationTest {
 
 	@BeforeEach
 	void clearTestDatabase() {
-		jdbc.execute("TRUNCATE TABLE employment_match, employment_offer, application, recommendation, recommendation_batch, "
+		jdbc.execute("TRUNCATE TABLE employment_popup_notification, employment_match, employment_offer, application, recommendation, recommendation_batch, "
 				+ "employer_profile, student_preferred_job, student_preferred_work_time, student_preferred_location, "
 				+ "student_job_preference, student_priority, job_posting_work_time, job_posting, workplace, student_career, "
 				+ "student_profile, user_term_agreement, phone_verification, phone_verification_send_attempt, "
@@ -124,6 +124,11 @@ class ApplicationCreateIntegrationTest extends PostgreSQLIntegrationTest {
 				.isEqualTo("09:00");
 		assertThat(snapshot.path("recommendation").path("recommendationId").asLong()).isEqualTo(recommendation);
 		assertThat(snapshot.path("recommendation").path("reason").path("summary").asString()).isEqualTo("조건 적합");
+		assertThat(jdbc.queryForMap("select * from employment_popup_notification"))
+				.containsEntry("recipient_user_id", employer)
+				.containsEntry("notification_type", "APPLICATION_CREATED")
+				.containsEntry("application_id", applicationId)
+				.containsEntry("employment_offer_id", null);
 		verify(smsNotifications).applicationCreated(any(Application.class));
 	}
 
@@ -141,6 +146,8 @@ class ApplicationCreateIntegrationTest extends PostgreSQLIntegrationTest {
 		assertError(create(token(other, "STUDENT"), recommendation, LocalDate.now(KOREA_ZONE).plusDays(1)),
 				403, "FORBIDDEN");
 		assertThat(applicationCount()).isZero();
+		assertThat(jdbc.queryForObject("select count(*) from employment_popup_notification",
+				Integer.class)).isZero();
 	}
 
 	@Test
@@ -259,6 +266,8 @@ class ApplicationCreateIntegrationTest extends PostgreSQLIntegrationTest {
 				select count(*) from application where job_posting_id = ?
 				and status in ('WAITING_RESPONSE', 'OFFERED')
 				""", Integer.class, posting)).isEqualTo(5);
+		assertThat(jdbc.queryForObject("select count(*) from employment_popup_notification",
+				Integer.class)).isEqualTo(1);
 		verify(smsNotifications, times(1)).applicationCreated(any(Application.class));
 	}
 
@@ -344,6 +353,8 @@ class ApplicationCreateIntegrationTest extends PostgreSQLIntegrationTest {
 				select count(*) from application where job_posting_id = ?
 				and status in ('WAITING_RESPONSE', 'OFFERED')
 				""", Integer.class, posting)).isEqualTo(5);
+		assertThat(jdbc.queryForObject("select count(*) from employment_popup_notification",
+				Integer.class)).isEqualTo(1);
 		verify(smsNotifications, times(1)).applicationCreated(any(Application.class));
 	}
 

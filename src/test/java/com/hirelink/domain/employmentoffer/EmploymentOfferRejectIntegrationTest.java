@@ -89,7 +89,7 @@ class EmploymentOfferRejectIntegrationTest extends PostgreSQLIntegrationTest {
 	void clearTestDatabase() {
 		jdbc.execute("drop trigger if exists fail_employment_offer_update on employment_offer");
 		jdbc.execute("drop function if exists fail_employment_offer_update()");
-		jdbc.execute("TRUNCATE TABLE employment_match, employment_offer, application, recommendation, recommendation_batch, "
+		jdbc.execute("TRUNCATE TABLE employment_popup_notification, employment_match, employment_offer, application, recommendation, recommendation_batch, "
 				+ "employer_profile, student_preferred_job, student_preferred_work_time, student_preferred_location, "
 				+ "student_job_preference, student_priority, job_posting_work_time, job_posting, workplace, student_career, "
 				+ "student_profile, user_term_agreement, phone_verification, phone_verification_send_attempt, "
@@ -122,6 +122,11 @@ class EmploymentOfferRejectIntegrationTest extends PostgreSQLIntegrationTest {
 				fixture.applicationId())).isEqualTo(1);
 		assertThat(jdbc.queryForObject("select count(*) from employment_offer where id = ?", Integer.class,
 				fixture.offerId())).isEqualTo(1);
+		assertThat(jdbc.queryForMap("select * from employment_popup_notification"))
+				.containsEntry("recipient_user_id", fixture.employerId())
+				.containsEntry("notification_type", "OFFER_REJECTED")
+				.containsEntry("employment_offer_id", fixture.offerId())
+				.containsEntry("application_id", null);
 		verify(smsNotifications).offerRejected(any(EmploymentOffer.class));
 	}
 
@@ -246,6 +251,8 @@ class EmploymentOfferRejectIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(instant(rejected.offer(), "responded_at")).isEqualTo(PROCESSING_TIME);
 		assertThat(instant(rejected.offer(), "ended_at")).isEqualTo(PROCESSING_TIME);
 		assertThat(instant(rejected.application(), "ended_at")).isEqualTo(PROCESSING_TIME);
+		assertThat(jdbc.queryForObject("select count(*) from employment_popup_notification",
+				Integer.class)).isEqualTo(1);
 		verify(smsNotifications, times(1)).offerRejected(any(EmploymentOffer.class));
 	}
 
@@ -300,6 +307,8 @@ class EmploymentOfferRejectIntegrationTest extends PostgreSQLIntegrationTest {
 		JsonNode successBody = mapper.readTree(success.body());
 		assertThat(successBody.path("endReason").asString()).isEqualTo("STUDENT_REJECTED");
 		assertRejectedState(fixture, Instant.parse(successBody.path("endedAt").asString()));
+		assertThat(jdbc.queryForObject("select count(*) from employment_popup_notification",
+				Integer.class)).isEqualTo(1);
 		verify(smsNotifications, times(1)).offerRejected(any(EmploymentOffer.class));
 	}
 
@@ -323,6 +332,8 @@ class EmploymentOfferRejectIntegrationTest extends PostgreSQLIntegrationTest {
 
 		assertError(reject(token(fixture.studentId(), "STUDENT"), Long.toString(fixture.offerId())),
 				500, "INTERNAL_SERVER_ERROR");
+		assertThat(jdbc.queryForObject("select count(*) from employment_popup_notification",
+				Integer.class)).isZero();
 		verify(smsNotifications, never()).offerRejected(any(EmploymentOffer.class));
 
 		assertThat(state(fixture)).isEqualTo(before);

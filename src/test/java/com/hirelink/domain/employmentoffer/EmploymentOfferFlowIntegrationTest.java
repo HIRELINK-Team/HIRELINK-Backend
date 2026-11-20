@@ -15,6 +15,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -85,7 +86,7 @@ class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 	void clearTestDatabase() {
 		jdbc.execute("drop trigger if exists fail_employment_match_insert on employment_match");
 		jdbc.execute("drop function if exists fail_employment_match_insert()");
-		jdbc.execute("TRUNCATE TABLE employment_match, employment_offer, application, recommendation, recommendation_batch, "
+		jdbc.execute("TRUNCATE TABLE employment_popup_notification, employment_match, employment_offer, application, recommendation, recommendation_batch, "
 				+ "employer_profile, student_preferred_job, student_preferred_work_time, student_preferred_location, "
 				+ "student_job_preference, student_priority, job_posting_work_time, job_posting, workplace, student_career, "
 				+ "student_profile, user_term_agreement, phone_verification, phone_verification_send_attempt, "
@@ -133,6 +134,17 @@ class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 				otherApplication)).isEqualTo("WAITING_RESPONSE");
 		assertThat(jdbc.queryForObject("select count(*) from employment_match where employment_offer_id = ?",
 				Integer.class, offerId)).isEqualTo(1);
+		List<Map<String, Object>> popupNotifications = jdbc.queryForList(
+				"select * from employment_popup_notification order by id");
+		assertThat(popupNotifications).hasSize(2);
+		assertThat(popupNotifications.get(0))
+				.containsEntry("recipient_user_id", fixture.studentId())
+				.containsEntry("notification_type", "OFFER_CREATED")
+				.containsEntry("employment_offer_id", offerId);
+		assertThat(popupNotifications.get(1))
+				.containsEntry("recipient_user_id", fixture.employerId())
+				.containsEntry("notification_type", "OFFER_ACCEPTED")
+				.containsEntry("employment_offer_id", offerId);
 		verify(smsNotifications).offerCreated(any(EmploymentOffer.class));
 		verify(smsNotifications).offerAccepted(any(EmploymentOffer.class));
 	}
@@ -182,6 +194,8 @@ class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 				409, "EMPLOYMENT_OFFER_STATE_CONFLICT");
 		assertThat(jdbc.queryForObject("select count(*) from employment_offer", Integer.class)).isEqualTo(1);
 		assertThat(jdbc.queryForObject("select count(*) from employment_match", Integer.class)).isEqualTo(1);
+		assertThat(jdbc.queryForObject("select count(*) from employment_popup_notification",
+				Integer.class)).isEqualTo(2);
 		verify(smsNotifications, times(1)).offerCreated(any(EmploymentOffer.class));
 		verify(smsNotifications, times(1)).offerAccepted(any(EmploymentOffer.class));
 	}
@@ -203,6 +217,8 @@ class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(jdbc.queryForObject("select status from employment_offer where id = ?", String.class,
 				offerId)).isEqualTo("PENDING");
 		assertThat(jdbc.queryForObject("select count(*) from employment_match", Integer.class)).isZero();
+		assertThat(jdbc.queryForObject("select count(*) from employment_popup_notification",
+				Integer.class)).isZero();
 		verify(smsNotifications, never()).offerAccepted(any(EmploymentOffer.class));
 	}
 
@@ -234,6 +250,10 @@ class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 		List<HttpResponse<String>> responses = List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
 		assertThat(responses).extracting(HttpResponse::statusCode).containsExactlyInAnyOrder(200, 409);
 		assertThat(jdbc.queryForObject("select count(*) from employment_match", Integer.class)).isEqualTo(1);
+		assertThat(jdbc.queryForObject("""
+				select count(*) from employment_popup_notification
+				where notification_type = 'OFFER_ACCEPTED'
+				""", Integer.class)).isEqualTo(1);
 		verify(smsNotifications, times(1)).offerAccepted(any(EmploymentOffer.class));
 	}
 
@@ -275,6 +295,8 @@ class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(jdbc.queryForObject("select end_reason from employment_offer where id = ?", String.class,
 				offerId)).isEqualTo("STUDENT_RESPONSE_EXPIRED");
 		assertThat(jdbc.queryForObject("select count(*) from employment_match", Integer.class)).isZero();
+		assertThat(jdbc.queryForObject("select count(*) from employment_popup_notification",
+				Integer.class)).isZero();
 		verify(smsNotifications, never()).offerAccepted(any(EmploymentOffer.class));
 	}
 
@@ -300,6 +322,8 @@ class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(jdbc.queryForObject("select responded_at from employment_offer where id = ?", Object.class,
 				offerId)).isNull();
 		assertThat(jdbc.queryForObject("select count(*) from employment_match", Integer.class)).isZero();
+		assertThat(jdbc.queryForObject("select count(*) from employment_popup_notification",
+				Integer.class)).isZero();
 	}
 
 	private Fixture createApplication(String status) {
