@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hirelink.domain.member.dto.TermAgreementRequest;
+import com.hirelink.domain.member.dto.LocationConsentResponse;
 import com.hirelink.domain.member.dto.TermAgreementResponse;
 import com.hirelink.domain.member.entity.UserAccount;
 import com.hirelink.domain.member.entity.UserTermAgreement;
@@ -26,6 +27,7 @@ import com.hirelink.global.exception.WithdrawnAccountException;
 @Service
 public class TermAgreementService {
 
+	private static final String LOCATION_TERM_NAME = "위치기반 서비스 이용약관";
 	private final UserAccountRepository userAccountRepository;
 	private final TermTypeRepository termTypeRepository;
 	private final UserTermAgreementRepository agreementRepository;
@@ -35,6 +37,18 @@ public class TermAgreementService {
 		this.userAccountRepository = userAccountRepository;
 		this.termTypeRepository = termTypeRepository;
 		this.agreementRepository = agreementRepository;
+	}
+
+	@Transactional(readOnly = true)
+	public LocationConsentResponse getLocationConsent(Long userId) {
+		UserAccount user = userAccountRepository.findById(userId)
+				.orElseThrow(() -> new AuthenticationCredentialsNotFoundException("로그인이 필요합니다."));
+		if (user.isWithdrawn()) { throw new WithdrawnAccountException(); }
+		var term = termTypeRepository.findByTermTypeName(LOCATION_TERM_NAME)
+				.orElseThrow(TermTypeNotFoundException::new);
+		UserTermAgreement agreement = agreementRepository.findById(new UserTermAgreementId(userId, term.getId())).orElse(null);
+		return new LocationConsentResponse(term.getId(), term.getTermTypeName(),
+				agreement != null && agreement.isAgreed(), agreement == null ? null : agreement.getAgreedAt());
 	}
 
 	@Transactional
