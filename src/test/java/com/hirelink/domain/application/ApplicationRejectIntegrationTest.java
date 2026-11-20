@@ -36,14 +36,20 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import com.hirelink.domain.application.entity.Application;
 import com.hirelink.domain.application.entity.ApplicationStatus;
 import com.hirelink.domain.application.service.ApplicationExpirationProcessor;
+import com.hirelink.domain.employmentnotification.EmploymentSmsNotificationPublisher;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class ApplicationRejectIntegrationTest extends PostgreSQLIntegrationTest {
@@ -67,6 +73,8 @@ class ApplicationRejectIntegrationTest extends PostgreSQLIntegrationTest {
 	private JwtEncoder jwtEncoder;
 	@Autowired
 	private ApplicationExpirationProcessor expirationProcessor;
+	@MockitoBean
+	private EmploymentSmsNotificationPublisher smsNotifications;
 	private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
 	@BeforeEach
@@ -108,6 +116,7 @@ class ApplicationRejectIntegrationTest extends PostgreSQLIntegrationTest {
 				"desired_start_date", "snapshot_version", "application_snapshot", "employer_response_deadline", "applied_at")) {
 			assertThat(saved.get(unchanged)).as(unchanged).isEqualTo(before.get(unchanged));
 		}
+		verify(smsNotifications).applicationRejected(any(Application.class));
 	}
 
 	@Test
@@ -192,6 +201,7 @@ class ApplicationRejectIntegrationTest extends PostgreSQLIntegrationTest {
 				409, "APPLICATION_STATE_CONFLICT");
 		assertThat(application(fixture.applicationId())).isEqualTo(rejected);
 		assertThat(endedAt(fixture.applicationId())).isEqualTo(firstEndedAt);
+		verify(smsNotifications, times(1)).applicationRejected(any(Application.class));
 	}
 
 	@Test

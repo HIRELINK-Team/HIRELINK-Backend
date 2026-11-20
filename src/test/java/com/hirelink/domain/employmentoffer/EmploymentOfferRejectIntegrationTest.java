@@ -43,14 +43,21 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import com.hirelink.domain.application.entity.ApplicationStatus;
+import com.hirelink.domain.employmentnotification.EmploymentSmsNotificationPublisher;
+import com.hirelink.domain.employmentoffer.entity.EmploymentOffer;
 import com.hirelink.domain.employmentoffer.entity.EmploymentOfferStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(EmploymentOfferRejectIntegrationTest.TestClockConfiguration.class)
@@ -74,6 +81,8 @@ class EmploymentOfferRejectIntegrationTest extends PostgreSQLIntegrationTest {
 	private ObjectMapper mapper;
 	@Autowired
 	private JwtEncoder jwtEncoder;
+	@MockitoBean
+	private EmploymentSmsNotificationPublisher smsNotifications;
 	private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
 	@BeforeEach
@@ -113,6 +122,7 @@ class EmploymentOfferRejectIntegrationTest extends PostgreSQLIntegrationTest {
 				fixture.applicationId())).isEqualTo(1);
 		assertThat(jdbc.queryForObject("select count(*) from employment_offer where id = ?", Integer.class,
 				fixture.offerId())).isEqualTo(1);
+		verify(smsNotifications).offerRejected(any(EmploymentOffer.class));
 	}
 
 	@Test
@@ -236,6 +246,7 @@ class EmploymentOfferRejectIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(instant(rejected.offer(), "responded_at")).isEqualTo(PROCESSING_TIME);
 		assertThat(instant(rejected.offer(), "ended_at")).isEqualTo(PROCESSING_TIME);
 		assertThat(instant(rejected.application(), "ended_at")).isEqualTo(PROCESSING_TIME);
+		verify(smsNotifications, times(1)).offerRejected(any(EmploymentOffer.class));
 	}
 
 	@Test
@@ -289,6 +300,7 @@ class EmploymentOfferRejectIntegrationTest extends PostgreSQLIntegrationTest {
 		JsonNode successBody = mapper.readTree(success.body());
 		assertThat(successBody.path("endReason").asString()).isEqualTo("STUDENT_REJECTED");
 		assertRejectedState(fixture, Instant.parse(successBody.path("endedAt").asString()));
+		verify(smsNotifications, times(1)).offerRejected(any(EmploymentOffer.class));
 	}
 
 	@Test
@@ -311,6 +323,7 @@ class EmploymentOfferRejectIntegrationTest extends PostgreSQLIntegrationTest {
 
 		assertError(reject(token(fixture.studentId(), "STUDENT"), Long.toString(fixture.offerId())),
 				500, "INTERNAL_SERVER_ERROR");
+		verify(smsNotifications, never()).offerRejected(any(EmploymentOffer.class));
 
 		assertThat(state(fixture)).isEqualTo(before);
 	}
