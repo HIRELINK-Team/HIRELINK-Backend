@@ -13,8 +13,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.multipart.MultipartHttpServletRequest;
 
 import com.hirelink.domain.auth.dto.RegistrationFrontResponse;
-import com.hirelink.domain.auth.dto.RegistrationBackResponse;
-import com.hirelink.domain.auth.dto.RegistrationStayDocumentResponse;
+import com.hirelink.domain.auth.dto.RegistrationVerificationResponse;
 import com.hirelink.domain.auth.service.SocialSignupRegistrationService;
 import com.hirelink.global.exception.ErrorResponse;
 import com.hirelink.global.exception.SocialAuthException;
@@ -95,9 +94,15 @@ public class SocialSignupRegistrationController {
 		@Parameter(name = "X-XSRF-TOKEN", in = ParameterIn.HEADER, required = true, description = "GET /api/auth/csrf 응답 token", schema = @Schema(type = "string")),
 		@Parameter(name = "XSRF-TOKEN", in = ParameterIn.COOKIE, required = true, description = "같은 브라우저의 CSRF 쿠키", schema = @Schema(type = "string"))
 	})
-	@Operation(summary = "유학생 가입 등록증 뒷면 인식 · 진위 확인", description = "앞면 인식 후 카메라로 촬영한 뒷면 JPG·PNG 한 개를 registrationFile로 보낸다. 추가 파일·폼 필드는 허용하지 않는다. 정상 형식의 이미지로 처리를 시작하면 이전 뒷면·진위 결과를 무효화한다. 최신 체류 만료일과 일련번호를 읽고 서버에 보관한 앞면 값으로 APICK을 호출한다. 2011-01-01 이전 발급 카드만 일련번호 생략이 가능하다. APICK data.result=1만 통과시키며 과금·HTTP 성공만으로 통과시키지 않는다. 기재 정보 일치 확인이며 얼굴 대조·실물 위변조·최신 체류자격 확인을 보장하지 않는다. 한국 날짜 기준 만료일 당일까지 유효하고 지난 경우 requiresStayDocument=true다. 진위 확인 성공 시 발급일자를 제거하고, PDF 확인이 필요하지 않으면 등록번호도 즉시 제거한다. 진위 확인 성공 후 뒷면 재촬영은 앞면부터 한다. PDF 필요 시 번호는 동일인 확인용으로 기존 세션 만료까지 암호화 보관한다. PDF 필요 시 stay-document API로 확인한다. 활성화된 유학생 휴대전화 가입에서 이 결과와 체류기간을 재검사한다. 이 응답 자체로 계정·온보딩을 완료하지 않는다.")
+	@Operation(summary = "유학생 가입 등록증 뒷면 인식 · 진위 확인", description = "앞면 인식 후 카메라로 촬영한 뒷면 JPG·PNG 한 개를 registrationFile로 보낸다. 추가 파일·폼 필드는 허용하지 않는다. 정상 형식의 이미지로 처리를 시작하면 이전 뒷면·진위 결과를 무효화한다. 최신 체류 만료일과 일련번호를 읽고 서버에 보관한 앞면 값으로 APICK을 호출한다. 2011-01-01 이전 발급 카드만 일련번호 생략이 가능하다. APICK data.result=1만 통과시키며 과금·HTTP 성공만으로 통과시키지 않는다. 기재 정보 일치 확인이며 얼굴 대조·실물 위변조·최신 체류자격 확인을 보장하지 않는다. 한국 날짜 기준 만료일 당일까지 유효하고 지난 경우 requiresStayDocument=true다. 진위 확인 성공 시 발급일자를 제거하고, PDF 확인이 필요하지 않으면 등록번호도 즉시 제거한다. 진위 확인 성공 후 뒷면 재촬영은 앞면부터 한다. 공통 응답의 serialNumber는 카드에서 읽은 11자리 문자열이며 일련번호 없는 구형 카드는 null이다. 허가일자·신고일은 반환하지 않는다. PDF 필요 시 등록번호와 카드 일련번호를 기존 세션 만료까지 암호화 보관하고, PDF가 필요하지 않으면 일련번호는 저장하지 않는다. PDF 필요 시 stay-document API로 확인한다. 활성화된 유학생 휴대전화 가입에서 이 결과와 체류기간을 재검사한다. 이 응답 자체로 계정·온보딩을 완료하지 않는다.")
 	@ApiResponses({
-	@ApiResponse(responseCode = "200", description = "기재 정보 일치 확인 성공. requiresStayDocument로 PDF 필요 여부 판단", content = @Content(mediaType = "application/json", schema = @Schema(implementation = RegistrationBackResponse.class))),
+	@ApiResponse(responseCode = "200", description = "기재 정보 일치 확인 성공. 공통 응답의 requiresStayDocument로 PDF 필요 여부 판단", content = @Content(mediaType = "application/json", schema = @Schema(implementation = RegistrationVerificationResponse.class), examples = {
+				@ExampleObject(name = "cardValid", value = """
+						{"serialNumber":"00000000001","stayExpiresOn":"2027-07-27","cardVerified":true,"stayDocumentVerified":false,"requiresStayDocument":false,"signupExpiresAt":"2026-11-20T10:30:00Z"}
+						"""),
+				@ExampleObject(name = "requiresPdf", value = """
+						{"serialNumber":"00000000001","stayExpiresOn":"2026-11-19","cardVerified":true,"stayDocumentVerified":false,"requiresStayDocument":true,"signupExpiresAt":"2026-11-20T10:30:00Z"}
+						""") }))),
 		@ApiResponse(responseCode = "409", description = "앞면 재촬영 필요 또는 이미 가입된 소셜 계정", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
 			@ExampleObject(name = "REGISTRATION_FRONT_REQUIRED", value = "{\"code\":\"REGISTRATION_FRONT_REQUIRED\",\"message\":\"등록증 앞면을 먼저 촬영해주세요. 확인 완료 후 재촬영도 앞면부터 진행해주세요.\"}"),
 			@ExampleObject(name = "SOCIAL_ACCOUNT_ALREADY_REGISTERED", value = "{\"code\":\"SOCIAL_ACCOUNT_ALREADY_REGISTERED\",\"message\":\"이미 가입한 소셜 계정입니다. 다시 로그인해주세요.\"}") })),
@@ -107,7 +112,7 @@ public class SocialSignupRegistrationController {
 			@ExampleObject(name = "REGISTRATION_NOT_VERIFIED", value = "{\"code\":\"REGISTRATION_NOT_VERIFIED\",\"message\":\"등록증 정보가 일치하지 않습니다. 등록증을 다시 촬영해주세요.\"}") }))
 	})
 	@PostMapping(value = "/back", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-	public ResponseEntity<RegistrationBackResponse> back(
+	public ResponseEntity<RegistrationVerificationResponse> back(
 			@Parameter(hidden = true) @CookieValue(name = SocialLoginCookie.NAME, required = false) String token,
 			@Parameter(description = "카메라로 촬영한 등록증 뒷면 JPG·PNG 한 개, 최대 5MB", schema = @Schema(type = "string", format = "binary"))
 			@RequestPart("registrationFile") MultipartFile file,
@@ -121,9 +126,11 @@ public class SocialSignupRegistrationController {
 		@Parameter(name = "X-XSRF-TOKEN", in = ParameterIn.HEADER, required = true, description = "GET /api/auth/csrf 응답 token", schema = @Schema(type = "string")),
 		@Parameter(name = "XSRF-TOKEN", in = ParameterIn.COOKIE, required = true, description = "같은 브라우저의 CSRF 쿠키", schema = @Schema(type = "string"))
 	})
-	@Operation(summary = "유학생 가입 체류기간 PDF 확인", description = "앞면·뒷면 APICK 확인을 완료했고 카드 체류기간이 한국 날짜 기준 지난 경우 외국인등록 사실증명 PDF를 제출한다. stayDocument 파일 한 개, 5MB 이하·최대 3쪽이며 추가 폼 필드를 허용하지 않는다. 대상자 등록번호가 앞면과 같고 현재 체류기간 만료일이 오늘 이후인 경우만 성공한다. 기간 표기는 종료일을 사용하며 주소·체류자격 변경 이력의 날짜는 사용하지 않는다. 모호한 열·페이지·가림 번호는 422로 거절한다. 실패 시 화면의 ‘다시 촬영’은 PDF 재선택·업로드를 뜻한다. 원본 PDF는 보관하지 않으며 성공 후 등록번호·발급일자를 제거한다. 성공 후 재확인은 앞면부터 진행한다. 기존 30분 세션은 연장하지 않는다. 문서 진위·전자서명·발급기관 조회 검증이 아니며 APICK을 다시 호출하지 않는다. 활성화된 유학생 휴대전화 가입에서 이 결과와 체류기간을 재검사하며 이 응답 자체로 계정·온보딩을 완료하지 않는다.")
+	@Operation(summary = "유학생 가입 체류기간 PDF 확인", description = "앞면·뒷면 APICK 확인을 완료했고 카드 체류기간이 한국 날짜 기준 지난 경우 외국인등록 사실증명 PDF를 제출한다. stayDocument 파일 한 개, 5MB 이하·최대 3쪽이며 추가 폼 필드를 허용하지 않는다. 대상자 등록번호가 앞면과 같고 현재 체류기간 만료일이 오늘 이후인 경우만 성공한다. 기간 표기는 종료일을 사용하며 주소·체류자격 변경 이력의 날짜는 사용하지 않는다. 모호한 열·페이지·가림 번호는 422로 거절한다. 실패 시 화면의 ‘다시 촬영’은 PDF 재선택·업로드를 뜻한다. 공통 응답의 serialNumber는 앞선 카드 뒷면 값을 사용하고 stayExpiresOn은 PDF로 확인한 만료일이다. cardVerified=true, stayDocumentVerified=true, requiresStayDocument=false다. 허가일자·신고일은 반환하지 않는다. PDF 실패 시 카드 일련번호를 유지하여 PDF만 재시도할 수 있다. 일련번호를 저장하지 않은 이전 버전의 PDF 대기 세션은 REGISTRATION_FRONT_REQUIRED로 앞면부터 다시 진행한다. 원본 PDF는 보관하지 않으며 성공 후 등록번호·발급일자·일련번호를 제거한다. 성공 후 재확인은 앞면부터 진행한다. 기존 30분 세션은 연장하지 않는다. 문서 진위·전자서명·발급기관 조회 검증이 아니며 APICK을 다시 호출하지 않는다. 활성화된 유학생 휴대전화 가입에서 이 결과와 체류기간을 재검사하며 이 응답 자체로 계정·온보딩을 완료하지 않는다.")
 	@ApiResponses({
-		@ApiResponse(responseCode = "200", description = "동일 등록번호 · 유효한 체류기간 확인", content = @Content(mediaType = "application/json", schema = @Schema(implementation = RegistrationStayDocumentResponse.class))),
+		@ApiResponse(responseCode = "200", description = "동일 등록번호 · 유효한 체류기간 확인. 카드 일련번호와 PDF 만료일을 공통 형식으로 반환", content = @Content(mediaType = "application/json", schema = @Schema(implementation = RegistrationVerificationResponse.class), examples = @ExampleObject(name = "pdfVerified", value = """
+				{"serialNumber":"00000000001","stayExpiresOn":"2027-07-27","cardVerified":true,"stayDocumentVerified":true,"requiresStayDocument":false,"signupExpiresAt":"2026-11-20T10:30:00Z"}
+				"""))),
 		@ApiResponse(responseCode = "409", description = "선행 인증 미완료 · PDF 불필요 · 확인 완료 후 재촬영 필요", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
 			@ExampleObject(name = "REGISTRATION_BACK_REQUIRED", value = "{\"code\":\"REGISTRATION_BACK_REQUIRED\",\"message\":\"등록증 앞면과 뒷면의 진위 확인을 먼저 완료해주세요.\"}"),
 			@ExampleObject(name = "STAY_DOCUMENT_NOT_REQUIRED", value = "{\"code\":\"STAY_DOCUMENT_NOT_REQUIRED\",\"message\":\"카드의 체류기간이 유효하여 PDF 제출이 필요하지 않습니다.\"}"),
@@ -136,7 +143,7 @@ public class SocialSignupRegistrationController {
 			@ExampleObject(name = "STAY_DOCUMENT_EXPIRED", value = "{\"code\":\"STAY_DOCUMENT_EXPIRED\",\"message\":\"증빙서류의 체류기간이 지났습니다. 유효한 PDF를 다시 선택해주세요.\"}") }))
 	})
 	@PostMapping(value = "/stay-document", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-	public ResponseEntity<RegistrationStayDocumentResponse> stayDocument(
+	public ResponseEntity<RegistrationVerificationResponse> stayDocument(
 			@Parameter(hidden = true) @CookieValue(name = SocialLoginCookie.NAME, required = false) String token,
 			@Parameter(description = "외국인등록 사실증명 PDF 한 개, 최대 5MB · 3쪽", schema = @Schema(type = "string", format = "binary"))
 			@RequestPart("stayDocument") MultipartFile file,
