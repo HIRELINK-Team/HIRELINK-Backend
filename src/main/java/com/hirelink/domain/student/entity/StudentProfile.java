@@ -100,6 +100,10 @@ public class StudentProfile {
 		return id;
 	}
 
+	public UserAccount getUserAccount() {
+		return userAccount;
+	}
+
 	public void updateBasicInformation(LocalDate birthDate, String nationality, String currentRegion, KoreanLevel koreanLevel) {
 		this.birthDate = birthDate;
 		this.nationality = nationality;

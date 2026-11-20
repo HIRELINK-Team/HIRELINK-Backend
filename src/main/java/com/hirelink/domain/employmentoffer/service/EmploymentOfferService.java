@@ -14,6 +14,7 @@ import com.hirelink.domain.application.entity.ApplicationStatus;
 import com.hirelink.domain.application.repository.ApplicationRepository;
 import com.hirelink.domain.employmentmatch.entity.EmploymentMatch;
 import com.hirelink.domain.employmentmatch.repository.EmploymentMatchRepository;
+import com.hirelink.domain.employmentnotification.EmploymentSmsNotificationPublisher;
 import com.hirelink.domain.employmentoffer.dto.EmploymentOfferAcceptResponse;
 import com.hirelink.domain.employmentoffer.dto.EmploymentOfferCreateResponse;
 import com.hirelink.domain.employmentoffer.dto.EmploymentOfferRejectResponse;
@@ -35,17 +36,20 @@ public class EmploymentOfferService {
 	private final ApplicationRepository applicationRepository;
 	private final EmploymentOfferRepository employmentOfferRepository;
 	private final EmploymentMatchRepository employmentMatchRepository;
+	private final EmploymentSmsNotificationPublisher smsNotifications;
 	private final Clock clock;
 
 	public EmploymentOfferService(UserAccountRepository userAccountRepository,
 			ApplicationRepository applicationRepository,
 			EmploymentOfferRepository employmentOfferRepository,
 			EmploymentMatchRepository employmentMatchRepository,
+			EmploymentSmsNotificationPublisher smsNotifications,
 			Clock clock) {
 		this.userAccountRepository = userAccountRepository;
 		this.applicationRepository = applicationRepository;
 		this.employmentOfferRepository = employmentOfferRepository;
 		this.employmentMatchRepository = employmentMatchRepository;
+		this.smsNotifications = smsNotifications;
 		this.clock = clock;
 	}
 
@@ -70,6 +74,7 @@ public class EmploymentOfferService {
 		EmploymentOffer offer = new EmploymentOffer(application, EmploymentOfferStatus.PENDING, null,
 				offeredAt.plus(24, ChronoUnit.HOURS), offeredAt, null, null);
 		employmentOfferRepository.saveAndFlush(offer);
+		smsNotifications.offerCreated(offer);
 		return new EmploymentOfferCreateResponse(offer.getId(), application.getId(), offer.getStatus(),
 				application.getStatus(), offer.getStudentResponseDeadline(), offer.getOfferedAt());
 	}
@@ -100,6 +105,7 @@ public class EmploymentOfferService {
 		application.completeOffer();
 		EmploymentMatch match = employmentMatchRepository.save(new EmploymentMatch(offer, processedAt));
 		employmentMatchRepository.flush();
+		smsNotifications.offerAccepted(offer);
 		return new EmploymentOfferAcceptResponse(offer.getId(), application.getId(), match.getId(), offer.getStatus(),
 				application.getStatus(), offer.getRespondedAt(), match.getCompletedAt());
 	}
@@ -128,6 +134,7 @@ public class EmploymentOfferService {
 		offer.reject(processedAt);
 		application.rejectOffer(processedAt);
 		employmentOfferRepository.flush();
+		smsNotifications.offerRejected(offer);
 
 		return new EmploymentOfferRejectResponse(offer.getId(), application.getId(), offer.getStatus(),
 				application.getStatus(), application.getEndReason(), offer.getRespondedAt(), offer.getEndedAt());
