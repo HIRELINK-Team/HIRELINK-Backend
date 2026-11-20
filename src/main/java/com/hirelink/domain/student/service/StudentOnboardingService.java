@@ -1,6 +1,7 @@
 package com.hirelink.domain.student.service;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 
 import org.springframework.http.HttpStatus;
@@ -22,6 +23,7 @@ import com.hirelink.domain.student.repository.StudentCareerRepository;
 import com.hirelink.domain.student.repository.StudentProfileRepository;
 import com.hirelink.domain.student.repository.StudentRegistrationVerificationRepository;
 import com.hirelink.global.exception.PhoneNotVerifiedException;
+import com.hirelink.global.exception.InvalidStudentProfileException;
 import com.hirelink.global.exception.SocialAuthException;
 import com.hirelink.global.exception.WithdrawnAccountException;
 
@@ -66,12 +68,18 @@ public class StudentOnboardingService {
 			throw new SocialAuthException(HttpStatus.CONFLICT, "ONBOARDING_ALREADY_COMPLETED",
 					"이미 온보딩을 완료했습니다. 개별 수정 API를 이용해주세요.");
 		}
+		LocalDate birthDate = verification.getBirthDate();
+		if (birthDate != null && request.getBirthDate() != null && !birthDate.equals(request.getBirthDate())) {
+			throw new InvalidStudentProfileException("가입 시 확인한 생년월일은 온보딩에서 변경할 수 없습니다.");
+		}
+		if (birthDate == null) { birthDate = request.getBirthDate(); }
+		if (birthDate == null) { throw new InvalidStudentProfileException("생년월일을 입력해주세요."); }
 		if (profile == null) {
-			profileService.createProfile(userId, new StudentProfileCreateRequest(user.getName(), request.getBirthDate(),
+			profileService.createProfile(userId, new StudentProfileCreateRequest(user.getName(), birthDate,
 					verification.getNationality(), request.getCurrentRegion(), request.getKoreanLevel()));
 			profile = profiles.findById(userId).orElseThrow();
 		}
-		profileService.updateProfile(userId, StudentProfileUpdateRequest.forOnboarding(request.getBirthDate(),
+		profileService.updateProfile(userId, StudentProfileUpdateRequest.forOnboarding(birthDate,
 				verification.getNationality(), request.getCurrentRegion(), request.getKoreanLevel(), verification.getVisaCode(),
 				verification.getStayExpiresOn(), request.getTopikLevel()));
 		careers.deleteAll(careers.findAllByUserIdOrderByStartMonthDescIdDesc(userId));

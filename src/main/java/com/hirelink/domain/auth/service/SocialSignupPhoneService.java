@@ -51,13 +51,15 @@ public class SocialSignupPhoneService {
 	private final SmsSender smsSender;
 	private final TokenService tokenService;
 	private final SocialSignupRegistrationTransferService registrationTransfer;
+	private final SocialSignupBirthDateService birthDateService;
 	private final SecureRandom random = new SecureRandom();
 
 	public SocialSignupPhoneService(SocialAuthService socialAuthService, SocialAuthSessionRepository sessions,
 			PhoneVerificationRepository verifications, PhoneVerificationSendAttemptRepository attempts,
 			UserAccountRepository users, AuthAccountRepository accounts, SocialSignupTermsService terms,
 			UserTermAgreementRepository agreements, PasswordEncoder passwordEncoder, SmsSender smsSender,
-			TokenService tokenService, SocialSignupRegistrationTransferService registrationTransfer) {
+			TokenService tokenService, SocialSignupRegistrationTransferService registrationTransfer,
+			SocialSignupBirthDateService birthDateService) {
 		this.socialAuthService = socialAuthService;
 		this.sessions = sessions;
 		this.verifications = verifications;
@@ -70,6 +72,7 @@ public class SocialSignupPhoneService {
 		this.smsSender = smsSender;
 		this.tokenService = tokenService;
 		this.registrationTransfer = registrationTransfer;
+		this.birthDateService = birthDateService;
 	}
 
 	@Transactional(noRollbackFor = SmsDeliveryException.class)
@@ -77,11 +80,13 @@ public class SocialSignupPhoneService {
 		SocialAuthSession session = socialAuthService.requireSignupSession(token);
 		requireAgreements(session);
 		registrationTransfer.requireVerified(session);
+		birthDateService.requireForPhoneSignup(session);
 		String identity = socialAuthService.signupIdentity(session);
 		attempts.lockPhoneNumber(phoneNumber);
 		Instant now = Instant.now();
 		requireUnexpired(session, now);
 		registrationTransfer.requireVerified(session);
+		birthDateService.requireForPhoneSignup(session);
 		PhoneVerification verification = verifications.findBySignupTokenHash(session.getTokenHash()).orElse(null);
 		if (verification != null && verification.isBlocked(now)) {
 			throw new PhoneVerificationRateLimitException();
@@ -103,6 +108,7 @@ public class SocialSignupPhoneService {
 		Instant sentAt = Instant.now();
 		requireUnexpired(session, sentAt);
 		registrationTransfer.requireVerified(session);
+		birthDateService.requireForPhoneSignup(session);
 		if (verification == null) {
 			verification = PhoneVerification.forSignup(session.getTokenHash(), phoneNumber, codeHash,
 					sentAt.plus(PhoneVerificationService.CODE_TTL));
@@ -125,6 +131,7 @@ public class SocialSignupPhoneService {
 		SocialAuthSession session = socialAuthService.requireSignupSession(token);
 		List<TermType> signupTerms = requireAgreements(session);
 		registrationTransfer.requireVerified(session);
+		birthDateService.requireForPhoneSignup(session);
 		PhoneVerification verification = verifications.findBySignupTokenHash(session.getTokenHash())
 				.orElseThrow(InvalidPhoneVerificationCodeException::new);
 		Instant now = Instant.now();
@@ -146,6 +153,7 @@ public class SocialSignupPhoneService {
 		requireUnexpired(session, now);
 		if (!verification.isActive(now)) { throw new InvalidPhoneVerificationCodeException(); }
 		var registration = registrationTransfer.requireVerified(session);
+		birthDateService.requireForPhoneSignup(session);
 		if (users.existsByPhoneNumber(phoneNumber)) {
 			// 중복 안내는 정상 반환하여 이번 가입 정보 삭제를 커밋한다.
 			sessions.delete(session);
@@ -167,6 +175,7 @@ public class SocialSignupPhoneService {
 		AuthResult result = tokenService.issueTokens(user);
 		requireUnexpired(session, Instant.now());
 		registrationTransfer.requireVerified(session);
+		birthDateService.requireForPhoneSignup(session);
 		sessions.delete(session);
 		return Optional.of(result);
 	}

@@ -36,11 +36,13 @@ public class StudentRegistrationVerification {
 	private Instant documentVerifiedAt;
 	@Column(name = "registered_at", nullable = false)
 	private Instant registeredAt;
+	@Column(name = "birth_date")
+	private LocalDate birthDate;
 
 	protected StudentRegistrationVerification() { }
 
 	public StudentRegistrationVerification(UserAccount userAccount, String nationality, String visaCode,
-			LocalDate stayExpiresOn, Instant cardVerifiedAt, Instant documentVerifiedAt, Instant registeredAt) {
+			LocalDate stayExpiresOn, Instant cardVerifiedAt, Instant documentVerifiedAt, Instant registeredAt, LocalDate birthDate) {
 		this.userAccount = userAccount;
 		this.nationality = nationality;
 		this.visaCode = visaCode;
@@ -48,9 +50,11 @@ public class StudentRegistrationVerification {
 		this.cardVerifiedAt = cardVerifiedAt;
 		this.documentVerifiedAt = documentVerifiedAt;
 		this.registeredAt = registeredAt;
+		this.birthDate = birthDate;
 	}
 
 	public String getNationality() { return nationality; }
+	public LocalDate getBirthDate() { return birthDate; }
 	public String getVisaCode() { return visaCode; }
 	public LocalDate getStayExpiresOn() { return stayExpiresOn; }
 	public Instant getCardVerifiedAt() { return cardVerifiedAt; }

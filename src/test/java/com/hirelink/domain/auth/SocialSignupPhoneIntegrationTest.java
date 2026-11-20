@@ -363,6 +363,16 @@ class SocialSignupPhoneIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(count("phone_verification_send_attempt")).isEqualTo(1);
 	}
 
+	@Test
+	void birthDateEndpointIsUnavailableWhenRegistrationFeatureIsDisabled() throws Exception {
+		Browser browser = signup(AuthProvider.GOOGLE, "birth-disabled", MemberRole.STUDENT, true);
+		HttpRequest request = HttpRequest.newBuilder(uri("/api/auth/social/birth-date"))
+				.header("Content-Type", "application/json").header("X-XSRF-TOKEN", browser.csrf())
+				.PUT(HttpRequest.BodyPublishers.ofString("{\"birthDate\":\"2000-05-14\"}")).build();
+		assertError(browser.client().send(request, HttpResponse.BodyHandlers.ofString()), 503, "REGISTRATION_VERIFICATION_UNAVAILABLE");
+		assertThat(jdbc.queryForObject("select birth_date from social_auth_session", java.time.LocalDate.class)).isNull();
+	}
+
 	private Browser signup(AuthProvider provider, String subject, MemberRole role, boolean consent) throws Exception {
 		String token = socialAuthService.createSession(provider, subject, role, null);
 		CookieManager cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);

@@ -21,8 +21,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 @Schema(description = "온보딩 마지막 마치기에서 전체 정보를 한 번에 제출한다. 경력 없음은 careers=[], TOPIK 없음은 topikLevel=null이며 두 필드 모두 생략할 수 없다. 이름 · 국적 · 체류자격 · 체류 만료일은 서버의 가입 인증 결과를 사용한다.")
 public class StudentOnboardingRequest {
 
-	@NotNull
-	@Schema(description = "직접 입력한 생년월일. 한국 날짜 기준 만 18세 이상", type = "string", format = "date", example = "2000-05-14", requiredMode = Schema.RequiredMode.REQUIRED)
+	@Schema(description = "가입 때 생년월일을 보존한 회원은 생략한다. 보내면 저장된 값과 같아야 한다. 이전 버전에서 가입하여 날짜가 보존되지 않은 회원만 필수 입력. 한국 날짜 기준 만 18세 이상", type = "string", format = "date", example = "2000-05-14", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
 	private LocalDate birthDate;
 	@NotBlank
 	@Size(max = 150)

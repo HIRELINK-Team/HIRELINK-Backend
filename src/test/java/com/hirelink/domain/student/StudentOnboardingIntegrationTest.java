@@ -368,6 +368,32 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
+	void usesPreservedBirthDateWithoutRequiringItInFinalRequest() throws Exception {
+		long user = verifiedStudent();
+		jdbc.update("update student_registration_verification set birth_date = '2000-05-14' where user_id = ?", user);
+		ObjectNode request = body();
+		request.remove("birthDate");
+		HttpResponse<String> response = post(user, request.toString());
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		assertThat(jdbc.queryForObject("select birth_date from student_profile where id = ?", LocalDate.class, user)).isEqualTo(LocalDate.of(2000, 5, 14));
+	}
+
+	@Test
+	void rejectsChangingPreservedBirthDateAndRechecksStoredAge() throws Exception {
+		long user = verifiedStudent();
+		jdbc.update("update student_registration_verification set birth_date = '2000-05-14' where user_id = ?", user);
+		ObjectNode different = body();
+		different.put("birthDate", "1990-01-01");
+		assertError(post(user, different.toString()), 400, "INVALID_INPUT");
+		assertNoOnboarding(user);
+		jdbc.update("update student_registration_verification set birth_date = ? where user_id = ?", LocalDate.now(ZoneId.of("Asia/Seoul")).minusYears(10), user);
+		ObjectNode omitted = body();
+		omitted.remove("birthDate");
+		assertError(post(user, omitted.toString()), 400, "INVALID_INPUT");
+		assertNoOnboarding(user);
+	}
+
+	@Test
 	void openApiDocumentsRequiredFieldsNullableTopikAndCompletionConflicts() throws Exception {
 		HttpResponse<String> response = send("GET", "/v3/api-docs", null, null);
 		assertThat(response.statusCode()).isEqualTo(200);
@@ -376,7 +402,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(operation.path("responses").has("200")).isTrue();
 		assertThat(operation.path("responses").has("409")).isTrue();
 		JsonNode schema = document.path("components").path("schemas").path("StudentOnboardingRequest");
-		assertThat(schema.path("required").toString()).contains("birthDate", "currentRegion", "koreanLevel", "careers", "topikLevel", "matchingPreferences");
+		assertThat(schema.path("required").toString()).contains("currentRegion", "koreanLevel", "careers", "topikLevel", "matchingPreferences").doesNotContain("birthDate");
 		assertThat(schema.path("properties").has("topikLevelProvided")).isFalse();
 		assertThat(schema.path("properties").has("topikAnswerPresent")).isFalse();
 		assertThat(schema.path("properties").path("topikLevel").toString()).contains("null");

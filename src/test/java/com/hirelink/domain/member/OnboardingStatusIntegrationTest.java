@@ -80,6 +80,21 @@ class OnboardingStatusIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
+	void preservedBirthDateRestartsAtCurrentRegionAndCompletesWithoutResubmittingDate() throws Exception {
+		long user = verifiedStudent(30);
+		jdbc.update("update student_registration_verification set birth_date = '2000-05-14', registered_at = now() - interval '2 days' where user_id = ?", user);
+		List<List<Map<String, Object>>> before = snapshot(user);
+		assertStatus(get(user), user, "STUDENT", "REQUIRED", "CURRENT_REGION", null);
+		assertThat(snapshot(user)).isEqualTo(before);
+		var request = (tools.jackson.databind.node.ObjectNode) mapper.readTree(COMPLETE_REQUEST);
+		request.remove("birthDate");
+		HttpResponse<String> completion = send("POST", "/api/students/me/onboarding", token(user, "STUDENT"), request.toString());
+		assertThat(completion.statusCode()).as(completion.body()).isEqualTo(200);
+		assertThat(jdbc.queryForObject("select birth_date from student_profile where id = ?", LocalDate.class, user)).isEqualTo(LocalDate.of(2000, 5, 14));
+		assertStatus(get(user), user, "STUDENT", "COMPLETED", "NONE", Instant.parse(mapper.readTree(completion.body()).path("completedAt").asString()));
+	}
+
+	@Test
 	void doesNotInferCompletionFromExistingProfileOrCareers() throws Exception {
 		long user = verifiedStudent(30);
 		createProfile(user);
@@ -181,7 +196,7 @@ class OnboardingStatusIntegrationTest extends PostgreSQLIntegrationTest {
 		JsonNode schema = document.path("components").path("schemas").path("OnboardingStatusResponse");
 		assertThat(schema.path("required").toString()).contains("userId", "role", "status", "nextStep", "completedAt");
 		assertThat(schema.path("properties").path("status").toString()).contains("REQUIRED", "COMPLETED", "NOT_APPLICABLE");
-		assertThat(schema.path("properties").path("nextStep").toString()).contains("BASIC_INFORMATION", "NONE", "EXISTING_FLOW");
+		assertThat(schema.path("properties").path("nextStep").toString()).contains("CURRENT_REGION", "BASIC_INFORMATION", "NONE", "EXISTING_FLOW");
 		assertThat(schema.path("properties").path("completedAt").toString()).contains("null");
 		assertThat(document.path("paths").path("/api/students/me/onboarding").has("post")).isTrue();
 	}
