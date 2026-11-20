@@ -38,13 +38,20 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import com.hirelink.domain.application.service.ApplicationExpirationProcessor;
+import com.hirelink.domain.employmentnotification.EmploymentSmsNotificationPublisher;
+import com.hirelink.domain.employmentoffer.entity.EmploymentOffer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(EmploymentOfferFlowIntegrationTest.TestClockConfiguration.class)
@@ -70,6 +77,8 @@ class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 	private JwtEncoder jwtEncoder;
 	@Autowired
 	private ApplicationExpirationProcessor expirationProcessor;
+	@MockitoBean
+	private EmploymentSmsNotificationPublisher smsNotifications;
 	private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
 	@BeforeEach
@@ -124,6 +133,8 @@ class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 				otherApplication)).isEqualTo("WAITING_RESPONSE");
 		assertThat(jdbc.queryForObject("select count(*) from employment_match where employment_offer_id = ?",
 				Integer.class, offerId)).isEqualTo(1);
+		verify(smsNotifications).offerCreated(any(EmploymentOffer.class));
+		verify(smsNotifications).offerAccepted(any(EmploymentOffer.class));
 	}
 
 	@Test
@@ -171,6 +182,8 @@ class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 				409, "EMPLOYMENT_OFFER_STATE_CONFLICT");
 		assertThat(jdbc.queryForObject("select count(*) from employment_offer", Integer.class)).isEqualTo(1);
 		assertThat(jdbc.queryForObject("select count(*) from employment_match", Integer.class)).isEqualTo(1);
+		verify(smsNotifications, times(1)).offerCreated(any(EmploymentOffer.class));
+		verify(smsNotifications, times(1)).offerAccepted(any(EmploymentOffer.class));
 	}
 
 	@Test
@@ -190,6 +203,7 @@ class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(jdbc.queryForObject("select status from employment_offer where id = ?", String.class,
 				offerId)).isEqualTo("PENDING");
 		assertThat(jdbc.queryForObject("select count(*) from employment_match", Integer.class)).isZero();
+		verify(smsNotifications, never()).offerAccepted(any(EmploymentOffer.class));
 	}
 
 	@Test
@@ -220,6 +234,7 @@ class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 		List<HttpResponse<String>> responses = List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
 		assertThat(responses).extracting(HttpResponse::statusCode).containsExactlyInAnyOrder(200, 409);
 		assertThat(jdbc.queryForObject("select count(*) from employment_match", Integer.class)).isEqualTo(1);
+		verify(smsNotifications, times(1)).offerAccepted(any(EmploymentOffer.class));
 	}
 
 	@Test
@@ -260,6 +275,7 @@ class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(jdbc.queryForObject("select end_reason from employment_offer where id = ?", String.class,
 				offerId)).isEqualTo("STUDENT_RESPONSE_EXPIRED");
 		assertThat(jdbc.queryForObject("select count(*) from employment_match", Integer.class)).isZero();
+		verify(smsNotifications, never()).offerAccepted(any(EmploymentOffer.class));
 	}
 
 	@Test

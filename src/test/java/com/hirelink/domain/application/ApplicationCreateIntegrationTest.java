@@ -33,11 +33,18 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import com.hirelink.domain.application.entity.Application;
+import com.hirelink.domain.employmentnotification.EmploymentSmsNotificationPublisher;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class ApplicationCreateIntegrationTest extends PostgreSQLIntegrationTest {
@@ -60,6 +67,8 @@ class ApplicationCreateIntegrationTest extends PostgreSQLIntegrationTest {
 	private ObjectMapper mapper;
 	@Autowired
 	private JwtEncoder jwtEncoder;
+	@MockitoBean
+	private EmploymentSmsNotificationPublisher smsNotifications;
 	private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
 	@BeforeEach
@@ -115,6 +124,7 @@ class ApplicationCreateIntegrationTest extends PostgreSQLIntegrationTest {
 				.isEqualTo("09:00");
 		assertThat(snapshot.path("recommendation").path("recommendationId").asLong()).isEqualTo(recommendation);
 		assertThat(snapshot.path("recommendation").path("reason").path("summary").asString()).isEqualTo("조건 적합");
+		verify(smsNotifications).applicationCreated(any(Application.class));
 	}
 
 	@Test
@@ -249,6 +259,7 @@ class ApplicationCreateIntegrationTest extends PostgreSQLIntegrationTest {
 				select count(*) from application where job_posting_id = ?
 				and status in ('WAITING_RESPONSE', 'OFFERED')
 				""", Integer.class, posting)).isEqualTo(5);
+		verify(smsNotifications, times(1)).applicationCreated(any(Application.class));
 	}
 
 	@Test
@@ -333,6 +344,7 @@ class ApplicationCreateIntegrationTest extends PostgreSQLIntegrationTest {
 				select count(*) from application where job_posting_id = ?
 				and status in ('WAITING_RESPONSE', 'OFFERED')
 				""", Integer.class, posting)).isEqualTo(5);
+		verify(smsNotifications, times(1)).applicationCreated(any(Application.class));
 	}
 
 	@Test
