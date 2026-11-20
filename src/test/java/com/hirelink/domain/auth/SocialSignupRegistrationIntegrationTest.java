@@ -19,9 +19,12 @@ import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -32,6 +35,7 @@ import org.mockito.ArgumentCaptor;
 
 import com.hirelink.domain.auth.client.ApickRegistrationClient;
 import com.hirelink.domain.auth.client.RegistrationOcrClient;
+import com.hirelink.domain.auth.dto.RegistrationFrontResponse;
 import com.hirelink.domain.auth.entity.AuthProvider;
 import com.hirelink.domain.auth.service.RegistrationCipher;
 import com.hirelink.domain.auth.service.SocialAuthService;
@@ -58,6 +62,7 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 	private static final String PATH = "/api/auth/social/registration/";
 	private static final byte[] PNG = {(byte) 137, 80, 78, 71, 13, 10, 26, 10, 0};
 	private static final String NUMBER = "0001015000000";
+	private static final String DISPLAY_NUMBER = "000101-5000000";
 	private static final ObjectMapper JSON = new ObjectMapper();
 	@LocalServerPort int port;
 	@Autowired JdbcTemplate jdbc;
@@ -110,13 +115,22 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		Object agreed = jdbc.queryForObject("select agreed_at from social_auth_session_term_agreement a join term_type t on t.id=a.term_type_id where t.is_student_registration", Object.class);
 		HttpResponse<String> front = upload("front");
 		assertThat(front.statusCode()).as(front.body()).isEqualTo(200);
-		assertThat(front.body()).doesNotContain(NUMBER).contains("000101-*******");
+		JsonNode frontBody = JSON.readTree(front.body());
+		assertThat(frontBody.propertyNames()).containsExactlyInAnyOrder("name", "nationalityCode", "visaCode", "registrationNumber", "issueDate", "signupExpiresAt");
+		assertThat(frontBody.path("registrationNumber").asString()).isEqualTo(DISPLAY_NUMBER);
+		assertThat(frontBody.path("name").asString()).isEqualTo("TEST STUDENT");
+		assertThat(frontBody.path("nationalityCode").asString()).isEqualTo("VN");
+		assertThat(frontBody.path("visaCode").asString()).isEqualTo("D-2");
+		assertThat(frontBody.path("issueDate").asString()).isEqualTo("2020-01-01");
+		assertThat(Instant.parse(frontBody.path("signupExpiresAt").asString())).isEqualTo(((java.sql.Timestamp) expires).toInstant());
+		assertThat(front.headers().firstValue("Content-Type")).hasValueSatisfying(value -> assertThat(value).startsWith("application/json"));
 		assertThat(front.headers().firstValue("Cache-Control")).contains("no-store");
-		assertThat(payload()).startsWith("v1.").doesNotContain(NUMBER, "TEST STUDENT");
+		assertThat(payload()).startsWith("v1.").doesNotContain(NUMBER, DISPLAY_NUMBER, "TEST STUDENT");
 		assertThat(decrypted().path("registrationNumber").asString()).isEqualTo(NUMBER);
 		assertThat(jdbc.queryForObject("select count(*) from user_account", Long.class)).isZero();
 		HttpResponse<String> back = upload("back");
 		assertThat(back.statusCode()).as(back.body()).isEqualTo(200);
+		assertThat(back.body()).doesNotContain(NUMBER, DISPLAY_NUMBER, "registrationNumber");
 		JsonNode result = JSON.readTree(back.body());
 		assertThat(result.path("cardVerified").asBoolean()).isTrue();
 		assertThat(result.path("requiresStayDocument").asBoolean()).isFalse();
@@ -128,6 +142,63 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		assertThat(jdbc.queryForObject("select agreed_at from social_auth_session_term_agreement a join term_type t on t.id=a.term_type_id where t.is_student_registration", Object.class)).isEqualTo(agreed);
 		verify(apick).verify(NUMBER, LocalDate.of(2020, 1, 1), "00000000001");
 		assertError(upload("back"), 409, "REGISTRATION_FRONT_REQUIRED");
+	}
+
+	@Test
+	@ExtendWith(OutputCaptureExtension.class)
+	void frontResponseAndValidationErrorsDoNotLogRegistrationNumber(CapturedOutput output) throws Exception {
+		agree();
+		HttpResponse<String> response = upload("front");
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		assertThat(JSON.readTree(response.body()).path("registrationNumber").asString()).isEqualTo(DISPLAY_NUMBER);
+		RegistrationFrontResponse dto = new RegistrationFrontResponse("TEST STUDENT", "VN", "D-2", DISPLAY_NUMBER,
+				LocalDate.of(2020, 1, 1), Instant.now());
+		assertThat(dto.toString()).isEqualTo("RegistrationFrontResponse[redacted]");
+		when(ocr.recognize(any(), anyString(), eq(true)))
+				.thenReturn(JSON.readTree(frontResult().toString().replace("D-2", "UNSUPPORTED")));
+		assertError(upload("front"), 422, "UNREADABLE_REGISTRATION");
+		assertThat(payload()).isNull();
+		assertThat(output.getAll()).doesNotContain(NUMBER, DISPLAY_NUMBER);
+	}
+
+	@Test
+	void frontResponseIsIsolatedToTheCurrentSignupSession() throws Exception {
+		agree();
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		String firstHash = jdbc.queryForObject("select token_hash from social_signup_registration", String.class);
+		String firstPayload = payload();
+		setSession(MemberRole.STUDENT, "other-registration-test");
+		assertError(upload("front"), 400, "REQUIRED_TERMS_NOT_AGREED");
+		agree();
+		assertError(upload("back"), 409, "REGISTRATION_FRONT_REQUIRED");
+		String otherNumber = "0101016000001";
+		when(ocr.recognize(any(), anyString(), eq(true)))
+				.thenReturn(JSON.readTree(frontResult().toString().replace(NUMBER, otherNumber)));
+		HttpResponse<String> response = upload("front");
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		assertThat(JSON.readTree(response.body()).path("registrationNumber").asString()).isEqualTo("010101-6000001");
+		assertThat(response.body()).doesNotContain(NUMBER, DISPLAY_NUMBER);
+		assertThat(jdbc.queryForObject("select front_payload from social_signup_registration where token_hash = ?", String.class, firstHash)).isEqualTo(firstPayload);
+		String secondHash = jdbc.queryForObject("select token_hash from social_signup_registration where token_hash <> ?", String.class, firstHash);
+		String secondPayload = jdbc.queryForObject("select front_payload from social_signup_registration where token_hash = ?", String.class, secondHash);
+		assertThat(secondPayload).doesNotContain(NUMBER, DISPLAY_NUMBER, otherNumber, "010101-6000001");
+		assertThat(JSON.readTree(cipher.decrypt(secondPayload, secondHash)).path("registrationNumber").asString()).isEqualTo(otherNumber);
+	}
+
+	@Test
+	void frontCannotReturnTheNumberWhenSessionExpiresDuringOcr() throws Exception {
+		agree();
+		Instant expires = Instant.now().plusSeconds(2);
+		jdbc.update("update social_auth_session set expires_at = ?", java.sql.Timestamp.from(expires));
+		when(ocr.recognize(any(), anyString(), eq(true))).thenAnswer(invocation -> {
+			long wait = expires.toEpochMilli() - System.currentTimeMillis() + 100;
+			if (wait > 0) { Thread.sleep(wait); }
+			return frontResult();
+		});
+		assertError(upload("front"), 401, "INVALID_SOCIAL_SESSION");
+		assertThat(payload()).isNull();
+		assertThat(count("user_account")).isZero();
+		verifyNoInteractions(apick);
 	}
 
 	@Test
@@ -208,6 +279,7 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		agree();
 		assertThat(upload("front").statusCode()).isEqualTo(200);
 		jdbc.update("update social_auth_session set expires_at = now() - interval '1 second'");
+		assertError(upload("front"), 401, "INVALID_SOCIAL_SESSION");
 		assertError(upload("back"), 401, "INVALID_SOCIAL_SESSION");
 		auth.deleteExpiredSessions();
 		assertThat(jdbc.queryForObject("select count(*) from social_signup_registration", Long.class)).isZero();
@@ -271,7 +343,7 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 	}
 
 	@Test
-	void openApiExposesOnlyImageInputAndMaskedFrontResponse() throws Exception {
+	void openApiExposesOnlyImageInputAndFullFrontResponse() throws Exception {
 		JsonNode document = JSON.readTree(get("/v3/api-docs").body());
 		for (String side : List.of("front", "back")) {
 			JsonNode operation = document.path("paths").path(PATH + side).path("post");
@@ -282,8 +354,21 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 			assertThat(operation.path("responses").propertyNames()).contains("200", "400", "401", "403", "409", "413", "415", "422", "502", "503", "500");
 			assertThat(operation.path("parameters").toString()).contains("socialSignup", "X-XSRF-TOKEN", "XSRF-TOKEN");
 		}
-		JsonNode frontSchema = document.path("components").path("schemas").path("RegistrationFrontResponse").path("properties");
-		assertThat(frontSchema.propertyNames()).contains("maskedRegistrationNumber").doesNotContain("registrationNumber");
+		JsonNode frontSchema = document.path("components").path("schemas").path("RegistrationFrontResponse");
+		assertThat(frontSchema.path("properties").propertyNames()).contains("registrationNumber").doesNotContain("maskedRegistrationNumber");
+		assertThat(frontSchema.path("required").toString()).contains("registrationNumber");
+		JsonNode number = frontSchema.path("properties").path("registrationNumber");
+		assertThat(number.path("type").asString()).isEqualTo("string");
+		assertThat(number.path("minLength").asInt()).isEqualTo(14);
+		assertThat(number.path("maxLength").asInt()).isEqualTo(14);
+		assertThat(number.path("example").asString()).isEqualTo(DISPLAY_NUMBER);
+		assertThat(DISPLAY_NUMBER.matches(number.path("pattern").asString())).isTrue();
+		assertThat(NUMBER.matches(number.path("pattern").asString())).isFalse();
+		JsonNode example = document.path("paths").path(PATH + "front").path("post").path("responses")
+				.path("200").path("content").path("application/json").path("examples").path("success").path("value");
+		if (example.isString()) { example = JSON.readTree(example.asString()); }
+		assertThat(example.path("registrationNumber").asString()).isEqualTo(DISPLAY_NUMBER);
+		assertThat(example.has("maskedRegistrationNumber")).isFalse();
 	}
 
 	@Test
@@ -294,7 +379,7 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		when(ocr.recognizeStayDocument(any())).thenReturn(pdfResult(NUMBER, today));
 		HttpResponse<String> response = uploadPdf();
 		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
-		assertThat(response.body()).doesNotContain(NUMBER, "issueDate");
+		assertThat(response.body()).doesNotContain(NUMBER, DISPLAY_NUMBER, "registrationNumber", "issueDate");
 		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
 		assertThat(JSON.readTree(response.body()).path("stayDocumentVerified").asBoolean()).isTrue();
 		assertThat(JSON.readTree(response.body()).path("stayExpiresOn").asString()).isEqualTo(today.toString());
@@ -805,7 +890,10 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		return JSON.readTree(cipher.decrypt(payload(), hash));
 	}
 	private void setSession(MemberRole role) {
-		token = auth.createSession(AuthProvider.GOOGLE, "registration-test", role, null);
+		setSession(role, "registration-test");
+	}
+	private void setSession(MemberRole role, String subject) {
+		token = auth.createSession(AuthProvider.GOOGLE, subject, role, null);
 		cookies.getCookieStore().getCookies().stream().filter(c -> c.getName().equals("socialSignup"))
 				.toList().forEach(c -> cookies.getCookieStore().remove(uri("/"), c));
 		HttpCookie cookie = new HttpCookie("socialSignup", token);
@@ -846,6 +934,6 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 	private void assertError(HttpResponse<String> response, int status, String code) {
 		assertThat(response.statusCode()).as(response.body()).isEqualTo(status);
 		assertThat(JSON.readTree(response.body()).path("code").asString()).isEqualTo(code);
-		assertThat(response.body()).doesNotContain(NUMBER);
+		assertThat(response.body()).doesNotContain(NUMBER, DISPLAY_NUMBER);
 	}
 }
