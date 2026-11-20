@@ -68,7 +68,7 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 	@ValueSource(strings = {"STUDENT", "EMPLOYER"})
 	void savesAgreementsForBothRolesAndReturnsSpecifiedFields(String role) throws Exception {
 		assertThat(jdbc.queryForList("select term_type_name from term_type where not is_social_signup order by id", String.class))
-				.containsExactly("이용약관", "개인정보처리방침", "광고성 정보 수신");
+				.containsExactly("이용약관", "개인정보처리방침", "광고성 정보 수신", "위치기반 서비스 이용약관");
 		String token = createUser(role);
 		HttpResponse<String> response = save(token, """
 				{"agreements":[{"termTypeId":1,"isAgreed":true},{"termTypeId":2,"isAgreed":false}]}
@@ -193,6 +193,135 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(second.statusCode()).isEqualTo(200);
 		assertThat(first.body()).isEqualTo(second.body());
 		assertThat(jdbc.queryForObject("select count(*) from user_term_agreement", Integer.class)).isEqualTo(1);
+	}
+
+	@Test
+	void locationConsentStartsFalseWithoutCreatingRowsOrRequiringOnboarding() throws Exception {
+		String token = createUser("STUDENT");
+		long locationId = locationTermId();
+		Map<String, Object> term = jdbc.queryForMap("select is_required,is_social_signup,is_student_registration from term_type where id = ?", locationId);
+		assertThat(term.values()).containsOnly(false);
+		HttpResponse<String> first = locationConsent(token);
+		assertLocation(first, locationId, false, null);
+		assertThat(locationConsent(token).body()).isEqualTo(first.body());
+		assertThat(jdbc.queryForObject("select count(*) from user_term_agreement", Integer.class)).isZero();
+		assertThat(jdbc.queryForObject("select count(*) from student_profile", Integer.class)).isZero();
+		assertThat(jdbc.queryForObject("select count(*) from student_registration_verification", Integer.class)).isZero();
+	}
+
+	@Test
+	void locationConsentUsesExistingSaveAndPreservesTimestampAcrossLaterVisits() throws Exception {
+		String token = createUser("STUDENT");
+		long id = locationTermId();
+		String agree = "{\"agreements\":[{\"termTypeId\":" + id + ",\"isAgreed\":true}]}";
+		assertThat(save(token, "{\"agreements\":[{\"termTypeId\":1,\"isAgreed\":true}]}").statusCode()).isEqualTo(200);
+		Instant otherTermTime = storedAgreedAt(1);
+		HttpResponse<String> saved = save(token, agree);
+		assertThat(saved.statusCode()).as(saved.body()).isEqualTo(200);
+		Instant firstTime = Instant.parse(mapper.readTree(saved.body()).path("agreements").get(0).path("agreedAt").asString());
+		assertLocation(locationConsent(token), id, true, firstTime);
+		Instant earlier = Instant.parse("2026-01-01T01:02:03Z");
+		jdbc.update("update user_term_agreement set agreed_at = ? where term_type_id = ?", java.sql.Timestamp.from(earlier), id);
+		assertLocation(locationConsent(token), id, true, earlier);
+		assertThat(save(token, agree).statusCode()).isEqualTo(200);
+		assertLocation(locationConsent(token), id, true, earlier);
+		assertThat(storedAgreedAt(1)).isEqualTo(otherTermTime);
+		assertThat(save(token, "{\"agreements\":[{\"termTypeId\":" + id + ",\"isAgreed\":false}]}").statusCode()).isEqualTo(200);
+		assertLocation(locationConsent(token), id, false, null);
+		assertThat(save(token, agree).statusCode()).isEqualTo(200);
+		assertThat(storedAgreedAt(id)).isAfter(earlier);
+		assertLocation(locationConsent(token), id, true, storedAgreedAt(id));
+		assertThat(jdbc.queryForObject("select count(*) from user_term_agreement where term_type_id = ?", Integer.class, id)).isEqualTo(1);
+	}
+
+	@Test
+	void locationConsentReadsOnlyAuthenticatedMemberAndRejectsWithdrawnOrMissingUsers() throws Exception {
+		assertError(locationConsent(null), 401, "UNAUTHORIZED");
+		assertError(locationConsent("invalid"), 401, "UNAUTHORIZED");
+		String first = createUser("STUDENT");
+		String second = createUser("EMPLOYER");
+		long id = locationTermId();
+		assertThat(save(first, "{\"agreements\":[{\"termTypeId\":" + id + ",\"isAgreed\":true}]}").statusCode()).isEqualTo(200);
+		assertLocation(locationConsent(second), id, false, null);
+		HttpRequest otherId = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/users/me/term-agreements/location?userId=1"))
+				.header("Authorization", "Bearer " + second).GET().build();
+		assertLocation(client.send(otherId, HttpResponse.BodyHandlers.ofString()), id, false, null);
+		HttpRequest cookieOnly = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/users/me/term-agreements/location"))
+				.header("Cookie", "socialSignup=temporary-signup-session").GET().build();
+		assertError(client.send(cookieOnly, HttpResponse.BodyHandlers.ofString()), 401, "UNAUTHORIZED");
+		jdbc.update("update user_account set withdrawn_at = now() where id = 2");
+		assertError(locationConsent(second), 403, "WITHDRAWN_ACCOUNT");
+		jdbc.update("delete from user_account where id = 2");
+		assertError(locationConsent(second), 401, "UNAUTHORIZED");
+		assertLocation(locationConsent(first), id, true, storedAgreedAt(id));
+	}
+
+	@Test
+	void simultaneousLocationAgreementsKeepOneRowAndOriginalTimestamp() throws Exception {
+		String token = createUser("STUDENT");
+		long id = locationTermId();
+		HttpRequest request = httpRequest(token, "{\"agreements\":[{\"termTypeId\":" + id + ",\"isAgreed\":true}]}");
+		var one = client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+		var two = client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+		HttpResponse<String> first = one.get(15, TimeUnit.SECONDS);
+		HttpResponse<String> second = two.get(15, TimeUnit.SECONDS);
+		assertThat(first.statusCode()).isEqualTo(200);
+		assertThat(second.statusCode()).isEqualTo(200);
+		assertThat(second.body()).isEqualTo(first.body());
+		assertLocation(locationConsent(token), id, true, storedAgreedAt(id));
+		assertThat(jdbc.queryForObject("select count(*) from user_term_agreement", Integer.class)).isEqualTo(1);
+	}
+
+	@Test
+	void missingLocationTermReturnsExistingErrorWithoutCreatingConsent() throws Exception {
+		String token = createUser("STUDENT");
+		long id = locationTermId();
+		jdbc.update("update term_type set term_type_name = 'test-location-term' where id = ?", id);
+		try {
+			assertError(locationConsent(token), 404, "TERM_TYPE_NOT_FOUND");
+			assertThat(jdbc.queryForObject("select count(*) from user_term_agreement", Integer.class)).isZero();
+		} finally {
+			jdbc.update("update term_type set term_type_name = '위치기반 서비스 이용약관' where id = ?", id);
+		}
+	}
+
+	@Test
+	void locationOpenApiMatchesLookupAndExistingSaveContract() throws Exception {
+		HttpResponse<String> response = client.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/v3/api-docs")).GET().build(), HttpResponse.BodyHandlers.ofString());
+		assertThat(response.statusCode()).isEqualTo(200);
+		JsonNode document = mapper.readTree(response.body());
+		JsonNode operation = document.path("paths").path("/api/users/me/term-agreements/location").path("get");
+		for (String status : List.of("200", "401", "403", "404", "500")) {
+			assertThat(operation.path("responses").path(status).path("content").has("application/json")).isTrue();
+		}
+		JsonNode schema = document.path("components").path("schemas").path("LocationConsentResponse");
+		assertThat(schema.path("required").toString()).contains("termTypeId", "termTypeName", "isAgreed", "agreedAt");
+		assertThat(schema.path("properties").size()).isEqualTo(4);
+		assertThat(schema.path("properties").path("agreedAt").toString()).contains("null");
+		assertThat(document.path("paths").path("/api/users/me/term-agreements").path("put").path("description").asString()).contains("/api/users/me/term-agreements/location");
+	}
+
+	private long locationTermId() {
+		return jdbc.queryForObject("select id from term_type where term_type_name = '위치기반 서비스 이용약관'", Long.class);
+	}
+
+	private HttpResponse<String> locationConsent(String token) throws Exception {
+		HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/users/me/term-agreements/location")).GET();
+		if (token != null) { request.header("Authorization", "Bearer " + token); }
+		return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+	}
+
+	private void assertLocation(HttpResponse<String> response, long id, boolean agreed, Instant agreedAt) {
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+		JsonNode body = mapper.readTree(response.body());
+		assertThat(body.size()).isEqualTo(4);
+		assertThat(body.path("termTypeId").asLong()).isEqualTo(id);
+		assertThat(body.path("termTypeName").asString()).isEqualTo("위치기반 서비스 이용약관");
+		assertThat(body.path("isAgreed").asBoolean()).isEqualTo(agreed);
+		assertThat(body.has("agreedAt")).isTrue();
+		if (agreedAt == null) { assertThat(body.path("agreedAt").isNull()).isTrue(); }
+		else { assertThat(Instant.parse(body.path("agreedAt").asString())).isEqualTo(agreedAt); }
 	}
 
 	private String createUser(String role) {
