@@ -18,9 +18,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.hirelink.domain.auth.client.ApickRegistrationClient;
 import com.hirelink.domain.auth.client.RegistrationOcrClient;
-import com.hirelink.domain.auth.dto.RegistrationBackResponse;
 import com.hirelink.domain.auth.dto.RegistrationFrontResponse;
-import com.hirelink.domain.auth.dto.RegistrationStayDocumentResponse;
+import com.hirelink.domain.auth.dto.RegistrationVerificationResponse;
 import com.hirelink.domain.auth.entity.SocialAuthSession;
 import com.hirelink.domain.auth.entity.SocialSignupRegistration;
 import com.hirelink.domain.auth.repository.SocialSignupRegistrationRepository;
@@ -94,7 +93,7 @@ public class SocialSignupRegistrationService {
 	}
 
 	@Transactional(noRollbackFor = SocialAuthException.class)
-	public RegistrationBackResponse back(String token, MultipartFile file) {
+	public RegistrationVerificationResponse back(String token, MultipartFile file) {
 		SocialAuthSession session = requireSession(token);
 		SocialSignupRegistration registration = registrations.findById(session.getTokenHash()).orElseThrow(this::frontRequired);
 		if (registration.getFrontPayload() == null) { throw frontRequired(); }
@@ -118,17 +117,21 @@ public class SocialSignupRegistrationService {
 			requireUnexpired(session, registration);
 			boolean requiresPdf = expiry.isBefore(LocalDate.now(KOREA));
 			((ObjectNode) front).remove("issueDate");
-			// PDF의 동일인 확인이 필요한 경우에만 세션 만료까지 번호를 유지한다.
-			if (!requiresPdf) { ((ObjectNode) front).remove("registrationNumber"); }
+			// PDF 동일인 확인과 공통 응답 연결에 필요한 동안만 번호를 보관한다.
+			if (requiresPdf) {
+				((ObjectNode) front).put("serialNumber", serialNumber);
+			} else {
+				((ObjectNode) front).remove("registrationNumber");
+			}
 			registration.verify(cipher.encrypt(mapper.writeValueAsString(front), session.getTokenHash()), expiry, Instant.now());
-			return new RegistrationBackResponse(true, expiry, requiresPdf, session.getExpiresAt());
+			return new RegistrationVerificationResponse(serialNumber, expiry, true, false, requiresPdf, session.getExpiresAt());
 		} finally {
 			Arrays.fill(bytes, (byte) 0);
 		}
 	}
 
 	@Transactional(noRollbackFor = SocialAuthException.class)
-	public RegistrationStayDocumentResponse stayDocument(String token, MultipartFile file) {
+	public RegistrationVerificationResponse stayDocument(String token, MultipartFile file) {
 		SocialAuthSession session = requireSession(token);
 		SocialSignupRegistration registration = registrations.findById(session.getTokenHash()).orElseThrow(this::backRequired);
 		if (registration.getCardVerifiedAt() == null) { throw backRequired(); }
@@ -137,6 +140,12 @@ public class SocialSignupRegistrationService {
 		}
 		ObjectNode front = (ObjectNode) mapper.readTree(cipher.decrypt(registration.getFrontPayload(), session.getTokenHash()));
 		if (!front.path("registrationNumber").isString()) { throw frontRequired(); }
+		JsonNode serial = front.get("serialNumber");
+		// 구형 카드의 명시적 null과 일련번호를 보관하지 않던 이전 세션을 구분한다.
+		if (serial == null || (!serial.isNull() && (!serial.isString() || !serial.stringValue().matches("[0-9]{11}")))) {
+			throw frontRequired();
+		}
+		String serialNumber = serial.isNull() ? null : serial.stringValue();
 		byte[] bytes = readFile(file, true);
 		try {
 			registration.resetDocument();
@@ -158,8 +167,9 @@ public class SocialSignupRegistrationService {
 			}
 			front.remove("registrationNumber");
 			front.remove("issueDate");
+			front.remove("serialNumber");
 			registration.verifyDocument(cipher.encrypt(mapper.writeValueAsString(front), session.getTokenHash()), expiry, Instant.now());
-			return new RegistrationStayDocumentResponse(true, expiry, session.getExpiresAt());
+			return new RegistrationVerificationResponse(serialNumber, expiry, true, true, false, session.getExpiresAt());
 		} finally { Arrays.fill(bytes, (byte) 0); }
 	}
 

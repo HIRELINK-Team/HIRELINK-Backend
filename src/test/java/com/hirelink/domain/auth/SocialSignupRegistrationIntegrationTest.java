@@ -36,6 +36,7 @@ import org.mockito.ArgumentCaptor;
 import com.hirelink.domain.auth.client.ApickRegistrationClient;
 import com.hirelink.domain.auth.client.RegistrationOcrClient;
 import com.hirelink.domain.auth.dto.RegistrationFrontResponse;
+import com.hirelink.domain.auth.dto.RegistrationVerificationResponse;
 import com.hirelink.domain.auth.entity.AuthProvider;
 import com.hirelink.domain.auth.service.RegistrationCipher;
 import com.hirelink.domain.auth.service.SocialAuthService;
@@ -51,6 +52,7 @@ import com.hirelink.global.sms.SmsSendRequest;
 import com.hirelink.support.PostgreSQLIntegrationTest;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
@@ -63,6 +65,7 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 	private static final byte[] PNG = {(byte) 137, 80, 78, 71, 13, 10, 26, 10, 0};
 	private static final String NUMBER = "0001015000000";
 	private static final String DISPLAY_NUMBER = "000101-5000000";
+	private static final String SERIAL = "00000000001";
 	private static final ObjectMapper JSON = new ObjectMapper();
 	@LocalServerPort int port;
 	@Autowired JdbcTemplate jdbc;
@@ -129,7 +132,7 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		assertThat(decrypted().path("registrationNumber").asString()).isEqualTo(NUMBER);
 		assertThat(jdbc.queryForObject("select count(*) from user_account", Long.class)).isZero();
 		HttpResponse<String> back = upload("back");
-		assertThat(back.statusCode()).as(back.body()).isEqualTo(200);
+		assertVerificationResponse(back, SERIAL, today, false, false);
 		assertThat(back.body()).doesNotContain(NUMBER, DISPLAY_NUMBER, "registrationNumber");
 		JsonNode result = JSON.readTree(back.body());
 		assertThat(result.path("cardVerified").asBoolean()).isTrue();
@@ -137,6 +140,7 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		assertThat(result.path("stayExpiresOn").asString()).isEqualTo(today.toString());
 		assertThat(decrypted().has("registrationNumber")).isFalse();
 		assertThat(decrypted().has("issueDate")).isFalse();
+		assertThat(decrypted().has("serialNumber")).isFalse();
 		assertThat(decrypted().path("nationalityCode").asString()).isEqualTo("VN");
 		assertThat(jdbc.queryForObject("select expires_at from social_auth_session", Object.class)).isEqualTo(expires);
 		assertThat(jdbc.queryForObject("select agreed_at from social_auth_session_term_agreement a join term_type t on t.id=a.term_type_id where t.is_student_registration", Object.class)).isEqualTo(agreed);
@@ -207,13 +211,15 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		when(ocr.recognize(any(), anyString(), eq(false))).thenReturn(backResult(today.minusDays(1), "00000000001"));
 		assertThat(upload("front").statusCode()).isEqualTo(200);
 		HttpResponse<String> back = upload("back");
-		assertThat(back.statusCode()).isEqualTo(200);
+		assertVerificationResponse(back, SERIAL, today.minusDays(1), false, true);
 		assertThat(JSON.readTree(back.body()).path("requiresStayDocument").asBoolean()).isTrue();
 		assertThat(decrypted().path("registrationNumber").asString()).isEqualTo(NUMBER);
-		assertThat(payload()).doesNotContain(NUMBER);
+		assertThat(decrypted().path("serialNumber").asString()).isEqualTo(SERIAL);
+		assertThat(payload()).doesNotContain(NUMBER, SERIAL);
 		assertThat(decrypted().has("issueDate")).isFalse();
 		assertError(upload("back"), 409, "REGISTRATION_FRONT_REQUIRED");
 		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertThat(decrypted().has("serialNumber")).isFalse();
 		assertThat(jdbc.queryForObject("select card_verified_at from social_signup_registration", Object.class)).isNull();
 	}
 
@@ -338,7 +344,8 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		verifyNoInteractions(apick);
 		when(ocr.recognize(any(), anyString(), eq(true))).thenReturn(JSON.readTree(frontResult().toString().replace("2020-01-01", "2009-01-01")));
 		assertThat(upload("front").statusCode()).isEqualTo(200);
-		assertThat(upload("back").statusCode()).isEqualTo(200);
+		assertVerificationResponse(upload("back"), null, today, false, false);
+		assertThat(decrypted().has("serialNumber")).isFalse();
 		verify(apick).verify(NUMBER, LocalDate.of(2009, 1, 1), null);
 	}
 
@@ -378,13 +385,14 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		Object cardVerified = jdbc.queryForObject("select card_verified_at from social_signup_registration", Object.class);
 		when(ocr.recognizeStayDocument(any())).thenReturn(pdfResult(NUMBER, today));
 		HttpResponse<String> response = uploadPdf();
-		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		assertVerificationResponse(response, SERIAL, today, true, false);
 		assertThat(response.body()).doesNotContain(NUMBER, DISPLAY_NUMBER, "registrationNumber", "issueDate");
 		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
 		assertThat(JSON.readTree(response.body()).path("stayDocumentVerified").asBoolean()).isTrue();
 		assertThat(JSON.readTree(response.body()).path("stayExpiresOn").asString()).isEqualTo(today.toString());
 		assertThat(decrypted().has("registrationNumber")).isFalse();
 		assertThat(decrypted().has("issueDate")).isFalse();
+		assertThat(decrypted().has("serialNumber")).isFalse();
 		assertThat(decrypted().path("name").asString()).isEqualTo("TEST STUDENT");
 		assertThat(jdbc.queryForObject("select document_expires_on from social_signup_registration", LocalDate.class)).isEqualTo(today);
 		assertThat(jdbc.queryForObject("select document_verified_at from social_signup_registration", Object.class)).isNotNull();
@@ -421,6 +429,7 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 	@Test
 	void pdfMismatchExpiryAndUnreadableResultsRemainRetryableWithoutVerifying() throws Exception {
 		preparePdf();
+		String before = payload();
 		when(ocr.recognizeStayDocument(any())).thenReturn(pdfResult("0001016000000", today));
 		assertError(uploadPdf(), 422, "STAY_DOCUMENT_MISMATCH");
 		when(ocr.recognizeStayDocument(any())).thenReturn(pdfResult(NUMBER, today.minusDays(1)));
@@ -433,8 +442,11 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		assertThat(jdbc.queryForObject("select document_verified_at from social_signup_registration", Object.class)).isNull();
 		assertThat(jdbc.queryForObject("select document_expires_on from social_signup_registration", Object.class)).isNull();
 		assertThat(decrypted().path("registrationNumber").asString()).isEqualTo(NUMBER);
+		assertThat(decrypted().path("serialNumber").asString()).isEqualTo(SERIAL);
+		assertThat(payload()).isEqualTo(before);
 		doReturn(pdfResult(NUMBER, today.plusDays(1))).when(ocr).recognizeStayDocument(any());
-		assertThat(uploadPdf().statusCode()).isEqualTo(200);
+		assertVerificationResponse(uploadPdf(), SERIAL, today.plusDays(1), true, false);
+		assertThat(decrypted().has("serialNumber")).isFalse();
 		verifyNoInteractions(apick);
 	}
 
@@ -482,6 +494,132 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		assertThat(front.get(10, TimeUnit.SECONDS).statusCode()).isEqualTo(200);
 		assertThat(jdbc.queryForObject("select document_verified_at from social_signup_registration", Object.class)).isNull();
 		assertThat(decrypted().path("registrationNumber").asString()).isEqualTo(NUMBER);
+		assertThat(decrypted().has("serialNumber")).isFalse();
+	}
+
+	@Test
+	void oldCardWithoutSerialReturnsExplicitNullAcrossPdfRetryAndCompletion() throws Exception {
+		when(ocr.recognize(any(), anyString(), eq(true))).thenReturn(JSON.readTree(frontResult().toString().replace("2020-01-01", "2010-12-31")));
+		agree();
+		when(ocr.recognize(any(), anyString(), eq(false))).thenReturn(backResult(today.minusDays(1), null));
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertVerificationResponse(upload("back"), null, today.minusDays(1), false, true);
+		assertThat(decrypted().has("serialNumber")).isTrue();
+		assertThat(decrypted().path("serialNumber").isNull()).isTrue();
+		when(ocr.recognizeStayDocument(any())).thenReturn(pdfResult("0001016000000", today));
+		assertError(uploadPdf(), 422, "STAY_DOCUMENT_MISMATCH");
+		assertThat(decrypted().has("serialNumber")).isTrue();
+		assertThat(decrypted().path("serialNumber").isNull()).isTrue();
+		when(ocr.recognizeStayDocument(any())).thenReturn(pdfResult(NUMBER, today.plusDays(30)));
+		assertVerificationResponse(uploadPdf(), null, today.plusDays(30), true, false);
+		assertThat(decrypted().has("serialNumber")).isFalse();
+		verify(apick).verify(NUMBER, LocalDate.of(2010, 12, 31), null);
+	}
+
+	@Test
+	void frontRecaptureReplacesPendingSerialAndPdfUsesOnlyTheNewCardSerial() throws Exception {
+		preparePdf();
+		assertThat(decrypted().path("serialNumber").asString()).isEqualTo(SERIAL);
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertThat(decrypted().has("serialNumber")).isFalse();
+		assertThat(jdbc.queryForObject("select card_verified_at from social_signup_registration", Object.class)).isNull();
+		assertError(uploadPdf(), 409, "REGISTRATION_BACK_REQUIRED");
+		String replacement = "00000000002";
+		when(ocr.recognize(any(), anyString(), eq(false))).thenReturn(backResult(today.minusDays(2), replacement));
+		assertVerificationResponse(upload("back"), replacement, today.minusDays(2), false, true);
+		ObjectNode pdf = (ObjectNode) pdfResult(NUMBER, today.plusDays(10));
+		pdf.put("serialNumber", SERIAL).put("permissionDate", "2020-01-01").put("reportDate", "2020-01-02");
+		when(ocr.recognizeStayDocument(any())).thenReturn(pdf);
+		assertVerificationResponse(uploadPdf(), replacement, today.plusDays(10), true, false);
+		assertThat(decrypted().has("serialNumber")).isFalse();
+	}
+
+	@Test
+	void failedFrontRecaptureDiscardsPendingCardSerialAndPdfState() throws Exception {
+		preparePdf();
+		when(ocr.recognize(any(), anyString(), eq(true))).thenThrow(RegistrationOcrClient.unreadable());
+		assertError(upload("front"), 422, "UNREADABLE_REGISTRATION");
+		assertThat(payload()).isNull();
+		assertThat(jdbc.queryForObject("select card_verified_at from social_signup_registration", Object.class)).isNull();
+		assertThat(jdbc.queryForObject("select document_verified_at from social_signup_registration", Object.class)).isNull();
+		assertError(uploadPdf(), 409, "REGISTRATION_BACK_REQUIRED");
+	}
+
+	@Test
+	void failedBackVerificationDoesNotPersistSerialOrReturnSuccess() throws Exception {
+		agree();
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		when(ocr.recognize(any(), anyString(), eq(false))).thenReturn(backResult(today.minusDays(1), SERIAL));
+		doThrow(new SocialAuthException(HttpStatus.BAD_GATEWAY, "REGISTRATION_VERIFICATION_FAILED", "다시 시도해주세요."))
+				.when(apick).verify(anyString(), any(), anyString());
+		assertError(upload("back"), 502, "REGISTRATION_VERIFICATION_FAILED");
+		assertThat(decrypted().has("serialNumber")).isFalse();
+		assertThat(decrypted().path("registrationNumber").asString()).isEqualTo(NUMBER);
+		assertThat(jdbc.queryForObject("select card_verified_at from social_signup_registration", Object.class)).isNull();
+		doNothing().when(apick).verify(anyString(), any(), anyString());
+		assertVerificationResponse(upload("back"), SERIAL, today.minusDays(1), false, true);
+	}
+
+	@Test
+	void pdfUsesOnlyTheCurrentSignupSessionsCardSerial() throws Exception {
+		preparePdf();
+		String firstHash = jdbc.queryForObject("select token_hash from social_signup_registration", String.class);
+		String firstPayload = payload();
+		setSession(MemberRole.STUDENT, "other-pdf-registration");
+		agree();
+		assertError(uploadPdf(), 409, "REGISTRATION_BACK_REQUIRED");
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		String secondSerial = "00000000002";
+		when(ocr.recognize(any(), anyString(), eq(false))).thenReturn(backResult(today.minusDays(1), secondSerial));
+		assertThat(upload("back").statusCode()).isEqualTo(200);
+		when(ocr.recognizeStayDocument(any())).thenReturn(pdfResult(NUMBER, today));
+		HttpResponse<String> response = uploadPdf();
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		assertThat(JSON.readTree(response.body()).path("serialNumber").asString()).isEqualTo(secondSerial);
+		assertThat(response.body()).doesNotContain(SERIAL);
+		assertThat(jdbc.queryForObject("select front_payload from social_signup_registration where token_hash = ?", String.class, firstHash)).isEqualTo(firstPayload);
+		String secondHash = jdbc.queryForObject("select token_hash from social_signup_registration where token_hash <> ?", String.class, firstHash);
+		String secondPayload = jdbc.queryForObject("select front_payload from social_signup_registration where token_hash = ?", String.class, secondHash);
+		assertThat(JSON.readTree(cipher.decrypt(secondPayload, secondHash)).has("serialNumber")).isFalse();
+	}
+
+	@Test
+	void legacyPendingPdfSessionRequiresRecaptureBeforeOcr() throws Exception {
+		preparePdf();
+		String hash = jdbc.queryForObject("select token_hash from social_signup_registration", String.class);
+		ObjectNode legacy = (ObjectNode) decrypted();
+		legacy.remove("serialNumber");
+		String encrypted = cipher.encrypt(legacy.toString(), hash);
+		jdbc.update("update social_signup_registration set front_payload = ? where token_hash = ?", encrypted, hash);
+		assertError(uploadPdf(), 409, "REGISTRATION_FRONT_REQUIRED");
+		assertThat(payload()).isEqualTo(encrypted);
+		verifyNoInteractions(ocr, apick);
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertVerificationResponse(upload("back"), SERIAL, today.minusDays(1), false, true);
+		when(ocr.recognizeStayDocument(any())).thenReturn(pdfResult(NUMBER, today));
+		assertVerificationResponse(uploadPdf(), SERIAL, today, true, false);
+	}
+
+	@Test
+	void expiredPendingPdfSessionCannotReturnSerialAndCleanupDeletesCiphertext() throws Exception {
+		preparePdf();
+		assertThat(decrypted().path("serialNumber").asString()).isEqualTo(SERIAL);
+		jdbc.update("update social_auth_session set expires_at = now() - interval '1 second'");
+		assertError(uploadPdf(), 401, "INVALID_SOCIAL_SESSION");
+		verifyNoInteractions(ocr, apick);
+		auth.deleteExpiredSessions();
+		assertThat(count("social_signup_registration")).isZero();
+	}
+
+	@Test
+	@ExtendWith(OutputCaptureExtension.class)
+	void verificationSerialIsRedactedFromErrorsAndLogs(CapturedOutput output) throws Exception {
+		preparePdf();
+		when(ocr.recognizeStayDocument(any())).thenReturn(pdfResult("0001016000000", today));
+		assertError(uploadPdf(), 422, "STAY_DOCUMENT_MISMATCH");
+		RegistrationVerificationResponse response = new RegistrationVerificationResponse(SERIAL, today, true, false, true, Instant.now());
+		assertThat(response.toString()).isEqualTo("RegistrationVerificationResponse[redacted]");
+		assertThat(output.getAll()).doesNotContain(NUMBER, DISPLAY_NUMBER, SERIAL);
 	}
 
 	@Test
@@ -495,6 +633,38 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		assertThat(operation.path("responses").propertyNames()).contains("200", "400", "401", "403", "409", "413", "415", "422", "502", "503", "500");
 		assertThat(operation.path("responses").path("422").toString()).contains("STAY_DOCUMENT_MISMATCH", "STAY_DOCUMENT_EXPIRED", "UNREADABLE_STAY_DOCUMENT");
 		assertThat(operation.path("parameters").toString()).contains("socialSignup", "X-XSRF-TOKEN", "XSRF-TOKEN");
+	}
+
+	@Test
+	void bothVerificationApisExposeTheSameSchemaAndStateExamples() throws Exception {
+		JsonNode document = JSON.readTree(get("/v3/api-docs").body());
+		JsonNode back = document.path("paths").path(PATH + "back").path("post").path("responses").path("200")
+				.path("content").path("application/json");
+		JsonNode pdf = document.path("paths").path(PATH + "stay-document").path("post").path("responses").path("200")
+				.path("content").path("application/json");
+		assertThat(back.path("schema")).isEqualTo(pdf.path("schema"));
+		assertThat(back.path("schema").path("$ref").asString()).endsWith("/RegistrationVerificationResponse");
+		JsonNode schema = resolve(document, back.path("schema"));
+		assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(
+				"serialNumber", "stayExpiresOn", "cardVerified", "stayDocumentVerified", "requiresStayDocument", "signupExpiresAt");
+		assertThat(schema.path("required").size()).isEqualTo(6);
+		JsonNode serial = schema.path("properties").path("serialNumber");
+		assertThat(serial.path("type").toString()).contains("string", "null");
+		assertThat(serial.path("minLength").asInt()).isEqualTo(11);
+		assertThat(serial.path("maxLength").asInt()).isEqualTo(11);
+		assertThat(serial.path("example").asString()).isEqualTo(SERIAL);
+		assertThat(SERIAL.matches(serial.path("pattern").asString())).isTrue();
+		for (String name : List.of("cardValid", "requiresPdf", "pdfVerified")) {
+			JsonNode example = (name.equals("pdfVerified") ? pdf : back).path("examples").path(name).path("value");
+			if (example.isString()) { example = JSON.readTree(example.asString()); }
+			assertThat(example.propertyNames()).containsExactlyInAnyOrder(schema.path("properties").propertyNames().toArray(String[]::new));
+			assertThat(example.path("serialNumber").asString()).isEqualTo(SERIAL);
+			assertThat(example.path("cardVerified").asBoolean()).isTrue();
+			assertThat(example.path("stayDocumentVerified").asBoolean()).isEqualTo(name.equals("pdfVerified"));
+			assertThat(example.path("requiresStayDocument").asBoolean()).isEqualTo(name.equals("requiresPdf"));
+		}
+		assertThat(document.path("components").path("schemas").has("RegistrationBackResponse")).isFalse();
+		assertThat(document.path("components").path("schemas").has("RegistrationStayDocumentResponse")).isFalse();
 	}
 
 	@Test
@@ -635,6 +805,8 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		assertThat(jdbc.queryForObject("select stay_expires_on from student_registration_verification", LocalDate.class)).isEqualTo(today.plusDays(30));
 		assertThat(jdbc.queryForObject("select document_verified_at from student_registration_verification", Object.class)).isEqualTo(documentAt);
 		assertThat(count("social_signup_registration")).isZero();
+		assertThat(jdbc.queryForMap("select * from student_registration_verification").toString()).doesNotContain(NUMBER, DISPLAY_NUMBER, SERIAL, "serial_number", "front_payload");
+		assertThat(jdbc.queryForMap("select * from user_account").toString()).doesNotContain(NUMBER, DISPLAY_NUMBER, SERIAL, "serial_number", "front_payload");
 		verifyNoInteractions(apick);
 	}
 
@@ -931,9 +1103,29 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 	private URI uri(String path) { return URI.create("http://localhost:" + port + path); }
 	private HttpResponse<String> get(String path) throws Exception { return send(HttpRequest.newBuilder(uri(path)).GET().build()); }
 	private HttpResponse<String> send(HttpRequest request) throws Exception { return browser.send(request, HttpResponse.BodyHandlers.ofString()); }
+	private void assertVerificationResponse(HttpResponse<String> response, String serial, LocalDate expiry,
+			boolean documentVerified, boolean requiresDocument) {
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+		assertThat(response.headers().firstValue("Content-Type")).hasValueSatisfying(value -> assertThat(value).startsWith("application/json"));
+		JsonNode body = JSON.readTree(response.body());
+		assertThat(body.propertyNames()).containsExactlyInAnyOrder(
+				"serialNumber", "stayExpiresOn", "cardVerified", "stayDocumentVerified", "requiresStayDocument", "signupExpiresAt");
+		if (serial == null) {
+			assertThat(body.path("serialNumber").isNull()).isTrue();
+		} else {
+			assertThat(body.path("serialNumber").asString()).isEqualTo(serial);
+		}
+		assertThat(body.path("stayExpiresOn").asString()).isEqualTo(expiry.toString());
+		assertThat(body.path("cardVerified").asBoolean()).isTrue();
+		assertThat(body.path("stayDocumentVerified").asBoolean()).isEqualTo(documentVerified);
+		assertThat(body.path("requiresStayDocument").asBoolean()).isEqualTo(requiresDocument);
+		assertThat(Instant.parse(body.path("signupExpiresAt").asString())).isEqualTo(jdbc.queryForObject(
+				"select expires_at from social_auth_session", java.sql.Timestamp.class).toInstant());
+	}
 	private void assertError(HttpResponse<String> response, int status, String code) {
 		assertThat(response.statusCode()).as(response.body()).isEqualTo(status);
 		assertThat(JSON.readTree(response.body()).path("code").asString()).isEqualTo(code);
-		assertThat(response.body()).doesNotContain(NUMBER, DISPLAY_NUMBER);
+		assertThat(response.body()).doesNotContain(NUMBER, DISPLAY_NUMBER, SERIAL);
 	}
 }
