@@ -32,7 +32,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 				  "preferredWorkTimes": [{"dayOfWeek": "MON", "startTime": "09:00", "endTime": "13:00"}],
 				  "preferredLocation": {
 				    "locationName": "서울특별시 성동구", "latitude": 37.5636,
-				    "longitude": 127.0365, "radiusM": 5000
+				    "longitude": 127.0365, "radiusM": 500
 				  },
 				  "minimumHourlyWage": 12000,
 				  "priorities": [
@@ -108,8 +108,12 @@ public class StudentMatchingPreferenceUpdateRequest {
 	@JsonSetter(nulls = Nulls.FAIL)
 	public void setPreferredLocation(JsonNode value) {
 		requireObject(value, "locationName", "latitude", "longitude", "radiusM");
+		int radiusM = requireInt(value.get("radiusM"));
+		if (radiusM % 100 != 0) {
+			throw new IllegalArgumentException("반경은 100m 간격으로 입력해주세요.");
+		}
 		preferredLocation = new PreferredLocation(requireText(value.get("locationName")),
-				requireDecimal(value.get("latitude")), requireDecimal(value.get("longitude")), requireInt(value.get("radiusM")));
+				requireDecimal(value.get("latitude")), requireDecimal(value.get("longitude")), radiusM);
 	}
 
 	@JsonSetter
@@ -261,8 +265,9 @@ public class StudentMatchingPreferenceUpdateRequest {
 			@Digits(integer = 3, fraction = 7, message = "좌표는 소수점 이하 7자리까지 입력해주세요.")
 			@Schema(description = "경도. 소수점 이하 최대 7자리", minimum = "-180", maximum = "180", example = "126.978", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 			BigDecimal longitude,
-			@Positive(message = "반경은 1 이상의 정수여야 합니다.")
-			@Schema(description = "희망 근무 반경 (미터), 1 이상의 정수", minimum = "1", example = "5000", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
+			@Min(value = 100, message = "반경은 100~1,000m 사이여야 합니다.")
+			@Max(value = 1000, message = "반경은 100~1,000m 사이여야 합니다.")
+			@Schema(description = "희망 근무 반경 (미터). 100~1,000 사이의 정수, 100m 간격", minimum = "100", maximum = "1000", multipleOf = 100, example = "500", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 			int radiusM) {
 	}
 
