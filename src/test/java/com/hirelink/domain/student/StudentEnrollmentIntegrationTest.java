@@ -91,7 +91,7 @@ class StudentEnrollmentIntegrationTest extends PostgreSQLIntegrationTest {
 		when(ocr.recognize(any(),anyString())).thenThrow(EnrollmentExtraction.unreadable());
 		assertError(upload(user,"%PDF-bad","application/pdf"),422,"UNREADABLE_ENROLLMENT");
 		assertThat(snapshot()).isEqualTo(before);
-		when(ocr.recognize(any(),anyString())).thenReturn(new EnrollmentExtraction("학교",null,2,null));
+		doReturn(new EnrollmentExtraction("학교",null,2,null)).when(ocr).recognize(any(),anyString());
 		doThrow(new StudentDocumentException(HttpStatus.BAD_GATEWAY,"STUDENT_DOCUMENT_STORAGE_FAILED","저장 실패")).when(storage).upload(anyString(),any(),anyString());
 		assertError(upload(user,"%PDF-bad","application/pdf"),502,"STUDENT_DOCUMENT_STORAGE_FAILED");
 		assertThat(snapshot()).isEqualTo(before); assertThat(files).containsKey(original).hasSize(1);
