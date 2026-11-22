@@ -38,7 +38,7 @@ public class SocialSignupRegistrationService {
 	static void requireSupportedVisa(String visaCode) {
 		if (!StudyProgramType.supportsRegistration(visaCode)) {
 			throw new SocialAuthException(HttpStatus.UNPROCESSABLE_ENTITY, "UNSUPPORTED_VISA",
-					"지원하는 체류자격은 D-2-1·D-2-2·D-2-3·D-2-4·D-2-6입니다.");
+					"등록증에서 확인한 체류자격이 D-2여야 합니다.");
 		}
 	}
 

@@ -74,8 +74,8 @@ public class StudentOnboardingService {
 		}
 		LocalDate birthDate = verification.getBirthDate();
 		StudyProgramType selectedProgram = StudyProgramType.valueOf(request.getStudyProgram());
-		if (!selectedProgram.matchesRegistration(verification.getVisaCode())) {
-			throw new InvalidStudentProfileException("지원하지 않는 체류자격이거나 등록증 체류자격과 학업과정이 일치하지 않습니다.");
+		if (!StudyProgramType.supportsRegistration(verification.getVisaCode())) {
+			throw new InvalidStudentProfileException("등록증에서 확인한 체류자격이 D-2여야 합니다.");
 		}
 		var program = studyPrograms.findByProgramName(selectedProgram.getProgramName())
 				.orElseThrow(() -> new IllegalStateException("지원 학업과정 기준 데이터가 없습니다."));

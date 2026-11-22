@@ -21,16 +21,12 @@ public enum StudyProgramType {
 	public String getProgramName() { return programName; }
 	public String getVisaCode() { return visaCode; }
 
-	public boolean matchesRegistration(String code) {
-		return "D-2".equals(code) || visaCode.equals(code);
-	}
-
 	public static boolean supportsDetailedVisa(String code) {
 		return Arrays.stream(values()).anyMatch(program -> program.visaCode.equals(code));
 	}
 
 	public static boolean supportsRegistration(String code) {
-		return "D-2".equals(code) || supportsDetailedVisa(code);
+		return "D-2".equals(code);
 	}
 
 	public static StudyProgramType fromProgramName(String name) {

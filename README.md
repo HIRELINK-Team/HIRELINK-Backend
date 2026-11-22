@@ -579,7 +579,7 @@ smsSender.send(new SmsSendRequest(
 - 생년월일은 `YYYY-MM-DD` 형식이며 한국 날짜(`Asia/Seoul`) 기준으로 만 18세가 되는 생일부터 등록할 수 있습니다.
 - 휴대전화 번호와 인증 완료 시각이 모두 저장된 `STUDENT` 계정만 등록할 수 있습니다.
 - 이름은 `user_account`, 나머지 입력값은 `student_profile`에 하나의 트랜잭션으로 저장합니다. 프로필 ID는 회원 ID와 같습니다.
-- 학교 · 체류자격 · 체류 정보 등 나머지 프로필 컬럼은 ERD대로 유지하며 등록 시 `NULL`입니다. `visa_type`에는 V7의 세부 코드 9종과 V21의 상위 코드 `D-2`, `D-4`가 등록됩니다. `study_program`의 초기 데이터는 추가하지 않습니다.
+- 학교 · 체류자격 · 체류 정보 등 나머지 프로필 컬럼은 ERD대로 유지하며 등록 시 `NULL`입니다. `visa_type`에는 V7의 세부 코드 9종과 V21의 상위 코드 `D-2`, `D-4`가 등록됩니다. `study_program`에는 V29에서 다섯 학업과정 기준 데이터를 추가하며 기존 행과 ID는 보존합니다.
 - 성공 응답은 `201 Created`이며 `studentId`, `name`, `phoneNumber`, `birthDate`, `nationality`, `currentRegion`, `koreanLevel`을 반환합니다. 전화번호는 `010-0000-0000` 형식입니다.
 - 입력 오류·만 18세 미만은 `400 INVALID_INPUT`, 로그인 필요는 `401 UNAUTHORIZED`, 유학생이 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다.
 - 휴대전화 미인증은 `409 PHONE_NOT_VERIFIED`, 이미 등록된 프로필은 `409 DUPLICATE_STUDENT_PROFILE`, 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.

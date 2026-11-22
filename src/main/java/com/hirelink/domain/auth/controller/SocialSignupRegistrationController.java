@@ -76,7 +76,7 @@ public class SocialSignupRegistrationController {
 			@ExampleObject(name = "SOCIAL_ACCOUNT_ALREADY_REGISTERED", value = "{\"code\":\"SOCIAL_ACCOUNT_ALREADY_REGISTERED\",\"message\":\"이미 가입한 소셜 계정입니다. 다시 로그인해주세요.\"}") })),
 		@ApiResponse(responseCode = "415", description = "JPG·PNG 이외 형식 또는 파일 시그니처 불일치", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "UNSUPPORTED_FILE_TYPE", value = "{\"code\":\"UNSUPPORTED_FILE_TYPE\",\"message\":\"등록증 촬영 이미지는 JPG, PNG만 사용할 수 있습니다.\"}"))),
 		@ApiResponse(responseCode = "422", description = "필수 필드 인식 실패·지원하지 않는 체류자격 또는 기재 정보 불일치", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
-			@ExampleObject(name = "UNSUPPORTED_VISA", value = "{\"code\":\"UNSUPPORTED_VISA\",\"message\":\"지원하는 체류자격은 D-2-1·D-2-2·D-2-3·D-2-4·D-2-6입니다.\"}"),
+			@ExampleObject(name = "UNSUPPORTED_VISA", value = "{\"code\":\"UNSUPPORTED_VISA\",\"message\":\"등록증에서 확인한 체류자격이 D-2여야 합니다.\"}"),
 			@ExampleObject(name = "UNREADABLE_REGISTRATION", value = "{\"code\":\"UNREADABLE_REGISTRATION\",\"message\":\"등록증 정보를 확인하지 못했습니다. 선명하게 다시 촬영해주세요.\"}"),
 			@ExampleObject(name = "REGISTRATION_NOT_VERIFIED", value = "{\"code\":\"REGISTRATION_NOT_VERIFIED\",\"message\":\"등록증 정보가 일치하지 않습니다. 등록증을 다시 촬영해주세요.\"}") }))
 	})
@@ -109,7 +109,7 @@ public class SocialSignupRegistrationController {
 			@ExampleObject(name = "SOCIAL_ACCOUNT_ALREADY_REGISTERED", value = "{\"code\":\"SOCIAL_ACCOUNT_ALREADY_REGISTERED\",\"message\":\"이미 가입한 소셜 계정입니다. 다시 로그인해주세요.\"}") })),
 		@ApiResponse(responseCode = "415", description = "JPG·PNG 이외 형식 또는 파일 시그니처 불일치", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "UNSUPPORTED_FILE_TYPE", value = "{\"code\":\"UNSUPPORTED_FILE_TYPE\",\"message\":\"등록증 촬영 이미지는 JPG, PNG만 사용할 수 있습니다.\"}"))),
 		@ApiResponse(responseCode = "422", description = "필수 필드 인식 실패·지원하지 않는 체류자격 또는 기재 정보 불일치", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
-			@ExampleObject(name = "UNSUPPORTED_VISA", value = "{\"code\":\"UNSUPPORTED_VISA\",\"message\":\"지원하는 체류자격은 D-2-1·D-2-2·D-2-3·D-2-4·D-2-6입니다.\"}"),
+			@ExampleObject(name = "UNSUPPORTED_VISA", value = "{\"code\":\"UNSUPPORTED_VISA\",\"message\":\"등록증에서 확인한 체류자격이 D-2여야 합니다.\"}"),
 			@ExampleObject(name = "UNREADABLE_REGISTRATION", value = "{\"code\":\"UNREADABLE_REGISTRATION\",\"message\":\"등록증 정보를 확인하지 못했습니다. 선명하게 다시 촬영해주세요.\"}"),
 			@ExampleObject(name = "REGISTRATION_NOT_VERIFIED", value = "{\"code\":\"REGISTRATION_NOT_VERIFIED\",\"message\":\"등록증 정보가 일치하지 않습니다. 등록증을 다시 촬영해주세요.\"}") }))
 	})
@@ -140,7 +140,7 @@ public class SocialSignupRegistrationController {
 			@ExampleObject(name = "SOCIAL_ACCOUNT_ALREADY_REGISTERED", value = "{\"code\":\"SOCIAL_ACCOUNT_ALREADY_REGISTERED\",\"message\":\"이미 가입한 소셜 계정입니다. 다시 로그인해주세요.\"}") })),
 		@ApiResponse(responseCode = "415", description = "PDF 이외 형식 또는 파일 시그니처 불일치", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(value = "{\"code\":\"UNSUPPORTED_FILE_TYPE\",\"message\":\"체류기간 증빙은 PDF만 사용할 수 있습니다.\"}"))),
 		@ApiResponse(responseCode = "422", description = "인식 불가 · 등록번호 불일치 · 체류기간 만료. PDF 재선택", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
-			@ExampleObject(name = "UNSUPPORTED_VISA", value = "{\"code\":\"UNSUPPORTED_VISA\",\"message\":\"지원하는 체류자격은 D-2-1·D-2-2·D-2-3·D-2-4·D-2-6입니다.\"}"),
+			@ExampleObject(name = "UNSUPPORTED_VISA", value = "{\"code\":\"UNSUPPORTED_VISA\",\"message\":\"등록증에서 확인한 체류자격이 D-2여야 합니다.\"}"),
 			@ExampleObject(name = "UNREADABLE_STAY_DOCUMENT", value = "{\"code\":\"UNREADABLE_STAY_DOCUMENT\",\"message\":\"체류기간 증빙을 읽을 수 없습니다. 외국인등록 사실증명 PDF를 다시 선택해주세요.\"}"),
 			@ExampleObject(name = "STAY_DOCUMENT_MISMATCH", value = "{\"code\":\"STAY_DOCUMENT_MISMATCH\",\"message\":\"등록증과 증빙서류의 등록번호가 일치하지 않습니다. 본인의 PDF를 다시 선택해주세요.\"}"),
 			@ExampleObject(name = "STAY_DOCUMENT_EXPIRED", value = "{\"code\":\"STAY_DOCUMENT_EXPIRED\",\"message\":\"증빙서류의 체류기간이 지났습니다. 유효한 PDF를 다시 선택해주세요.\"}") }))

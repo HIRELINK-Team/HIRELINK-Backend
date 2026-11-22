@@ -33,7 +33,7 @@ public class StudentOnboardingRequest {
 	private String koreanLevel;
 	@NotBlank
 	@Pattern(regexp = "ASSOCIATE|BACHELOR|MASTER|DOCTORATE|EXCHANGE")
-	@Schema(description = "학업과정. 전문학사·학사·석사·박사·교환학생 순서. 등록증 D-2와 조합하며 세부 코드가 있으면 선택과 일치해야 한다", allowableValues = {"ASSOCIATE", "BACHELOR", "MASTER", "DOCTORATE", "EXCHANGE"}, example = "BACHELOR", requiredMode = Schema.RequiredMode.REQUIRED)
+	@Schema(description = "학업과정. 전문학사·학사·석사·박사·교환학생 순서. 등록증에서 확인한 D-2와 사용자가 선택한 학업과정을 조합하여 세부 코드를 생성한다", allowableValues = {"ASSOCIATE", "BACHELOR", "MASTER", "DOCTORATE", "EXCHANGE"}, example = "BACHELOR", requiredMode = Schema.RequiredMode.REQUIRED)
 	private String studyProgram;
 	@NotNull
 	@Valid
