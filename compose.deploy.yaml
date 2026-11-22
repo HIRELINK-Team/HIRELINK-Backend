@@ -39,6 +39,7 @@ services:
       LOCAL_LOGIN_ENABLED: "false"
       PADDLE_OCR_URL: http://ocr:8000/recognize
       REGISTRATION_PADDLE_URL: http://ocr:8000
+      STUDENT_DOCUMENT_PADDLE_URL: http://ocr:8000
       JAVA_TOOL_OPTIONS: "-Xms128m -Xmx384m -XX:ActiveProcessorCount=2"
     volumes:
       - type: bind

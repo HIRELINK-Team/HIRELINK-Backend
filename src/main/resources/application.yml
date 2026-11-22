@@ -62,6 +62,10 @@ storage:
     secret-key: ${SUPABASE_SECRET_KEY:}
     bucket: ${SUPABASE_STORAGE_BUCKET:profile-images}
 
+student-document:
+  paddle-url: ${STUDENT_DOCUMENT_PADDLE_URL:http://localhost:8091}
+  bucket: ${STUDENT_DOCUMENT_BUCKET:student-documents}
+
 business-registration:
   nts:
     service-key: ${NTS_SERVICE_KEY:}

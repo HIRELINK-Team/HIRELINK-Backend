@@ -21,6 +21,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+	@ExceptionHandler(StudentDocumentException.class)
+	public ResponseEntity<ErrorResponse> handleStudentDocument(StudentDocumentException exception) {
+		return ResponseEntity.status(exception.getStatus()).body(new ErrorResponse(exception.getCode(), exception.getMessage()));
+	}
+
 	@ExceptionHandler(EmploymentPopupNotificationNotFoundException.class)
 	public ResponseEntity<ErrorResponse> handleEmploymentPopupNotificationNotFound(
 			EmploymentPopupNotificationNotFoundException exception) {
@@ -127,7 +132,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 	@Override
 	protected ResponseEntity<Object> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException exception,
 			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-		String message = request.getDescription(false).startsWith("uri=/api/auth/social/registration/")
+		String message = request.getDescription(false).startsWith("uri=/api/students/me/documents/")
+				? "서류 파일은 5MB 이하여야 합니다."
+				: request.getDescription(false).startsWith("uri=/api/auth/social/registration/")
 				? "등록증 이미지 또는 체류기간 증빙 파일은 5MB 이하여야 합니다." : "사업자등록증 파일은 5MB 이하여야 합니다.";
 		return new ResponseEntity<>(new ErrorResponse("FILE_TOO_LARGE", message), headers, status);
 	}

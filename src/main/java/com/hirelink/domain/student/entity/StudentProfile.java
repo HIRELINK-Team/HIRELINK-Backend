@@ -162,6 +162,11 @@ public class StudentProfile {
 		return gradeLevel;
 	}
 
+	public void updateEnrollment(String universityName, short gradeLevel) {
+		this.universityName = universityName;
+		this.gradeLevel = gradeLevel;
+	}
+
 	public String getAcademicState() {
 		return academicState;
 	}

@@ -669,7 +669,7 @@ smsSender.send(new SmsSendRequest(
 
 - 수정 항목: `name`, `birthDate`, `nationality`, `currentRegion`, `koreanLevel`, `stayExpirationDate`, `topikLevel`. `visaCode`는 등록증 인증 기록이 없는 개발용 기존 프로필에만 허용한다.
 - 생략은 유지, `topikLevel:null`은 삭제다. 다른 항목의 null·알 수 없는 필드·빈 객체·잘못된 타입은 `400 INVALID_INPUT`이다. 이름은 최대 100자, 거주지역은 최대 150자이며 공백만 허용하지 않는다. 국적·한국어 수준·만 18세 조건은 등록 API와 같다.
-- `universityName`, `gradeLevel`, `academicState`, `studyProgram`, `studyProgramId`는 직접 입력할 수 없다. 학교·학년은 재학증명서 OCR 대상이며 학적 상태는 수집하지 않는다. 기존 값과 수정 대상 외 컬럼은 보존한다. OCR 자체는 요구사항 3·4번에서 구현한다.
+- `universityName`, `gradeLevel`, `academicState`, `studyProgram`, `studyProgramId`는 직접 입력할 수 없다. 학교·학년은 [재학증명서 OCR 최종 등록](docs/api/student-enrollment.md)으로 반영하며 학적 상태는 수집하지 않는다. 기존 값과 수정 대상 외 컬럼은 보존한다.
 - 개발용 프로필의 체류자격 입력도 `D-2-1·D-2-2·D-2-3·D-2-4·D-2-6`만 허용한다. 저장된 학업과정과 다른 코드는 400이다. 인증 회원의 `visaCode` 직접 입력은 400이다. 체류 만료일은 과거도 허용하되 기존 시작일보다 앞설 수 없다.
 - 이름과 프로필은 동일 트랜잭션으로 수정하며 동일 회원의 동시 요청은 순서대로 처리한다. 실패하면 모든 변경을 취소한다.
 - 응답 `200 OK`는 기존 프로필 수정 응답에 `studyProgram`을 추가한다. 조회 응답에도 같은 필드를 추가한다. `studyProgramId`는 DB ID, `studyProgram`은 선택 코드다. 기존 미입력 또는 대응하지 않는 기존 과정은 null이다. 수정 응답에는 사진 URL·경력을 포함하지 않으며 Storage API를 호출하지 않는다.
