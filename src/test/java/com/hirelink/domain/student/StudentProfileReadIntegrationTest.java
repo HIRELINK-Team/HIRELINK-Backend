@@ -84,7 +84,8 @@ class StudentProfileReadIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(response.statusCode()).isEqualTo(200);
 		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
 		JsonNode body = mapper.readTree(response.body());
-		assertThat(body.size()).isEqualTo(20);
+		assertThat(body.size()).isEqualTo(21);
+		assertThat(body.path("studyProgram").isNull()).isTrue();
 		assertThat(body.path("studentId").asLong()).isEqualTo(userId);
 		assertThat(body.path("name").asString()).isEqualTo("테스트 이름");
 		assertThat(body.path("email").asString()).isEqualTo(before.get("email"));

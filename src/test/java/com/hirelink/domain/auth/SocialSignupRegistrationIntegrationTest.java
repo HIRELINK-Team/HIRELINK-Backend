@@ -19,6 +19,8 @@ import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -1050,6 +1052,50 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 	private JsonNode resolve(JsonNode document, JsonNode schema) {
 		return schema.has("$ref") ? document.at(schema.path("$ref").asString().substring(1)) : schema;
 	}
+	@ParameterizedTest
+	@ValueSource(strings = {"D-2", "D-2-1", "D-2-2", "D-2-3", "D-2-4", "D-2-6"})
+	void acceptsSupportedRegistrationCodesWithoutChangingOcrCode(String visa) throws Exception {
+		agree();
+		when(ocr.recognize(any(), anyString(), eq(true))).thenReturn(((ObjectNode) frontResult()).put("visaCode", visa));
+		HttpResponse<String> front = upload("front");
+		assertThat(front.statusCode()).isEqualTo(200);
+		assertThat(JSON.readTree(front.body()).path("visaCode").asString()).isEqualTo(visa);
+		assertThat(upload("back").statusCode()).isEqualTo(200);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"D-4", "D-4-1", "D-4-7", "D-2-7", "D-2-8"})
+	void unsupportedRegistrationInvalidatesPreviousResultAndCannotReachVerification(String visa) throws Exception {
+		agree();
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		when(ocr.recognize(any(), anyString(), eq(true))).thenReturn(((ObjectNode) frontResult()).put("visaCode", visa));
+		assertError(upload("front"), 422, "UNSUPPORTED_VISA");
+		assertThat(payload()).isNull();
+		assertError(upload("back"), 409, "REGISTRATION_FRONT_REQUIRED");
+		assertError(phoneRequest(), 409, "REGISTRATION_VERIFICATION_REQUIRED");
+		verifyNoInteractions(apick, smsSender);
+		assertThat(users.count()).isZero();
+	}
+
+	@Test
+	void oldUnsupportedVerifiedSessionCannotCreateAccountEvenWithIssuedPhoneCode() throws Exception {
+		agree();
+		assertThat(upload("front").statusCode()).isEqualTo(200);
+		assertThat(upload("back").statusCode()).isEqualTo(200);
+		String code = sendPhoneCode();
+		String hash = jdbc.queryForObject("select token_hash from social_signup_registration", String.class);
+		ObjectNode legacy = (ObjectNode) decrypted();
+		legacy.put("visaCode", "D-2-7");
+		jdbc.update("update social_signup_registration set front_payload = ? where token_hash = ?", cipher.encrypt(legacy.toString(), hash), hash);
+		clearInvocations(smsSender);
+		assertError(phoneRequest(), 422, "UNSUPPORTED_VISA");
+		assertError(phoneConfirm(code), 422, "UNSUPPORTED_VISA");
+		assertThat(users.count()).isZero();
+		assertThat(count("auth_account")).isZero();
+		assertThat(count("refresh_token")).isZero();
+		verifyNoInteractions(smsSender);
+	}
+
 	private JsonNode frontResult() {
 		return JSON.readTree("{\"name\":\"TEST STUDENT\",\"nationality\":\"VIETNAM\",\"visaCode\":\"D-2\",\"registrationNumber\":\"" + NUMBER + "\",\"issueDate\":\"2020-01-01\"}");
 	}
