@@ -42,7 +42,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
-@Tag(name = "Auth", description = "이메일 회원가입·로그인과 쿠키 기반 토큰 관리")
+@Tag(name = "Auth", description = "개발용 LOCAL 회원가입·로그인과 공통 쿠키 기반 토큰 관리")
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
@@ -58,8 +58,8 @@ public class AuthController {
 		this.secureCookie = secureCookie;
 	}
 
-	@Operation(summary = "이메일 회원가입",
-			description = "LOCAL 이메일로 가입하고 토큰을 발급한다. 이메일은 trim·lowercase 정규화, 비밀번호는 8자 이상·영문·숫자 포함, 회원 유형은 STUDENT 또는 EMPLOYER이다. 성공 시 refreshToken을 HttpOnly 쿠키로 설정한다. Domain 미설정, Path=/api/auth, SameSite=Lax, Max-Age=1209600초(14일), Secure는 서버 설정에 따른다. Access Token 유효시간은 3600초이며 보호 API에는 Authorization: Bearer 헤더로 보낸다.")
+	@Operation(summary = "개발용 이메일 회원가입",
+			description = "개발 환경에서 LOCAL_LOGIN_ENABLED=true로 설정한 경우에만 사용할 수 있다(기본값 false). 실제 서비스는 Google/Kakao 로그인을 사용한다. 비활성화 시 유효한 요청은 403 FORBIDDEN이며 계정이나 토큰을 생성하지 않는다. 요청 형식 검증 오류는 400이다. LOCAL 이메일로 가입하고 토큰을 발급한다. 이메일은 trim·lowercase 정규화, 비밀번호는 8자 이상·영문·숫자 포함, 회원 유형은 STUDENT 또는 EMPLOYER이다. 성공 시 refreshToken을 HttpOnly 쿠키로 설정한다. Domain 미설정, Path=/api/auth, SameSite=Lax, Max-Age=1209600초(14일), Secure는 서버 설정에 따른다. Access Token 유효시간은 3600초이며 보호 API에는 Authorization: Bearer 헤더로 보낸다.")
 	@SecurityRequirements
 	@ApiResponses({
 		@ApiResponse(responseCode = "201", description = "처리 성공",
@@ -77,6 +77,9 @@ public class AuthController {
 						examples = {
 							@ExampleObject(name = "UNAUTHORIZED", value = "{\"code\":\"UNAUTHORIZED\",\"message\":\"유효한 인증 정보가 필요합니다.\"}")
 						})),
+		@ApiResponse(responseCode = "403", description = "개발용 LOCAL 인증 비활성화",
+				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
+						examples = @ExampleObject(name = "FORBIDDEN", value = "{\"code\":\"FORBIDDEN\",\"message\":\"접근 권한이 없습니다.\"}"))),
 		@ApiResponse(responseCode = "409", description = "이미 사용 중인 이메일",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {
@@ -99,8 +102,8 @@ public class AuthController {
 				.body(response);
 	}
 
-	@Operation(summary = "이메일 로그인",
-			description = "LOCAL 이메일과 비밀번호를 확인한다. 이메일은 trim·lowercase 정규화한다. 성공 시 refreshToken을 HttpOnly 쿠키로 설정한다. Domain 미설정, Path=/api/auth, SameSite=Lax, Max-Age=1209600초(14일), Secure는 서버 설정에 따른다. Access Token 유효시간은 3600초이며 보호 API에는 Authorization: Bearer 헤더로 보낸다.")
+	@Operation(summary = "개발용 이메일 로그인",
+			description = "개발 환경에서 LOCAL_LOGIN_ENABLED=true로 설정한 경우에만 사용할 수 있다(기본값 false). 실제 서비스는 Google/Kakao 로그인을 사용한다. 비활성화 시 유효한 요청은 기존 계정 유무·비밀번호와 관계없이 403 FORBIDDEN이며 토큰을 발급하지 않는다. 요청 형식 검증 오류는 400이다. LOCAL 이메일과 비밀번호를 확인한다. 이메일은 trim·lowercase 정규화한다. 성공 시 refreshToken을 HttpOnly 쿠키로 설정한다. Domain 미설정, Path=/api/auth, SameSite=Lax, Max-Age=1209600초(14일), Secure는 서버 설정에 따른다. Access Token 유효시간은 3600초이며 보호 API에는 Authorization: Bearer 헤더로 보낸다.")
 	@SecurityRequirements
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "처리 성공",
@@ -118,9 +121,10 @@ public class AuthController {
 							@ExampleObject(name = "INVALID_CREDENTIALS", value = "{\"code\":\"INVALID_CREDENTIALS\",\"message\":\"이메일 또는 비밀번호가 일치하지 않습니다.\"}"),
 							@ExampleObject(name = "UNAUTHORIZED", value = "{\"code\":\"UNAUTHORIZED\",\"message\":\"유효한 인증 정보가 필요합니다.\"}")
 						})),
-		@ApiResponse(responseCode = "403", description = "탈퇴한 계정",
+		@ApiResponse(responseCode = "403", description = "개발용 LOCAL 인증 비활성화 / 탈퇴한 계정",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {
+							@ExampleObject(name = "FORBIDDEN", value = "{\"code\":\"FORBIDDEN\",\"message\":\"접근 권한이 없습니다.\"}"),
 							@ExampleObject(name = "WITHDRAWN_ACCOUNT", value = "{\"code\":\"WITHDRAWN_ACCOUNT\",\"message\":\"탈퇴한 계정입니다.\"}")
 						})),
 		@ApiResponse(responseCode = "500", description = "예상하지 못한 서버 오류",
