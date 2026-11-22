@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 
 import com.hirelink.domain.student.entity.KoreanLevel;
+import com.hirelink.domain.student.entity.StudyProgramType;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -37,18 +38,20 @@ public record StudentProfileUpdateResponse(
 				example = "INTERMEDIATE",
 				requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 		KoreanLevel koreanLevel,
-		@Schema(description = "저장된 체류자격 코드. D-2, D-4 상위 코드와 기존 세부 코드를 그대로 반환하며 자동 변환하지 않는다",
+		@Schema(description = "온보딩 완료 시 등록증과 선택한 학업과정으로 결정한 지원 세부 코드. 기존 회원의 과거 코드는 조회 시 그대로 보존한다",
 				pattern = "^(D-2|D-4|D-2-1|D-2-2|D-2-3|D-2-4|D-2-6|D-2-7|D-2-8|D-4-1|D-4-7)$",
 				example = "D-2",
 				requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
 		String visaCode,
-		@Schema(description = "학교명. 빈 문자열·공백만 입력 불가", maxLength = 150, example = "예시대학교", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
+		@Schema(description = "재학증명서 OCR로 확보하는 학교명. 직접 입력 불가, 기존 값 보존", maxLength = 150, example = "예시대학교", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
 		String universityName,
 		@Schema(description = "학업과정 ID", example = "1", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
 		Long studyProgramId,
-		@Schema(description = "학년. 이번 프로필 수정 API에서는 변경하지 않음", example = "2", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
+		@Schema(description = "온보딩에서 선택한 학업과정. 기존 미입력 또는 지원 과정에 대응하지 않는 기존 데이터는 null", example = "BACHELOR", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
+		StudyProgramType studyProgram,
+		@Schema(description = "재학증명서 OCR로 확보하는 학년. 직접 입력 불가, 기존 값 보존", example = "2", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
 		Short gradeLevel,
-		@Schema(description = "학업 상태. 미입력은 null. D-2는 기존 D-2 세부 코드의 상태 전체, D-4는 IN_PROGRESS, COMPLETED, DISCONTINUED를 허용한다. D-2-1/2/3/4: ENROLLED, ON_LEAVE, COMPLETED, GRADUATED; D-2-6/8, D-4-1/7: IN_PROGRESS, COMPLETED, DISCONTINUED; D-2-7: IN_PROGRESS, ON_LEAVE_OR_DISCONTINUED, COMPLETED",
+		@Schema(description = "과거에 저장된 학적 상태. 신규 입력·수정은 받지 않으며 기존 값만 보존한다. 미입력은 null",
 				pattern = "^(ENROLLED|ON_LEAVE|COMPLETED|GRADUATED|IN_PROGRESS|DISCONTINUED|ON_LEAVE_OR_DISCONTINUED)$",
 				example = "ENROLLED",
 				requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)

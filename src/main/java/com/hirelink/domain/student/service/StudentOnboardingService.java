@@ -18,6 +18,8 @@ import com.hirelink.domain.student.dto.StudentOnboardingResponse;
 import com.hirelink.domain.student.dto.StudentProfileCreateRequest;
 import com.hirelink.domain.student.dto.StudentProfileUpdateRequest;
 import com.hirelink.domain.student.entity.StudentProfile;
+import com.hirelink.domain.student.entity.StudyProgramType;
+import com.hirelink.domain.student.repository.StudyProgramRepository;
 import com.hirelink.domain.student.entity.StudentRegistrationVerification;
 import com.hirelink.domain.student.repository.StudentCareerRepository;
 import com.hirelink.domain.student.repository.StudentProfileRepository;
@@ -37,11 +39,12 @@ public class StudentOnboardingService {
 	private final StudentProfileService profileService;
 	private final StudentCareerService careerService;
 	private final StudentMatchingPreferenceService preferenceService;
+	private final StudyProgramRepository studyPrograms;
 
 	public StudentOnboardingService(UserAccountRepository users, StudentProfileRepository profiles,
 			StudentRegistrationVerificationRepository verifications, StudentCareerRepository careers,
 			StudentProfileService profileService, StudentCareerService careerService,
-			StudentMatchingPreferenceService preferenceService) {
+			StudentMatchingPreferenceService preferenceService, StudyProgramRepository studyPrograms) {
 		this.users = users;
 		this.profiles = profiles;
 		this.verifications = verifications;
@@ -49,6 +52,7 @@ public class StudentOnboardingService {
 		this.profileService = profileService;
 		this.careerService = careerService;
 		this.preferenceService = preferenceService;
+		this.studyPrograms = studyPrograms;
 	}
 
 	@Transactional
@@ -69,6 +73,12 @@ public class StudentOnboardingService {
 					"이미 온보딩을 완료했습니다. 개별 수정 API를 이용해주세요.");
 		}
 		LocalDate birthDate = verification.getBirthDate();
+		StudyProgramType selectedProgram = StudyProgramType.valueOf(request.getStudyProgram());
+		if (!selectedProgram.matchesRegistration(verification.getVisaCode())) {
+			throw new InvalidStudentProfileException("지원하지 않는 체류자격이거나 등록증 체류자격과 학업과정이 일치하지 않습니다.");
+		}
+		var program = studyPrograms.findByProgramName(selectedProgram.getProgramName())
+				.orElseThrow(() -> new IllegalStateException("지원 학업과정 기준 데이터가 없습니다."));
 		if (birthDate != null && request.getBirthDate() != null && !birthDate.equals(request.getBirthDate())) {
 			throw new InvalidStudentProfileException("가입 시 확인한 생년월일은 온보딩에서 변경할 수 없습니다.");
 		}
@@ -80,8 +90,11 @@ public class StudentOnboardingService {
 			profile = profiles.findById(userId).orElseThrow();
 		}
 		profileService.updateProfile(userId, StudentProfileUpdateRequest.forOnboarding(birthDate,
-				verification.getNationality(), request.getCurrentRegion(), request.getKoreanLevel(), verification.getVisaCode(),
-				verification.getStayExpiresOn(), request.getTopikLevel()));
+				verification.getNationality(), request.getCurrentRegion(), request.getKoreanLevel(), request.getTopikLevel()));
+		if (profile.getStayStartDate() != null && verification.getStayExpiresOn().isBefore(profile.getStayStartDate())) {
+			throw new InvalidStudentProfileException("체류 만료일은 체류 시작일보다 빠를 수 없습니다.");
+		}
+		profile.updateVerifiedStudyProgram(program.getId(), selectedProgram.getVisaCode(), verification.getStayExpiresOn());
 		careers.deleteAll(careers.findAllByUserIdOrderByStartMonthDescIdDesc(userId));
 		careers.flush();
 		request.getCareers().forEach(career -> careerService.createCareer(userId, career));

@@ -18,7 +18,7 @@ import com.fasterxml.jackson.annotation.Nulls;
 import tools.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "온보딩 마지막 마치기에서 전체 정보를 한 번에 제출한다. 경력 없음은 careers=[], TOPIK 없음은 topikLevel=null이며 두 필드 모두 생략할 수 없다. 이름 · 국적 · 체류자격 · 체류 만료일은 서버의 가입 인증 결과를 사용한다.")
+@Schema(description = "온보딩 마지막 마치기에서 전체 정보를 한 번에 제출한다. 경력 없음은 careers=[], TOPIK 없음은 topikLevel=null이며 두 필드 모두 생략할 수 없다. 학업과정 studyProgram은 필수다. 체류자격은 서버의 등록증 코드와 선택한 학업과정으로 결정한다. 이름 · 국적 · 체류 만료일은 가입 인증 결과를 사용한다. 학교·학년·학적 상태는 입력받지 않는다.")
 public class StudentOnboardingRequest {
 
 	@Schema(description = "가입 때 생년월일을 보존한 회원은 생략한다. 보내면 저장된 값과 같아야 한다. 이전 버전에서 가입하여 날짜가 보존되지 않은 회원만 필수 입력. 한국 날짜 기준 만 18세 이상", type = "string", format = "date", example = "2000-05-14", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
@@ -31,6 +31,10 @@ public class StudentOnboardingRequest {
 	@Pattern(regexp = "BEGINNER|INTERMEDIATE|ADVANCED")
 	@Schema(description = "한국어 수준", allowableValues = {"BEGINNER", "INTERMEDIATE", "ADVANCED"}, requiredMode = Schema.RequiredMode.REQUIRED)
 	private String koreanLevel;
+	@NotBlank
+	@Pattern(regexp = "ASSOCIATE|BACHELOR|MASTER|DOCTORATE|EXCHANGE")
+	@Schema(description = "학업과정. 전문학사·학사·석사·박사·교환학생 순서. 등록증 D-2와 조합하며 세부 코드가 있으면 선택과 일치해야 한다", allowableValues = {"ASSOCIATE", "BACHELOR", "MASTER", "DOCTORATE", "EXCHANGE"}, example = "BACHELOR", requiredMode = Schema.RequiredMode.REQUIRED)
+	private String studyProgram;
 	@NotNull
 	@Valid
 	@Schema(description = "경력 목록. 경력 없음은 빈 목록을 명시한다", requiredMode = Schema.RequiredMode.REQUIRED)
@@ -59,6 +63,9 @@ public class StudentOnboardingRequest {
 
 	@JsonSetter(nulls = Nulls.FAIL)
 	public void setKoreanLevel(JsonNode value) { koreanLevel = requireText(value); }
+
+	@JsonSetter(nulls = Nulls.FAIL)
+	public void setStudyProgram(JsonNode value) { studyProgram = requireText(value); }
 
 	@JsonSetter(nulls = Nulls.FAIL, contentNulls = Nulls.FAIL)
 	public void setCareers(List<StudentCareerCreateRequest> value) { careers = value; }
@@ -110,6 +117,7 @@ public class StudentOnboardingRequest {
 	public LocalDate getBirthDate() { return birthDate; }
 	public String getCurrentRegion() { return currentRegion; }
 	public String getKoreanLevel() { return koreanLevel; }
+	public String getStudyProgram() { return studyProgram; }
 	public List<StudentCareerCreateRequest> getCareers() { return careers; }
 	public Integer getTopikLevel() { return topikLevel; }
 	public StudentOnboardingMatchingPreferenceRequest getMatchingPreferences() { return matchingPreferences; }

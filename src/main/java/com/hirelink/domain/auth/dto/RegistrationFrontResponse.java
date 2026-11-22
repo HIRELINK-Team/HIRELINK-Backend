@@ -8,7 +8,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 public record RegistrationFrontResponse(
 		@Schema(description = "인식한 이름", requiredMode = Schema.RequiredMode.REQUIRED, example = "TEST STUDENT") String name,
 		@Schema(description = "ISO 국가 코드", requiredMode = Schema.RequiredMode.REQUIRED, example = "VN") String nationalityCode,
-		@Schema(description = "인식한 체류자격. 기존 지원 코드 범위", requiredMode = Schema.RequiredMode.REQUIRED, example = "D-2") String visaCode,
+		@Schema(description = "인식한 체류자격. D-2 또는 D-2-1·D-2-2·D-2-3·D-2-4·D-2-6. D-2는 온보딩 학업과정 선택으로 세분화", requiredMode = Schema.RequiredMode.REQUIRED, example = "D-2") String visaCode,
 		@Schema(description = "인식한 외국인등록번호 전체. 숫자 6자리-7자리, 확인 화면에서만 사용", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false,
 				minLength = 14, maxLength = 14, pattern = "^[0-9]{6}-[5-8][0-9]{6}$", example = "000101-5000000") String registrationNumber,
 		@Schema(description = "발급일", requiredMode = Schema.RequiredMode.REQUIRED) LocalDate issueDate,

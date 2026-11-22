@@ -43,6 +43,7 @@ public class SocialSignupRegistrationTransferService {
 		var registration = registrations.findById(session.getTokenHash()).orElseThrow(this::required);
 		if (registration.getCardVerifiedAt() == null || registration.getFrontPayload() == null) { throw required(); }
 		JsonNode front = mapper.readTree(cipher.decrypt(registration.getFrontPayload(), session.getTokenHash()));
+		SocialSignupRegistrationService.requireSupportedVisa(field(front, "visaCode"));
 		LocalDate expiry = registration.getStayExpiresOn();
 		LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
 		Instant documentVerifiedAt = null;

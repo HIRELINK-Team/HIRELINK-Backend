@@ -591,7 +591,7 @@ smsSender.send(new SmsSendRequest(
 `GET /api/students/me/profile`은 Access Token으로 식별한 유학생 본인의 회원 정보, 프로필과 경력 목록을 반환합니다. 요청 본문과 Query / Path Parameter는 사용하지 않습니다.
 
 - 성공 응답은 `200 OK`이며 `studentId`, `name`, `email`, `phoneNumber`, `birthDate`, `nationality`, `currentRegion`, `koreanLevel`을 포함합니다.
-- 온보딩 정보는 `visaCode`, `universityName`, `enrollmentStartDate`, `studyProgramId`, `gradeLevel`, `academicState`, `topikLevel`, `stayStartDate`, `stayExpirationDate`, `hirelinkBadgeIssuedAt`으로 반환합니다. 미입력 값은 `null`입니다.
+- 온보딩 정보는 `visaCode`, `universityName`, `enrollmentStartDate`, `studyProgramId`, `studyProgram`, `gradeLevel`, `academicState`, `topikLevel`, `stayStartDate`, `stayExpirationDate`, `hirelinkBadgeIssuedAt`으로 반환합니다. 미입력 값은 `null`입니다.
 - `visaCode`는 `D-2`, `D-4` 또는 기존 세부 코드를 저장된 값 그대로 반환하며 상위 코드로 자동 변환하지 않습니다. 이 조회 응답은 온보딩 전체 완료 판정이 아닙니다.
 - 경력은 `careers` 배열로 반환합니다. 각 항목은 `careerId`, `careerName`, `startMonth`, `endMonth`, `description`이며, 경력이 없으면 `[]`입니다.
 - 경력은 시작월 내림차순, 시작월이 같으면 ID 내림차순입니다. `startMonth`, `endMonth`는 `YYYY-MM` 형식이며 ERD에 따라 둘 다 필수입니다. 기존 경력의 `description`은 `null` 또는 빈 값일 수 있으며 조회 시 그대로 반환합니다. 새 경력 추가 · 수정에서는 근무 내용이 필수입니다.
@@ -661,41 +661,20 @@ smsSender.send(new SmsSendRequest(
 
 ### 내 유학생 프로필 수정 API
 
-`PATCH /api/students/me/profile`은 Access Token으로 식별한 유학생 본인의 프로필에서 요청에 포함된 항목만 수정합니다. 성공 시 즉시 저장되며 온보딩 전체 완료를 처리하지 않습니다. 기존 프로필 등록 · 수정, 경력 추가 · 수정 · 삭제, 매칭 조건 수정 API는 각각 독립적으로 저장되므로 여러 호출을 하나의 일괄 저장으로 취급하면 안 됩니다. 온보딩 전체 일괄 저장 API는 아직 제공하지 않습니다.
+`PATCH /api/students/me/profile`은 요청한 항목만 즉시 저장한다. 온보딩 전체 저장은 별도의 `POST /api/students/me/onboarding`을 사용한다.
 
 ```json
-{
-  "visaCode": "D-2",
-  "topikLevel": null
-}
+{"currentRegion":"서울 마포구","topikLevel":null}
 ```
 
-- 수정 가능한 항목은 `name`, `birthDate`, `nationality`, `currentRegion`, `koreanLevel`, `visaCode`, `stayExpirationDate`, `universityName`, `academicState`, `topikLevel`입니다.
-- 보내지 않은 항목은 유지합니다. `topikLevel: null`은 기존 TOPIK 급수를 삭제하며, 급수를 입력할 때는 정수 1~6만 허용합니다. 나머지 항목은 명시적인 `null`을 허용하지 않습니다.
-- 빈 객체, 잘못된 자료형, 허용 목록에 없는 항목은 `400 INVALID_INPUT`입니다. `studyProgramId`, `gradeLevel`, 이메일·전화번호·사진·경력도 수정 요청에 포함할 수 없습니다.
-- 이름은 최대 100자, 현재 거주지역과 학교명은 최대 150자이며 공백만 입력할 수 없습니다. 국적·한국어 수준은 등록 API와 같은 기준으로 검증합니다. 생년월일 변경 시 한국 날짜 기준 만 18세 이상인지 확인합니다.
-- 체류 만료일은 과거 날짜도 저장할 수 있습니다. 기존 체류 시작일이 있으면 그 날짜보다 앞선 만료일은 허용하지 않습니다.
-- 비자 또는 학업 상태를 보냈을 때 기존 값과 합친 최종 조합을 검사합니다. 비자 변경 후 기존 학업 상태가 맞지 않으면 `400 INVALID_INPUT`이며, 맞는 `academicState`를 함께 보내야 합니다. 서버가 기존 상태를 자동으로 삭제하지 않습니다.
-- 아직 학업 상태를 입력하지 않은 회원은 비자만 먼저 저장할 수 있습니다. 학업 상태를 입력하려면 요청 또는 기존 프로필에 비자가 있어야 합니다.
-- `D-2`, `D-4` 상위 코드와 기존 세부 코드를 모두 허용합니다. 상위 코드만으로 세부 코드나 학업 상태를 추정하지 않습니다. 기존 학업 상태와의 호환성을 위해 `D-2`는 기존 D-2 세부 코드의 상태 전체를, `D-4`는 `IN_PROGRESS`, `COMPLETED`, `DISCONTINUED`를 허용합니다. 기존 세부 코드의 검증 규칙은 유지합니다.
-- `V21__add_parent_visa_types.sql`은 상위 코드 두 건만 추가하며 기존 코드와 회원 정보를 변경하지 않습니다.
-- `study_program_id`, `grade_level`을 비롯한 수정 대상 외 컬럼은 그대로 보존합니다. 비자에 따라 학업과정을 자동 지정하지 않습니다.
-- 이름과 프로필 수정은 하나의 트랜잭션으로 처리합니다. 같은 회원의 동시 수정은 순서대로 처리하고, 실패한 요청의 변경사항은 모두 취소합니다.
-- 성공 응답은 `200 OK`이며 `studentId`, `name`, `email`, `phoneNumber`, `birthDate`, `nationality`, `currentRegion`, `koreanLevel`, `visaCode`, `universityName`, `studyProgramId`, `gradeLevel`, `academicState`, `topikLevel`, `stayExpirationDate`, `hirelinkBadgeIssuedAt`을 반환합니다.
-- 수정 응답에는 `profileImageUrl`을 포함하지 않으며 Storage API도 호출하지 않습니다. 사진 주소는 기존 프로필 조회 API에서 받습니다. 기존 조회 응답은 유지합니다.
-- 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`, 본인의 프로필 미등록은 `404 STUDENT_PROFILE_NOT_FOUND`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
-
-학업 상태는 아래 영문 코드를 요청·응답·DB에 사용합니다. `COMPLETED` 등 같은 코드를 사용하는 상태는 비자에 맞춰 화면에 표시합니다.
-
-| 비자 | 이름 | 학업 상태 코드와 화면 표시 |
-| --- | --- | --- |
-| D-2-1 / D-2-2 / D-2-3 / D-2-4 | 전문학사 / 학사 / 석사 / 박사 | `ENROLLED` 재학 중, `ON_LEAVE` 휴학 중, `COMPLETED` 수료, `GRADUATED` 졸업 |
-| D-2-6 | 교환학생 | `IN_PROGRESS` 교환학생 진행 중, `COMPLETED` 교환학기 종료, `DISCONTINUED` 중단 |
-| D-2-7 | 일·학습연계 | `IN_PROGRESS` 과정 참여 중, `ON_LEAVE_OR_DISCONTINUED` 휴학/중단, `COMPLETED` 과정 수료 |
-| D-2-8 | 방문학생 | `IN_PROGRESS` 방문학기 진행 중, `COMPLETED` 방문학기 종료, `DISCONTINUED` 중단 |
-| D-4-1 / D-4-7 | 한국어연수 / 외국어연수 | `IN_PROGRESS` 연수 중, `DISCONTINUED` 연수 중단, `COMPLETED` 연수 수료 |
-
-실제 Supabase DB에는 배포 환경에서 Flyway V7 적용이 필요합니다. 동일한 비자 데이터를 수동으로 중복 등록하지 않습니다. 자동 테스트는 별도 PostgreSQL에서 검증하며 실제 Supabase 연결이나 데이터 변경을 수행하지 않습니다. Redis 설정은 필요하지 않습니다.
+- 수정 항목: `name`, `birthDate`, `nationality`, `currentRegion`, `koreanLevel`, `stayExpirationDate`, `topikLevel`. `visaCode`는 등록증 인증 기록이 없는 개발용 기존 프로필에만 허용한다.
+- 생략은 유지, `topikLevel:null`은 삭제다. 다른 항목의 null·알 수 없는 필드·빈 객체·잘못된 타입은 `400 INVALID_INPUT`이다. 이름은 최대 100자, 거주지역은 최대 150자이며 공백만 허용하지 않는다. 국적·한국어 수준·만 18세 조건은 등록 API와 같다.
+- `universityName`, `gradeLevel`, `academicState`, `studyProgram`, `studyProgramId`는 직접 입력할 수 없다. 학교·학년은 재학증명서 OCR 대상이며 학적 상태는 수집하지 않는다. 기존 값과 수정 대상 외 컬럼은 보존한다. OCR 자체는 요구사항 3·4번에서 구현한다.
+- 개발용 프로필의 체류자격 입력도 `D-2-1·D-2-2·D-2-3·D-2-4·D-2-6`만 허용한다. 저장된 학업과정과 다른 코드는 400이다. 인증 회원의 `visaCode` 직접 입력은 400이다. 체류 만료일은 과거도 허용하되 기존 시작일보다 앞설 수 없다.
+- 이름과 프로필은 동일 트랜잭션으로 수정하며 동일 회원의 동시 요청은 순서대로 처리한다. 실패하면 모든 변경을 취소한다.
+- 응답 `200 OK`는 기존 프로필 수정 응답에 `studyProgram`을 추가한다. 조회 응답에도 같은 필드를 추가한다. `studyProgramId`는 DB ID, `studyProgram`은 선택 코드다. 기존 미입력 또는 대응하지 않는 기존 과정은 null이다. 수정 응답에는 사진 URL·경력을 포함하지 않으며 Storage API를 호출하지 않는다.
+- 인증·권한·미등록 오류는 기존 `401 UNAUTHORIZED`, `403 FORBIDDEN`, `403 WITHDRAWN_ACCOUNT`, `404 STUDENT_PROFILE_NOT_FOUND`를 사용한다. 예상하지 못한 오류는 `500 INTERNAL_SERVER_ERROR`다.
+- 지원 학업과정·등록증 조합은 [온보딩 문서](docs/api/student-onboarding.md)를 따른다. V29는 다섯 학업과정 기준 데이터만 추가하며 기존 회원·등록증 원문·학적 상태를 변환하거나 삭제하지 않는다. 운영 DB 적용 여부는 배포 환경에서 확인한다.
 
 ### 매칭 조건 조회 API
 

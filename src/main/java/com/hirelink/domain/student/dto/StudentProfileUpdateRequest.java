@@ -14,19 +14,17 @@ import tools.jackson.databind.JsonNode;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "보낸 필드만 수정한다. 빈 요청·알 수 없는 필드·topikLevel 외 null은 400. studyProgramId와 gradeLevel은 수정 대상에서 제외된다.",
-		example = "{\"visaCode\":\"D-2\",\"topikLevel\":null}")
+@Schema(description = "보낸 필드만 수정한다. 빈 요청·알 수 없는 필드·topikLevel 외 null은 400. universityName·gradeLevel·academicState·studyProgram·studyProgramId는 수정 대상에서 제외된다.",
+		example = "{\"currentRegion\":\"서울 마포구\",\"topikLevel\":null}")
 public class StudentProfileUpdateRequest {
 
 	public static StudentProfileUpdateRequest forOnboarding(LocalDate birthDate, String nationality,
-			String currentRegion, String koreanLevel, String visaCode, LocalDate stayExpirationDate, Integer topikLevel) {
+			String currentRegion, String koreanLevel, Integer topikLevel) {
 		StudentProfileUpdateRequest request = new StudentProfileUpdateRequest();
 		request.birthDate = birthDate;
 		request.nationality = nationality;
 		request.currentRegion = currentRegion;
 		request.koreanLevel = koreanLevel;
-		request.visaCode = visaCode;
-		request.stayExpirationDate = stayExpirationDate;
 		request.topikLevel = topikLevel;
 		request.topikLevelProvided = true;
 		return request;
@@ -66,9 +64,9 @@ public class StudentProfileUpdateRequest {
 	private String koreanLevel;
 
 	@Size(min = 1, max = 20, message = "올바른 비자 코드를 입력해주세요.")
-	@Schema(description = "체류자격 코드. D-2, D-4 상위 코드와 기존 세부 코드를 지원한다. 학업 상태가 없으면 코드만 전송할 수 있다. 생략하면 기존 값 유지, null 불가",
-			allowableValues = {"D-2", "D-4", "D-2-1", "D-2-2", "D-2-3", "D-2-4", "D-2-6", "D-2-7", "D-2-8", "D-4-1", "D-4-7"},
-			example = "D-2",
+	@Schema(description = "등록증 인증 기록이 없는 개발용 기존 프로필에서만 입력할 수 있는 지원 세부 코드. 인증 회원은 온보딩 학업과정과 등록증으로 결정하며 직접 수정할 수 없다. 저장된 학업과정과 다른 코드로 변경할 수 없다. 생략하면 기존 값 유지, null 불가",
+			allowableValues = {"D-2-1", "D-2-2", "D-2-3", "D-2-4", "D-2-6"},
+			example = "D-2-2",
 			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String visaCode;
 
@@ -76,20 +74,6 @@ public class StudentProfileUpdateRequest {
 			example = "2027-03-01", type = "string", format = "date",
 			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private LocalDate stayExpirationDate;
-
-	@Pattern(regexp = "(?s).*\\S.*", message = "학교명은 공백일 수 없습니다.")
-	@Size(max = 150, message = "학교명은 150자 이하여야 합니다.")
-	@Schema(description = "학교명. 빈 문자열·공백만 입력 불가. 생략하면 기존 값 유지, null 불가", maxLength = 150,
-			example = "예시대학교",
-			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
-	private String universityName;
-
-	@Size(min = 1, max = 30, message = "올바른 학업 상태를 입력해주세요.")
-	@Schema(description = "선택 입력인 학업 상태. D-2는 기존 D-2 세부 코드의 상태 전체를 허용하고 D-4는 IN_PROGRESS, COMPLETED, DISCONTINUED를 허용한다. D-2-1/2/3/4: ENROLLED, ON_LEAVE, COMPLETED, GRADUATED; D-2-6/8, D-4-1/7: IN_PROGRESS, COMPLETED, DISCONTINUED; D-2-7: IN_PROGRESS, ON_LEAVE_OR_DISCONTINUED, COMPLETED. 생략하면 기존 값 유지, null 불가",
-			allowableValues = {"ENROLLED", "ON_LEAVE", "COMPLETED", "GRADUATED", "IN_PROGRESS", "DISCONTINUED", "ON_LEAVE_OR_DISCONTINUED"},
-			example = "ENROLLED",
-			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
-	private String academicState;
 
 	@Min(value = 1, message = "TOPIK 급수는 1부터 6까지 입력할 수 있습니다.")
 	@Max(value = 6, message = "TOPIK 급수는 1부터 6까지 입력할 수 있습니다.")
@@ -135,16 +119,6 @@ public class StudentProfileUpdateRequest {
 		stayExpirationDate = LocalDate.parse(requireText(value));
 	}
 
-	@JsonSetter(nulls = Nulls.FAIL)
-	public void setUniversityName(JsonNode value) {
-		universityName = requireText(value);
-	}
-
-	@JsonSetter(nulls = Nulls.FAIL)
-	public void setAcademicState(JsonNode value) {
-		academicState = requireText(value);
-	}
-
 	@JsonSetter("topikLevel")
 	public void setTopikLevel(JsonNode value) {
 		// 미전송은 유지, 명시적인 null은 삭제로 구분한다.
@@ -165,8 +139,7 @@ public class StudentProfileUpdateRequest {
 
 	public boolean hasChanges() {
 		return name != null || birthDate != null || nationality != null || currentRegion != null
-				|| koreanLevel != null || visaCode != null || stayExpirationDate != null || universityName != null
-				|| academicState != null || topikLevelProvided;
+				|| koreanLevel != null || visaCode != null || stayExpirationDate != null || topikLevelProvided;
 	}
 
 	public boolean hasTopikLevel() {
@@ -206,14 +179,6 @@ public class StudentProfileUpdateRequest {
 
 	public LocalDate getStayExpirationDate() {
 		return stayExpirationDate;
-	}
-
-	public String getUniversityName() {
-		return universityName;
-	}
-
-	public String getAcademicState() {
-		return academicState;
 	}
 
 	public Integer getTopikLevel() {

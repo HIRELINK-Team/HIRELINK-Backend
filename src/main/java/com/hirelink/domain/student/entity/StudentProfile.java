@@ -152,6 +152,12 @@ public class StudentProfile {
 		return studyProgramId;
 	}
 
+	public void updateVerifiedStudyProgram(Long studyProgramId, String visaCode, LocalDate stayExpirationDate) {
+		this.studyProgramId = studyProgramId;
+		this.visaCode = visaCode;
+		this.stayExpirationDate = stayExpirationDate;
+	}
+
 	public Short getGradeLevel() {
 		return gradeLevel;
 	}
