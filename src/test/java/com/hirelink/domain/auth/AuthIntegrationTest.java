@@ -54,6 +54,8 @@ import com.hirelink.domain.auth.entity.RefreshToken;
 import com.hirelink.domain.auth.repository.AuthAccountRepository;
 import com.hirelink.domain.auth.repository.RefreshTokenRepository;
 import com.hirelink.domain.member.repository.UserAccountRepository;
+import com.hirelink.domain.member.entity.MemberRole;
+import com.hirelink.domain.member.entity.UserAccount;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -145,6 +147,16 @@ class AuthIntegrationTest extends PostgreSQLIntegrationTest {
 		String passwordHash = (String) auth.get("password_hash");
 		assertThat(passwordHash).startsWith("$2").isNotEqualTo("password123");
 		assertThat(passwordEncoder.matches("password123", passwordHash)).isTrue();
+	}
+
+	@Test
+	void localSignupStillEnforcesUniquenessWithinLocalProvider() throws Exception {
+		UserAccount socialUser = userAccountRepository.saveAndFlush(
+				new UserAccount("shared@example.com", MemberRole.STUDENT));
+		authAccountRepository.saveAndFlush(new AuthAccount(socialUser, AuthProvider.GOOGLE, "social", null));
+		assertThat(signup("shared@example.com", "password123", "STUDENT").statusCode()).isEqualTo(201);
+		assertError(signup("shared@example.com", "password123", "STUDENT"), 409, "DUPLICATE_EMAIL");
+		assertAccountCounts(2, 2);
 	}
 
 	@ParameterizedTest

@@ -34,6 +34,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
 
 import com.hirelink.domain.auth.entity.AuthAccount;
 import com.hirelink.domain.auth.entity.AuthProvider;
@@ -61,6 +62,7 @@ import tools.jackson.databind.ObjectMapper;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@TestPropertySource(properties = "auth.local.enabled=false")
 class SocialAuthIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private static final ObjectMapper JSON = new ObjectMapper();
@@ -188,14 +190,23 @@ class SocialAuthIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(users.count()).isEqualTo(2);
 	}
 
-	@Test
-	void localSignupStillEnforcesUniquenessWithinLocalProvider() throws Exception {
-		socialMember("google", "social", "shared@example.com", MemberRole.STUDENT);
-		String json = "{\"email\":\"shared@example.com\",\"password\":\"test-password123\",\"role\":\"STUDENT\"}";
-		assertThat(postJson("/api/auth/signup", json).statusCode()).isEqualTo(201);
-		assertError(postJson("/api/auth/signup", json), 409, "DUPLICATE_EMAIL");
-		assertThat(postJson("/api/auth/login", "{\"email\":\"shared@example.com\",\"password\":\"test-password123\"}").statusCode()).isEqualTo(200);
-		assertThat(users.count()).isEqualTo(2);
+	@ParameterizedTest
+	@ValueSource(strings = {"google", "kakao"})
+	void socialLoginRefreshAndLogoutRemainAvailableWithLocalAuthDisabled(String provider) throws Exception {
+		socialMember(provider, "member", "member@example.com", MemberRole.STUDENT);
+		authenticate(provider, "STUDENT", "member", "member@example.com", "valid");
+		assertThat(result().statusCode()).isEqualTo(200);
+		assertError(postJson("/api/auth/login",
+				"{\"email\":\"member@example.com\",\"password\":\"password123\"}"), 403, "FORBIDDEN");
+		HttpResponse<String> refreshed = postWithCsrf("/api/auth/refresh");
+		assertThat(refreshed.statusCode()).isEqualTo(200);
+		assertThat(JSON.readTree(refreshed.body()).path("accessToken").asString()).isNotBlank();
+		HttpResponse<String> logout = postWithCsrf("/api/auth/logout");
+		assertThat(logout.statusCode()).isEqualTo(200);
+		assertThat(logout.headers().allValues("Set-Cookie"))
+				.anyMatch(value -> value.startsWith("refreshToken=") && value.contains("Max-Age=0"));
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_token", Long.class)).isZero();
+		assertError(postWithCsrf("/api/auth/refresh"), 401, "INVALID_REFRESH_TOKEN");
 	}
 
 	@Test
@@ -306,8 +317,12 @@ class SocialAuthIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	private HttpResponse<String> result() throws Exception {
+		return postWithCsrf("/api/auth/social/result");
+	}
+
+	private HttpResponse<String> postWithCsrf(String path) throws Exception {
 		JsonNode csrf = JSON.readTree(get("/api/auth/csrf").body());
-		HttpRequest request = HttpRequest.newBuilder(uri("/api/auth/social/result"))
+		HttpRequest request = HttpRequest.newBuilder(uri(path))
 				.header("X-XSRF-TOKEN", csrf.path("token").asString()).POST(HttpRequest.BodyPublishers.noBody()).build();
 		return browser.send(request, HttpResponse.BodyHandlers.ofString());
 	}
