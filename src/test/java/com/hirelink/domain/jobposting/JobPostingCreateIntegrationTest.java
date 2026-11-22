@@ -57,7 +57,7 @@ class JobPostingCreateIntegrationTest extends PostgreSQLIntegrationTest {
 
 	@BeforeEach
 	void clearDatabase() {
-		jdbc.execute("TRUNCATE TABLE employment_popup_notification, employment_match, employment_offer, application, recommendation, recommendation_batch, "
+		jdbc.execute("TRUNCATE TABLE student_enrollment_document, student_document_cleanup, employment_popup_notification, employment_match, employment_offer, application, recommendation, recommendation_batch, "
 				+ "employer_profile, student_preferred_job, student_preferred_work_time, student_preferred_location, "
 				+ "student_job_preference, student_priority, job_posting_work_time, job_posting, workplace, student_career, student_profile, user_term_agreement, phone_verification, phone_verification_send_attempt, "
 				+ "refresh_token, auth_account, student_registration_verification, user_account RESTART IDENTITY");

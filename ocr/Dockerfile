@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 libgl1
 WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY recognition.py registration.py stay_document.py main.py ./
+COPY recognition.py registration.py stay_document.py enrollment.py main.py ./
 USER ocr
 RUN python -c "from recognition import create_engine; create_engine()"
 
