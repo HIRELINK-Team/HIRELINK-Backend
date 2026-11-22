@@ -1052,14 +1052,12 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 	private JsonNode resolve(JsonNode document, JsonNode schema) {
 		return schema.has("$ref") ? document.at(schema.path("$ref").asString().substring(1)) : schema;
 	}
-	@ParameterizedTest
-	@ValueSource(strings = {"D-2", "D-2-1", "D-2-2", "D-2-3", "D-2-4", "D-2-6"})
-	void acceptsSupportedRegistrationCodesWithoutChangingOcrCode(String visa) throws Exception {
+	@Test
+	void retainsD2RegistrationCodeUntilOnboardingProgramSelection() throws Exception {
 		agree();
-		when(ocr.recognize(any(), anyString(), eq(true))).thenReturn(((ObjectNode) frontResult()).put("visaCode", visa));
 		HttpResponse<String> front = upload("front");
 		assertThat(front.statusCode()).isEqualTo(200);
-		assertThat(JSON.readTree(front.body()).path("visaCode").asString()).isEqualTo(visa);
+		assertThat(JSON.readTree(front.body()).path("visaCode").asString()).isEqualTo("D-2");
 		assertThat(upload("back").statusCode()).isEqualTo(200);
 	}
 
@@ -1085,7 +1083,7 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		String code = sendPhoneCode();
 		String hash = jdbc.queryForObject("select token_hash from social_signup_registration", String.class);
 		ObjectNode legacy = (ObjectNode) decrypted();
-		legacy.put("visaCode", "D-2-7");
+		legacy.put("visaCode", "D-4");
 		jdbc.update("update social_signup_registration set front_payload = ? where token_hash = ?", cipher.encrypt(legacy.toString(), hash), hash);
 		clearInvocations(smsSender);
 		assertError(phoneRequest(), 422, "UNSUPPORTED_VISA");

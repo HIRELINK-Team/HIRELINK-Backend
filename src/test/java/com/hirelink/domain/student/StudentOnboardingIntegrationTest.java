@@ -463,35 +463,33 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 	@ParameterizedTest
 	@CsvSource({"ASSOCIATE,D-2-1,전문학사", "BACHELOR,D-2-2,학사", "MASTER,D-2-3,석사",
 			"DOCTORATE,D-2-4,박사", "EXCHANGE,D-2-6,교환학생"})
-	void selectsEachProgramFromParentOrMatchingDetailedRegistration(String program, String visa, String name) throws Exception {
-		for (String registrationVisa : List.of("D-2", visa)) {
-			long user = verifiedStudent();
-			jdbc.update("update student_registration_verification set visa_code = ? where user_id = ?", registrationVisa, user);
-			Map<String, Object> verifiedBefore = verification(user);
-			ObjectNode request = body(); request.put("studyProgram", program);
-			assertThat(post(user, request.toString()).statusCode()).isEqualTo(200);
-			HttpResponse<String> read = send("GET", "/api/students/me/profile", token(user, "STUDENT"), null);
-			assertThat(read.statusCode()).isEqualTo(200);
-			JsonNode response = mapper.readTree(read.body());
-			assertThat(response.path("visaCode").asString()).isEqualTo(visa);
-			assertThat(response.path("studyProgram").asString()).isEqualTo(program);
-			assertThat(response.path("studyProgramId").asLong()).isEqualTo(jdbc.queryForObject(
-					"select id from study_program where program_name = ?", Long.class, name));
-			assertThat(response.path("universityName").isNull()).isTrue();
-			assertThat(response.path("gradeLevel").isNull()).isTrue();
-			assertThat(response.path("academicState").isNull()).isTrue();
-			assertThat(verification(user)).isEqualTo(verifiedBefore);
-			HttpResponse<String> patch = send("PATCH", "/api/students/me/profile", token(user, "STUDENT"), "{\"currentRegion\":\"수정 지역\"}");
-			assertThat(patch.statusCode()).isEqualTo(200);
-			assertThat(mapper.readTree(patch.body()).path("studyProgram").asString()).isEqualTo(program);
-			assertError(send("PATCH", "/api/students/me/profile", token(user, "STUDENT"),
-					mapper.writeValueAsString(Map.of("visaCode", visa))), 400, "INVALID_INPUT");
-		}
+	void derivesEachDetailedVisaFromD2AndSelectedProgram(String program, String visa, String name) throws Exception {
+		long user = verifiedStudent();
+		Map<String, Object> verifiedBefore = verification(user);
+		assertThat(verifiedBefore.get("visa_code")).isEqualTo("D-2");
+		ObjectNode request = body(); request.put("studyProgram", program);
+		assertThat(post(user, request.toString()).statusCode()).isEqualTo(200);
+		HttpResponse<String> read = send("GET", "/api/students/me/profile", token(user, "STUDENT"), null);
+		assertThat(read.statusCode()).isEqualTo(200);
+		JsonNode response = mapper.readTree(read.body());
+		assertThat(response.path("visaCode").asString()).isEqualTo(visa);
+		assertThat(response.path("studyProgram").asString()).isEqualTo(program);
+		assertThat(response.path("studyProgramId").asLong()).isEqualTo(jdbc.queryForObject(
+				"select id from study_program where program_name = ?", Long.class, name));
+		assertThat(response.path("universityName").isNull()).isTrue();
+		assertThat(response.path("gradeLevel").isNull()).isTrue();
+		assertThat(response.path("academicState").isNull()).isTrue();
+		assertThat(verification(user)).isEqualTo(verifiedBefore);
+		HttpResponse<String> patch = send("PATCH", "/api/students/me/profile", token(user, "STUDENT"), "{\"currentRegion\":\"수정 지역\"}");
+		assertThat(patch.statusCode()).isEqualTo(200);
+		assertThat(mapper.readTree(patch.body()).path("studyProgram").asString()).isEqualTo(program);
+		assertError(send("PATCH", "/api/students/me/profile", token(user, "STUDENT"),
+				mapper.writeValueAsString(Map.of("visaCode", visa))), 400, "INVALID_INPUT");
 	}
 
 	@ParameterizedTest
 	@ValueSource(strings = {"D-4", "D-4-1", "D-4-7", "D-2-7", "D-2-8", "D-2-3"})
-	void rejectsUnsupportedOrMismatchedVisaWithoutChangingExistingOrNewProfile(String visa) throws Exception {
+	void rejectsNonD2RegistrationWithoutChangingExistingOrNewProfile(String visa) throws Exception {
 		for (boolean existing : List.of(false, true)) {
 			long user = verifiedStudent();
 			if (existing) { seedIncomplete(user); }
