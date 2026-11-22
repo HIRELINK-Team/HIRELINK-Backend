@@ -23,6 +23,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -50,7 +51,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 			{
 			  "birthDate":"2000-03-14", "currentRegion":"서울 마포구", "koreanLevel":"INTERMEDIATE",
 			  "careers":[{"careerName":"카페", "startMonth":"2025-01", "endMonth":"2025-06", "description":"음료 제조"}],
-			  "topikLevel":4,
+			  "topikLevel":4, "studyProgram":"BACHELOR",
 			  "matchingPreferences":{
 			    "businessTypeFlexible":false,
 			    "preferredJobs":[{"businessTypeId":1},{"businessTypeId":8,"otherJobName":"영화관"}],
@@ -75,7 +76,10 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 	private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
 	@BeforeEach
-	void clearDatabase() { jdbc.execute("TRUNCATE TABLE user_account RESTART IDENTITY CASCADE"); }
+	void clearDatabase() {
+		jdbc.execute("TRUNCATE TABLE user_account RESTART IDENTITY CASCADE");
+		jdbc.execute("INSERT INTO study_program(program_name) VALUES ('전문학사'),('학사'),('석사'),('박사'),('교환학생') ON CONFLICT (program_name) DO NOTHING");
+	}
 
 	@Test
 	void completesAllDataAndKeepsVerifiedIdentityAndTimestamps() throws Exception {
@@ -91,7 +95,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(Instant.parse(result.path("completedAt").asString())).isEqualTo(jdbc.queryForObject(
 				"select onboarding_completed_at from student_profile where id = ?", java.sql.Timestamp.class, user).toInstant());
 		Map<String, Object> profile = jdbc.queryForMap("select * from student_profile where id = ?", user);
-		assertThat(profile).containsEntry("nationality", "VN").containsEntry("visa_code", "D-2")
+		assertThat(profile).containsEntry("nationality", "VN").containsEntry("visa_code", "D-2-2")
 				.containsEntry("current_region", "서울 마포구").containsEntry("korean_level", "INTERMEDIATE")
 				.containsEntry("stay_expiration_date", verification.get("stay_expires_on"));
 		assertThat(((Number) profile.get("topik_level")).intValue()).isEqualTo(4);
@@ -179,7 +183,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = {"birthDate", "currentRegion", "koreanLevel", "careers", "topikLevel", "matchingPreferences"})
+	@ValueSource(strings = {"birthDate", "currentRegion", "koreanLevel", "studyProgram", "careers", "topikLevel", "matchingPreferences"})
 	void requiresEveryOnboardingSection(String field) throws Exception {
 		long user = verifiedStudent();
 		ObjectNode missing = body();
@@ -245,7 +249,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 	@Test
 	void rejectsInvalidScalarTypesAndAttemptsToSupplyVerifiedOrCompletionFields() throws Exception {
 		long user = verifiedStudent();
-		for (String field : List.of("userId", "name", "nationality", "visaCode", "stayExpirationDate", "registrationNumber", "completedAt", "topikLevelProvided")) {
+		for (String field : List.of("universityName", "gradeLevel", "academicState", "studyProgramId", "userId", "name", "nationality", "visaCode", "stayExpirationDate", "registrationNumber", "completedAt", "topikLevelProvided")) {
 			ObjectNode request = body();
 			request.put(field, "forged");
 			assertError(post(user, request.toString()), 400, "INVALID_INPUT");
@@ -442,13 +446,75 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(operation.path("responses").has("200")).isTrue();
 		assertThat(operation.path("responses").has("409")).isTrue();
 		JsonNode schema = document.path("components").path("schemas").path("StudentOnboardingRequest");
-		assertThat(schema.path("required").toString()).contains("currentRegion", "koreanLevel", "careers", "topikLevel", "matchingPreferences").doesNotContain("birthDate");
+		assertThat(schema.path("required").toString()).contains("currentRegion", "koreanLevel", "studyProgram", "careers", "topikLevel", "matchingPreferences").doesNotContain("birthDate");
 		assertThat(schema.path("properties").has("topikLevelProvided")).isFalse();
+		assertThat(schema.path("properties").path("studyProgram").path("enum").toString())
+				.contains("ASSOCIATE", "BACHELOR", "MASTER", "DOCTORATE", "EXCHANGE");
+		for (String excluded : List.of("academicState", "universityName", "gradeLevel", "studyProgramId")) {
+			assertThat(schema.path("properties").has(excluded)).isFalse();
+		}
 		assertThat(schema.path("properties").has("topikAnswerPresent")).isFalse();
 		assertThat(schema.path("properties").path("topikLevel").toString()).contains("null");
 		JsonNode matching = document.path("components").path("schemas").path("StudentOnboardingMatchingPreferenceRequest");
 		assertThat(matching.path("required").toString()).contains("businessTypeFlexible", "preferredJobs", "preferredWorkTimes", "preferredLocation", "priorities");
 		assertThat(matching.path("properties").path("preferredWorkTimes").path("minItems").asInt()).isEqualTo(1);
+	}
+
+	@ParameterizedTest
+	@CsvSource({"ASSOCIATE,D-2-1,전문학사", "BACHELOR,D-2-2,학사", "MASTER,D-2-3,석사",
+			"DOCTORATE,D-2-4,박사", "EXCHANGE,D-2-6,교환학생"})
+	void derivesEachDetailedVisaFromD2AndSelectedProgram(String program, String visa, String name) throws Exception {
+		long user = verifiedStudent();
+		Map<String, Object> verifiedBefore = verification(user);
+		assertThat(verifiedBefore.get("visa_code")).isEqualTo("D-2");
+		ObjectNode request = body(); request.put("studyProgram", program);
+		assertThat(post(user, request.toString()).statusCode()).isEqualTo(200);
+		HttpResponse<String> read = send("GET", "/api/students/me/profile", token(user, "STUDENT"), null);
+		assertThat(read.statusCode()).isEqualTo(200);
+		JsonNode response = mapper.readTree(read.body());
+		assertThat(response.path("visaCode").asString()).isEqualTo(visa);
+		assertThat(response.path("studyProgram").asString()).isEqualTo(program);
+		assertThat(response.path("studyProgramId").asLong()).isEqualTo(jdbc.queryForObject(
+				"select id from study_program where program_name = ?", Long.class, name));
+		assertThat(response.path("universityName").isNull()).isTrue();
+		assertThat(response.path("gradeLevel").isNull()).isTrue();
+		assertThat(response.path("academicState").isNull()).isTrue();
+		assertThat(verification(user)).isEqualTo(verifiedBefore);
+		HttpResponse<String> patch = send("PATCH", "/api/students/me/profile", token(user, "STUDENT"), "{\"currentRegion\":\"수정 지역\"}");
+		assertThat(patch.statusCode()).isEqualTo(200);
+		assertThat(mapper.readTree(patch.body()).path("studyProgram").asString()).isEqualTo(program);
+		assertError(send("PATCH", "/api/students/me/profile", token(user, "STUDENT"),
+				mapper.writeValueAsString(Map.of("visaCode", visa))), 400, "INVALID_INPUT");
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"D-4", "D-4-1", "D-4-7", "D-2-7", "D-2-8", "D-2-3"})
+	void rejectsNonD2RegistrationWithoutChangingExistingOrNewProfile(String visa) throws Exception {
+		for (boolean existing : List.of(false, true)) {
+			long user = verifiedStudent();
+			if (existing) { seedIncomplete(user); }
+			jdbc.update("update student_registration_verification set visa_code = ? where user_id = ?", visa, user);
+			var before = snapshot(user);
+			assertError(post(user, FULL_REQUEST), 400, "INVALID_INPUT");
+			assertThat(snapshot(user)).isEqualTo(before);
+		}
+	}
+
+	@Test
+	void rejectsInvalidProgramTypesAndPreservesExistingCourseOnLateFailure() throws Exception {
+		long user = verifiedStudent();
+		for (String value : List.of("null", "0", "1.5", "true", "[]", "{}", "\"학사\"", "\"bachelor\"", "\"\"", "\"VISITING\"")) {
+			ObjectNode request = body(); request.set("studyProgram", mapper.readTree(value));
+			assertError(post(user, request.toString()), 400, "INVALID_INPUT");
+			assertNoOnboarding(user);
+		}
+		seedIncomplete(user);
+		jdbc.update("update student_profile set study_program_id = (select id from study_program where program_name = '석사') where id = ?", user);
+		var before = snapshot(user);
+		ObjectNode request = body();
+		((ObjectNode) preferences(request).path("preferredJobs").get(0)).put("businessTypeId", 999999);
+		assertThat(post(user, request.toString()).statusCode()).isEqualTo(404);
+		assertThat(snapshot(user)).isEqualTo(before);
 	}
 
 	private void seedIncomplete(long user) {

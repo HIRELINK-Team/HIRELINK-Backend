@@ -22,7 +22,6 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -106,7 +105,7 @@ class StudentProfileUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(response.statusCode()).isEqualTo(200);
 		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
 		JsonNode body = mapper.readTree(response.body());
-		assertThat(body.size()).isEqualTo(16);
+		assertThat(body.size()).isEqualTo(17);
 		assertThat(body.path("name").asString()).isEqualTo("수정한 이름");
 		assertThat(body.path("studentId").asLong()).isEqualTo(id);
 		assertThat(body.has("profileImageUrl")).isFalse();
@@ -131,15 +130,14 @@ class StudentProfileUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 		long id = createStudent();
 		String request = """
 				{"name":"새 이름","birthDate":"2000-05-10","nationality":"US","currentRegion":"서울 용산구",
-				"koreanLevel":"ADVANCED","visaCode":"D-4-1","stayExpirationDate":"2020-03-01",
-				"universityName":"테스트 학교","academicState":"IN_PROGRESS","topikLevel":6}
+				"koreanLevel":"ADVANCED","visaCode":"D-2-2","stayExpirationDate":"2020-03-01","topikLevel":6}
 				""";
 		HttpResponse<String> response = patch(token(id, "STUDENT"), request);
 		assertThat(response.statusCode()).isEqualTo(200);
 		JsonNode body = mapper.readTree(response.body());
 		JsonNode sent = mapper.readTree(request);
 		for (String field : List.of("name", "birthDate", "nationality", "currentRegion", "koreanLevel", "visaCode",
-				"stayExpirationDate", "universityName", "academicState", "topikLevel")) {
+				"stayExpirationDate", "topikLevel")) {
 			assertThat(body.path(field)).as(field).isEqualTo(sent.path(field));
 		}
 		assertThat(profile(id)).containsEntry("study_program_id", null).containsEntry("grade_level", null);
@@ -159,117 +157,41 @@ class StudentProfileUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(profile(id).get("topik_level")).isEqualTo(1);
 	}
 
-	@Test
-	void rejectsIncompatibleVisaChangeWithoutErasingStateOrSavingName() throws Exception {
+	@ParameterizedTest
+	@ValueSource(strings = {"D-2-1", "D-2-2", "D-2-3", "D-2-4", "D-2-6"})
+	void acceptsOnlySupportedDetailedVisaForUnverifiedDevelopmentProfile(String visa) throws Exception {
 		long id = createStudent();
-		jdbc.update("update student_profile set visa_code = 'D-2-2', academic_state = 'ENROLLED' where id = ?", id);
+		jdbc.update("update student_profile set academic_state = 'ENROLLED', university_name = '기존 학교' where id = ?", id);
+		assertThat(patch(token(id, "STUDENT"), mapper.writeValueAsString(Map.of("visaCode", visa))).statusCode()).isEqualTo(200);
+		assertThat(profile(id)).containsEntry("visa_code", visa).containsEntry("academic_state", "ENROLLED").containsEntry("university_name", "기존 학교");
+	}
+
+	@Test
+	void rejectsRemovedInputsAndUnsupportedCodesAtomically() throws Exception {
+		long id = createStudent();
 		Map<String, Object> before = profile(id);
 		Map<String, Object> userBefore = jdbc.queryForMap("select * from user_account where id = ?", id);
-		String token = token(id, "STUDENT");
-		assertError(patch(token, "{\"name\":\"저장되면 안 됨\",\"visaCode\":\"D-4-1\"}"), 400, "INVALID_INPUT");
-		assertThat(profile(id)).isEqualTo(before);
-		assertThat(jdbc.queryForMap("select * from user_account where id = ?", id)).isEqualTo(userBefore);
-		assertThat(patch(token, "{\"visaCode\":\"D-4-1\",\"academicState\":\"IN_PROGRESS\"}").statusCode()).isEqualTo(200);
-		assertThat(profile(id)).containsEntry("visa_code", "D-4-1").containsEntry("academic_state", "IN_PROGRESS");
-	}
-
-	@Test
-	void preservesCompatibleStateAndPermitsVisaOnlyBeforeAcademicStateIsEntered() throws Exception {
-		long id = createStudent();
-		String token = token(id, "STUDENT");
-		assertThat(patch(token, "{\"visaCode\":\"D-2-2\"}").statusCode()).isEqualTo(200);
-		assertThat(profile(id).get("academic_state")).isNull();
-		assertThat(patch(token, "{\"academicState\":\"ENROLLED\"}").statusCode()).isEqualTo(200);
-		assertThat(patch(token, "{\"visaCode\":\"D-2-3\"}").statusCode()).isEqualTo(200);
-		assertThat(profile(id).get("academic_state")).isEqualTo("ENROLLED");
-		long newId = createStudent();
-		assertError(patch(token(newId, "STUDENT"), "{\"academicState\":\"ENROLLED\"}"), 400, "INVALID_INPUT");
-	}
-
-	@Test
-	void enforcesAcademicChoicesForEveryVisaGroup() throws Exception {
-		Map<String, List<String>> choices = Map.of(
-				"D-2-1", List.of("ENROLLED", "ON_LEAVE", "COMPLETED", "GRADUATED"),
-				"D-2-2", List.of("ENROLLED", "ON_LEAVE", "COMPLETED", "GRADUATED"),
-				"D-2-3", List.of("ENROLLED", "ON_LEAVE", "COMPLETED", "GRADUATED"),
-				"D-2-4", List.of("ENROLLED", "ON_LEAVE", "COMPLETED", "GRADUATED"),
-				"D-2-6", List.of("IN_PROGRESS", "COMPLETED", "DISCONTINUED"),
-				"D-2-7", List.of("IN_PROGRESS", "ON_LEAVE_OR_DISCONTINUED", "COMPLETED"),
-				"D-2-8", List.of("IN_PROGRESS", "COMPLETED", "DISCONTINUED"),
-				"D-4-1", List.of("IN_PROGRESS", "COMPLETED", "DISCONTINUED"),
-				"D-4-7", List.of("IN_PROGRESS", "COMPLETED", "DISCONTINUED"));
-		long id = createStudent();
-		String token = token(id, "STUDENT");
-		for (var entry : choices.entrySet()) {
-			for (String state : entry.getValue()) {
-				assertThat(patch(token, mapper.writeValueAsString(Map.of("visaCode", entry.getKey(), "academicState", state)))
-						.statusCode()).as(entry.getKey() + ": " + state).isEqualTo(200);
+		for (String field : List.of("academicState", "universityName", "studyProgram", "studyProgramId", "gradeLevel")) {
+			for (Object value : List.of("ENROLLED", 1, true)) {
+				assertError(patch(token(id, "STUDENT"), mapper.writeValueAsString(Map.of(field, value, "name", "저장되면 안 됨"))), 400, "INVALID_INPUT");
 			}
 		}
-		assertError(patch(token, "{\"visaCode\":\"D-2-7\",\"academicState\":\"ON_LEAVE\"}"), 400, "INVALID_INPUT");
-		assertError(patch(token, "{\"visaCode\":\"D-4-1\",\"academicState\":\"GRADUATED\"}"), 400, "INVALID_INPUT");
-	}
-
-	@ParameterizedTest
-	@ValueSource(strings = {"D-2", "D-4"})
-	void savesAndReadsParentVisaWithoutSchoolOrAcademicState(String visaCode) throws Exception {
-		long id = createStudent();
-		String token = token(id, "STUDENT");
-		HttpResponse<String> response = patch(token, mapper.writeValueAsString(Map.of("visaCode", visaCode)));
-		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
-		JsonNode body = mapper.readTree(response.body());
-		assertThat(body.path("visaCode").asString()).isEqualTo(visaCode);
-		assertThat(body.path("academicState").isNull()).isTrue();
-		assertThat(body.path("universityName").isNull()).isTrue();
-		assertThat(profile(id)).containsEntry("visa_code", visaCode).containsEntry("academic_state", null);
-
-		HttpResponse<String> read = client.send(HttpRequest.newBuilder(URI.create(baseUrl()))
-				.header("Authorization", "Bearer " + token).GET().build(), HttpResponse.BodyHandlers.ofString());
-		assertThat(read.statusCode()).isEqualTo(200);
-		assertThat(mapper.readTree(read.body()).path("visaCode").asString()).isEqualTo(visaCode);
-		assertThat(mapper.readTree(read.body()).path("academicState").isNull()).isTrue();
-		assertThat(patch(token, "{\"currentRegion\":\"서울 용산구\"}").statusCode()).isEqualTo(200);
-		assertThat(profile(id)).containsEntry("visa_code", visaCode).containsEntry("academic_state", null);
-	}
-
-	@ParameterizedTest
-	@CsvSource({
-			"D-2-2, D-2, ENROLLED", "D-2-2, D-2, ON_LEAVE", "D-2-3, D-2, COMPLETED",
-			"D-2-4, D-2, GRADUATED", "D-2-6, D-2, IN_PROGRESS", "D-2-8, D-2, DISCONTINUED",
-			"D-2-7, D-2, ON_LEAVE_OR_DISCONTINUED", "D-4-1, D-4, IN_PROGRESS",
-			"D-4-7, D-4, COMPLETED", "D-4-1, D-4, DISCONTINUED"
-	})
-	void preservesDetailedVisaDataWhenChangingToParentAndBack(String detailedCode, String parentCode, String state)
-			throws Exception {
-		long id = createStudent();
-		jdbc.update("update student_profile set visa_code = ?, academic_state = ?, university_name = '기존 학교' where id = ?",
-				detailedCode, state, id);
-		Map<String, Object> before = profile(id);
-		String token = token(id, "STUDENT");
-		assertThat(patch(token, mapper.writeValueAsString(Map.of("visaCode", parentCode))).statusCode()).isEqualTo(200);
-		before.put("visa_code", parentCode);
+		for (String visa : List.of("D-2", "D-4", "D-2-5", "D-2-7", "D-2-8", "D-4-1", "D-4-7", "TEST-VISA", "d-2-2")) {
+			assertError(patch(token(id, "STUDENT"), mapper.writeValueAsString(Map.of("visaCode", visa, "name", "저장되면 안 됨"))), 400, "INVALID_INPUT");
+		}
 		assertThat(profile(id)).isEqualTo(before);
-		assertThat(patch(token, mapper.writeValueAsString(Map.of("visaCode", detailedCode))).statusCode()).isEqualTo(200);
-		before.put("visa_code", detailedCode);
-		assertThat(profile(id)).isEqualTo(before);
+		assertThat(jdbc.queryForMap("select * from user_account where id = ?", id)).isEqualTo(userBefore);
 	}
 
 	@Test
-	void rejectsIncompatibleParentAndDetailedChangesWithoutSavingOtherFields() throws Exception {
+	void cannotChangeVisaToConflictWithStoredProgram() throws Exception {
 		long id = createStudent();
-		jdbc.update("update student_profile set visa_code = 'D-2', academic_state = 'ENROLLED' where id = ?", id);
-		String token = token(id, "STUDENT");
+		long course = jdbc.queryForObject("insert into study_program(program_name) values ('학사') returning id", Long.class);
+		jdbc.update("update student_profile set study_program_id = ?, visa_code = 'D-2-2' where id = ?", course, id);
 		Map<String, Object> before = profile(id);
-		Map<String, Object> userBefore = jdbc.queryForMap("select * from user_account where id = ?", id);
-		for (String code : List.of("D-4", "D-2-6", "D-2-5", "D-3", "d-2", "D-2-99")) {
-			assertError(patch(token, mapper.writeValueAsString(Map.of("visaCode", code, "name", "저장되면 안 됨"))),
-					400, "INVALID_INPUT");
-			assertThat(profile(id)).isEqualTo(before);
-			assertThat(jdbc.queryForMap("select * from user_account where id = ?", id)).isEqualTo(userBefore);
-		}
-		assertError(patch(token, "{\"visaCode\":\"D-2\",\"academicState\":\"INVALID\"}"), 400, "INVALID_INPUT");
-		assertThat(patch(token, "{\"visaCode\":\"D-4\",\"academicState\":\"IN_PROGRESS\"}").statusCode()).isEqualTo(200);
-		assertThat(profile(id)).containsEntry("visa_code", "D-4").containsEntry("academic_state", "IN_PROGRESS");
+		assertError(patch(token(id, "STUDENT"), "{\"visaCode\":\"D-2-3\"}"), 400, "INVALID_INPUT");
+		assertThat(profile(id)).isEqualTo(before);
+		assertThat(patch(token(id, "STUDENT"), "{\"visaCode\":\"D-2-2\"}").statusCode()).isEqualTo(200);
 	}
 
 	@Test

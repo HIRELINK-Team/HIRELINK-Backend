@@ -25,6 +25,7 @@ import com.hirelink.domain.auth.entity.SocialSignupRegistration;
 import com.hirelink.domain.auth.repository.SocialSignupRegistrationRepository;
 import com.hirelink.domain.member.entity.MemberRole;
 import com.hirelink.domain.member.entity.TermType;
+import com.hirelink.domain.student.entity.StudyProgramType;
 import com.hirelink.global.exception.SocialAuthException;
 
 import tools.jackson.databind.JsonNode;
@@ -33,6 +34,13 @@ import tools.jackson.databind.node.ObjectNode;
 
 @Service
 public class SocialSignupRegistrationService {
+
+	static void requireSupportedVisa(String visaCode) {
+		if (!StudyProgramType.supportsRegistration(visaCode)) {
+			throw new SocialAuthException(HttpStatus.UNPROCESSABLE_ENTITY, "UNSUPPORTED_VISA",
+					"등록증에서 확인한 체류자격이 D-2여야 합니다.");
+		}
+	}
 
 	private static final int MAX_FILE_SIZE = 5 * 1024 * 1024;
 	private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
@@ -81,6 +89,7 @@ public class SocialSignupRegistrationService {
 			LocalDate issued = date(result, "issueDate");
 			if (name.length() > 100 || !VISAS.contains(visa) || !number.matches("[0-9]{6}[5-8][0-9]{6}")
 					|| issued.isAfter(LocalDate.now(KOREA))) { throw RegistrationOcrClient.unreadable(); }
+			requireSupportedVisa(visa);
 			requireUnexpired(session, registration);
 			ObjectNode payload = mapper.createObjectNode();
 			payload.put("name", name).put("nationalityCode", country).put("visaCode", visa)
@@ -98,6 +107,7 @@ public class SocialSignupRegistrationService {
 		SocialSignupRegistration registration = registrations.findById(session.getTokenHash()).orElseThrow(this::frontRequired);
 		if (registration.getFrontPayload() == null) { throw frontRequired(); }
 		JsonNode front = mapper.readTree(cipher.decrypt(registration.getFrontPayload(), session.getTokenHash()));
+		requireSupportedVisa(text(front, "visaCode"));
 		if (!front.path("registrationNumber").isString() || !front.path("issueDate").isString()) { throw frontRequired(); }
 		byte[] bytes = readImage(file);
 		try {
@@ -139,6 +149,7 @@ public class SocialSignupRegistrationService {
 			throw new SocialAuthException(HttpStatus.CONFLICT, "STAY_DOCUMENT_NOT_REQUIRED", "카드의 체류기간이 유효하여 PDF 제출이 필요하지 않습니다.");
 		}
 		ObjectNode front = (ObjectNode) mapper.readTree(cipher.decrypt(registration.getFrontPayload(), session.getTokenHash()));
+		requireSupportedVisa(text(front, "visaCode"));
 		if (!front.path("registrationNumber").isString()) { throw frontRequired(); }
 		JsonNode serial = front.get("serialNumber");
 		// 구형 카드의 명시적 null과 일련번호를 보관하지 않던 이전 세션을 구분한다.

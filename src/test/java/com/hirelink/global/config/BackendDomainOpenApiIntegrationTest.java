@@ -210,16 +210,16 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(student.path("required").isEmpty()).isTrue();
 		assertThat(student.path("properties").propertyNames()).containsExactlyInAnyOrder(
 				"name", "birthDate", "nationality", "currentRegion", "koreanLevel", "visaCode",
-				"stayExpirationDate", "universityName", "academicState", "topikLevel");
+				"stayExpirationDate", "topikLevel");
 		assertThat(nullable(student.path("properties").path("topikLevel"))).isTrue();
 		assertThat(nullable(student.path("properties").path("name"))).isFalse();
 		assertType(student.path("properties").path("topikLevel"), "integer");
 		assertType(student.path("properties").path("name"), "string");
 		assertThat(student.path("properties").path("birthDate").path("format").asString()).isEqualTo("date");
 		assertThat(schema(document, "StudentProfileResponse").path("properties").propertyNames())
-				.contains("studyProgramId", "gradeLevel", "profileImageUrl", "careers");
+				.contains("studyProgramId", "studyProgram", "gradeLevel", "profileImageUrl", "careers");
 		assertThat(schema(document, "StudentProfileUpdateResponse").path("properties").propertyNames())
-				.contains("studyProgramId", "gradeLevel").doesNotContain("profileImageUrl", "careers");
+				.contains("studyProgramId", "studyProgram", "gradeLevel").doesNotContain("profileImageUrl", "careers");
 		JsonNode employer = schema(document, "EmployerProfileUpdateRequest");
 		assertThat(employer.path("properties").propertyNames()).containsExactlyInAnyOrder("name", "position");
 		assertThat(nullable(employer.path("properties").path("position"))).isTrue();
@@ -255,10 +255,9 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
-	void studentProfileDocumentsParentVisaCodesAndImmediatePersistence() throws Exception {
+	void studentProfileDocumentsSupportedVisaCodesAndImmediatePersistence() throws Exception {
 		JsonNode document = openApiDocument();
-		List<String> codes = List.of("D-2", "D-4", "D-2-1", "D-2-2", "D-2-3", "D-2-4",
-				"D-2-6", "D-2-7", "D-2-8", "D-4-1", "D-4-7");
+		List<String> codes = List.of("D-2-1", "D-2-2", "D-2-3", "D-2-4", "D-2-6");
 		JsonNode request = schema(document, "StudentProfileUpdateRequest");
 		JsonNode visa = request.path("properties").path("visaCode");
 		assertThat(visa.path("enum").size()).isEqualTo(codes.size());

@@ -19,12 +19,14 @@ import com.hirelink.domain.student.dto.StudentProfileCreateResponse;
 import com.hirelink.domain.student.dto.StudentProfileResponse;
 import com.hirelink.domain.student.dto.StudentProfileUpdateRequest;
 import com.hirelink.domain.student.dto.StudentProfileUpdateResponse;
-import com.hirelink.domain.student.entity.AcademicState;
+import com.hirelink.domain.student.entity.StudyProgramType;
 import com.hirelink.domain.student.entity.KoreanLevel;
 import com.hirelink.domain.student.entity.StudentProfile;
 import com.hirelink.domain.student.repository.StudentCareerRepository;
 import com.hirelink.domain.student.repository.StudentProfileRepository;
 import com.hirelink.domain.student.repository.VisaTypeRepository;
+import com.hirelink.domain.student.repository.StudyProgramRepository;
+import com.hirelink.domain.student.repository.StudentRegistrationVerificationRepository;
 import com.hirelink.global.exception.DuplicateStudentProfileException;
 import com.hirelink.global.exception.InvalidStudentProfileException;
 import com.hirelink.global.exception.PhoneNotVerifiedException;
@@ -43,15 +45,20 @@ public class StudentProfileService {
 	private final StudentCareerRepository studentCareerRepository;
 	private final VisaTypeRepository visaTypeRepository;
 	private final SupabaseStorageClient storageClient;
+	private final StudyProgramRepository studyPrograms;
+	private final StudentRegistrationVerificationRepository verifications;
 
 	public StudentProfileService(UserAccountRepository userAccountRepository,
 			StudentProfileRepository studentProfileRepository, StudentCareerRepository studentCareerRepository,
-			VisaTypeRepository visaTypeRepository, SupabaseStorageClient storageClient) {
+			VisaTypeRepository visaTypeRepository, SupabaseStorageClient storageClient,
+			StudyProgramRepository studyPrograms, StudentRegistrationVerificationRepository verifications) {
 		this.userAccountRepository = userAccountRepository;
 		this.studentProfileRepository = studentProfileRepository;
 		this.studentCareerRepository = studentCareerRepository;
 		this.visaTypeRepository = visaTypeRepository;
 		this.storageClient = storageClient;
+		this.studyPrograms = studyPrograms;
+		this.verifications = verifications;
 	}
 
 	@Transactional(readOnly = true)
@@ -76,7 +83,7 @@ public class StudentProfileService {
 		return new StudentProfileResponse(userId, user.getName(), user.getEmail(), formatPhoneNumber(user.getPhoneNumber()),
 				profile.getBirthDate(), profile.getNationality(), profile.getCurrentRegion(), profile.getKoreanLevel(),
 				profile.getVisaCode(), profile.getUniversityName(), profile.getEnrollmentStartDate(), profile.getStudyProgramId(),
-				profile.getGradeLevel(), profile.getAcademicState(), profile.getTopikLevel(), profile.getStayStartDate(),
+				studyProgram(profile), profile.getGradeLevel(), profile.getAcademicState(), profile.getTopikLevel(), profile.getStayStartDate(),
 				profile.getStayExpirationDate(), imageUrl, profile.getHirelinkBadgeIssuedAt(), careers);
 	}
 
@@ -136,13 +143,18 @@ public class StudentProfileService {
 			throw new InvalidStudentProfileException("올바른 국적 코드를 입력해주세요.");
 		}
 		String visaCode = request.getVisaCode() != null ? request.getVisaCode() : profile.getVisaCode();
-		String academicState = request.getAcademicState() != null ? request.getAcademicState() : profile.getAcademicState();
 		if (request.getVisaCode() != null
-				&& (AcademicState.allowedFor(visaCode).isEmpty() || !visaTypeRepository.existsById(visaCode))) {
-			throw new InvalidStudentProfileException("등록된 비자 코드를 입력해주세요.");
+				&& (!StudyProgramType.supportsDetailedVisa(visaCode) || !visaTypeRepository.existsById(visaCode))) {
+			throw new InvalidStudentProfileException("지원하는 체류자격은 D-2-1·D-2-2·D-2-3·D-2-4·D-2-6입니다.");
 		}
-		if (request.getVisaCode() != null || request.getAcademicState() != null) {
-			validateAcademicState(visaCode, academicState);
+		if (request.getVisaCode() != null) {
+			if (verifications.existsById(userId)) {
+				throw new InvalidStudentProfileException("등록증 인증 회원의 체류자격은 직접 수정할 수 없습니다.");
+			}
+			StudyProgramType program = studyProgram(profile);
+			if (profile.getStudyProgramId() != null && (program == null || !program.getVisaCode().equals(visaCode))) {
+				throw new InvalidStudentProfileException("저장된 학업과정과 체류자격이 일치하지 않습니다.");
+			}
 		}
 		LocalDate expirationDate = request.getStayExpirationDate() != null
 				? request.getStayExpirationDate() : profile.getStayExpirationDate();
@@ -162,27 +174,17 @@ public class StudentProfileService {
 		Short topikLevel = request.hasTopikLevel()
 				? (request.getTopikLevel() == null ? null : request.getTopikLevel().shortValue()) : profile.getTopikLevel();
 		profile.updateOnboardingInformation(visaCode,
-				request.getUniversityName() != null ? request.getUniversityName() : profile.getUniversityName(),
-				academicState, topikLevel, expirationDate);
+				profile.getUniversityName(), profile.getAcademicState(), topikLevel, expirationDate);
 
 		return new StudentProfileUpdateResponse(userId, user.getName(), user.getEmail(), formatPhoneNumber(user.getPhoneNumber()),
 				profile.getBirthDate(), profile.getNationality(), profile.getCurrentRegion(), profile.getKoreanLevel(),
-				profile.getVisaCode(), profile.getUniversityName(), profile.getStudyProgramId(), profile.getGradeLevel(),
+				profile.getVisaCode(), profile.getUniversityName(), profile.getStudyProgramId(), studyProgram(profile), profile.getGradeLevel(),
 				profile.getAcademicState(), profile.getTopikLevel(), profile.getStayExpirationDate(), profile.getHirelinkBadgeIssuedAt());
 	}
 
-	private void validateAcademicState(String visaCode, String academicState) {
-		if (academicState == null) {
-			return;
-		}
-		try {
-			if (AcademicState.allowedFor(visaCode).contains(AcademicState.valueOf(academicState))) {
-				return;
-			}
-		} catch (IllegalArgumentException exception) {
-			throw new InvalidStudentProfileException("올바른 학업 상태를 입력해주세요.");
-		}
-		throw new InvalidStudentProfileException("선택한 비자에 맞는 학업 상태를 함께 입력해주세요.");
+	private StudyProgramType studyProgram(StudentProfile profile) {
+		return profile.getStudyProgramId() == null ? null : studyPrograms.findById(profile.getStudyProgramId())
+				.map(program -> StudyProgramType.fromProgramName(program.getProgramName())).orElse(null);
 	}
 
 	private String formatPhoneNumber(String phoneNumber) {

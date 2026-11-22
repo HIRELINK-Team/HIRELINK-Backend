@@ -47,7 +47,7 @@ public class StudentProfileController {
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = StudentProfileResponse.class),
-						examples = @ExampleObject(name = "success", value = "{\"studentId\":1,\"name\":\"김하늘\",\"email\":\"student@example.com\",\"phoneNumber\":\"010-1234-5678\",\"birthDate\":\"2000-05-14\",\"nationality\":\"VN\",\"currentRegion\":\"서울특별시 성동구\",\"koreanLevel\":\"INTERMEDIATE\",\"visaCode\":null,\"universityName\":null,\"enrollmentStartDate\":null,\"studyProgramId\":null,\"gradeLevel\":null,\"academicState\":null,\"topikLevel\":null,\"stayStartDate\":null,\"stayExpirationDate\":null,\"profileImageUrl\":null,\"hirelinkBadgeIssuedAt\":null,\"careers\":[]}"))),
+						examples = @ExampleObject(name = "success", value = "{\"studentId\":1,\"name\":\"김하늘\",\"email\":\"student@example.com\",\"phoneNumber\":\"010-1234-5678\",\"birthDate\":\"2000-05-14\",\"nationality\":\"VN\",\"currentRegion\":\"서울특별시 성동구\",\"koreanLevel\":\"INTERMEDIATE\",\"visaCode\":null,\"universityName\":null,\"enrollmentStartDate\":null,\"studyProgramId\":null,\"studyProgram\":null,\"gradeLevel\":null,\"academicState\":null,\"topikLevel\":null,\"stayStartDate\":null,\"stayExpirationDate\":null,\"profileImageUrl\":null,\"hirelinkBadgeIssuedAt\":null,\"careers\":[]}"))),
 		@ApiResponse(responseCode = "401", description = "유효한 인증 정보 없음",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {
@@ -118,11 +118,11 @@ public class StudentProfileController {
 	}
 
 	@Operation(summary = "내 유학생 프로필 수정",
-			description = "보내지 않은 필드는 유지한다. 빈 요청과 수정 대상이 아닌 필드는 400이다. topikLevel만 null로 지울 수 있으며 다른 필드의 null은 400이다. studyProgramId · gradeLevel은 수정 대상에서 제외되며 기존 값은 유지한다. 체류자격은 D-2, D-4 상위 코드와 기존 세부 코드를 지원하며, 학업 상태가 없으면 코드만 전송할 수 있다. D-2는 기존 D-2 세부 코드의 상태 전체, D-4는 IN_PROGRESS, COMPLETED, DISCONTINUED를 허용한다. 체류자격과 학업 상태는 기존 값과 합쳐 검사한다. 코드 변경 후 기존 상태가 허용되지 않으면 새 상태를 함께 보내야 하며 자동으로 지우지 않는다. 과거 체류 만료일도 허용하되 기존 시작일보다 앞설 수 없다. 사진 URL은 수정 응답에 포함하지 않는다. 요청 성공 시 즉시 저장되며, 임시 저장이나 온보딩 전체 일괄 저장 API가 아니다. 성공 응답은 온보딩 전체 완료를 의미하지 않는다.")
+			description = "보내지 않은 필드는 유지한다. 빈 요청과 수정 대상이 아닌 필드는 400이다. topikLevel만 null로 지울 수 있으며 다른 필드의 null은 400이다. universityName·gradeLevel·academicState·studyProgram·studyProgramId는 입력받지 않고 기존 값을 보존한다. 학업과정은 온보딩에서 선택한다. 등록증 인증 회원의 visaCode 직접 수정은 400이다. 인증 기록이 없는 개발용 프로필만 D-2-1·D-2-2·D-2-3·D-2-4·D-2-6을 입력할 수 있으며 저장된 학업과정과 다르면 400이다. 과거 체류 만료일도 허용하되 기존 시작일보다 앞설 수 없다. 사진 URL은 수정 응답에 포함하지 않는다. 요청 성공 시 즉시 저장되며 온보딩 전체 일괄 저장 API가 아니다. 성공 응답은 온보딩 전체 완료를 의미하지 않는다.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = StudentProfileUpdateResponse.class),
-						examples = @ExampleObject(name = "success", value = "{\"studentId\":1,\"name\":\"김하늘\",\"email\":\"student@example.com\",\"phoneNumber\":\"010-1234-5678\",\"birthDate\":\"2000-05-14\",\"nationality\":\"VN\",\"currentRegion\":\"서울특별시 성동구\",\"koreanLevel\":\"INTERMEDIATE\",\"visaCode\":null,\"universityName\":null,\"studyProgramId\":null,\"gradeLevel\":null,\"academicState\":null,\"topikLevel\":null,\"stayExpirationDate\":null,\"hirelinkBadgeIssuedAt\":null}"))),
+						examples = @ExampleObject(name = "success", value = "{\"studentId\":1,\"name\":\"김하늘\",\"email\":\"student@example.com\",\"phoneNumber\":\"010-1234-5678\",\"birthDate\":\"2000-05-14\",\"nationality\":\"VN\",\"currentRegion\":\"서울특별시 성동구\",\"koreanLevel\":\"INTERMEDIATE\",\"visaCode\":null,\"universityName\":null,\"studyProgramId\":null,\"studyProgram\":null,\"gradeLevel\":null,\"academicState\":null,\"topikLevel\":null,\"stayExpirationDate\":null,\"hirelinkBadgeIssuedAt\":null}"))),
 		@ApiResponse(responseCode = "400", description = "입력 형식 또는 값 오류",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {
