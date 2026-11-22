@@ -45,7 +45,7 @@ class OnboardingStatusIntegrationTest extends PostgreSQLIntegrationTest {
 	private static final String COMPLETE_REQUEST = """
 			{
 			  "birthDate":"2000-05-14","currentRegion":"서울 마포구","koreanLevel":"INTERMEDIATE",
-			  "careers":[],"topikLevel":null,
+			  "studyProgram":"BACHELOR","careers":[],"topikLevel":null,
 			  "matchingPreferences":{
 			    "businessTypeFlexible":true,"preferredJobs":[],
 			    "preferredWorkTimes":[{"dayOfWeek":"MON","startTime":"09:00","endTime":"13:00"}],
@@ -67,7 +67,10 @@ class OnboardingStatusIntegrationTest extends PostgreSQLIntegrationTest {
 	private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
 	@BeforeEach
-	void clearDatabase() { jdbc.execute("TRUNCATE TABLE user_account RESTART IDENTITY CASCADE"); }
+	void clearDatabase() {
+		jdbc.execute("TRUNCATE TABLE user_account RESTART IDENTITY CASCADE");
+		jdbc.execute("INSERT INTO study_program(program_name) VALUES ('학사') ON CONFLICT (program_name) DO NOTHING");
+	}
 
 	@Test
 	void restartsAtBasicInformationWithoutCreatingOrUpdatingData() throws Exception {
