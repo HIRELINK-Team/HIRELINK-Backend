@@ -3,7 +3,9 @@ package com.hirelink.domain.auth.service;
 import java.util.UUID;
 
 import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,19 +31,23 @@ public class AuthService {
 	private final AuthAccountRepository authAccountRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final TokenService tokenService;
+	private final boolean localLoginEnabled;
 	private final String dummyPasswordHash;
 
 	public AuthService(UserAccountRepository userAccountRepository,
-			AuthAccountRepository authAccountRepository, PasswordEncoder passwordEncoder, TokenService tokenService) {
+			AuthAccountRepository authAccountRepository, PasswordEncoder passwordEncoder, TokenService tokenService,
+			@Value("${auth.local.enabled:false}") boolean localLoginEnabled) {
 		this.userAccountRepository = userAccountRepository;
 		this.authAccountRepository = authAccountRepository;
 		this.passwordEncoder = passwordEncoder;
 		this.tokenService = tokenService;
+		this.localLoginEnabled = localLoginEnabled;
 		this.dummyPasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
 	}
 
 	@Transactional
 	public AuthResult signup(SignupRequest request) {
+		requireLocalLoginEnabled();
 		String email = request.email();
 		if (authAccountRepository.existsByProviderAndProviderUserId(AuthProvider.LOCAL, email)) {
 			throw new DuplicateEmailException();
@@ -73,6 +79,7 @@ public class AuthService {
 
 	@Transactional
 	public AuthResult login(LoginRequest request) {
+		requireLocalLoginEnabled();
 		AuthAccount authAccount = authAccountRepository
 				.findByProviderAndProviderUserId(AuthProvider.LOCAL, request.email()).orElse(null);
 		// 존재하지 않는 이메일도 해시 비교를 수행해 응답 시간 차이를 줄인다.
@@ -92,6 +99,12 @@ public class AuthService {
 			throw new WithdrawnAccountException();
 		}
 		return tokenService.issueTokens(userAccount);
+	}
+
+	private void requireLocalLoginEnabled() {
+		if (!localLoginEnabled) {
+			throw new AccessDeniedException("LOCAL authentication is disabled");
+		}
 	}
 
 	private boolean isDuplicateEmail(Throwable exception) {

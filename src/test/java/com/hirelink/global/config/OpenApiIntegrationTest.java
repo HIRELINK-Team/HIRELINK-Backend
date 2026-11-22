@@ -75,6 +75,22 @@ class OpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
+	void localAuthDocumentsDevelopmentOnlyAccessAndForbiddenResponse() throws Exception {
+		JsonNode paths = objectMapper.readTree(get("/v3/api-docs").body()).path("paths");
+		for (String path : new String[]{"/api/auth/signup", "/api/auth/login"}) {
+			JsonNode operation = paths.path(path).path("post");
+			assertThat(operation.path("summary").asString()).contains("개발용");
+			assertThat(operation.path("description").asString()).contains("LOCAL_LOGIN_ENABLED=true", "기본값 false");
+			JsonNode forbidden = operation.path("responses").path("403").path("content").path("application/json");
+			assertThat(forbidden.path("schema").path("$ref").asString()).isEqualTo("#/components/schemas/ErrorResponse");
+			assertThat(forbidden.path("examples").path("FORBIDDEN").path("value").path("code").asString())
+					.isEqualTo("FORBIDDEN");
+		}
+		assertThat(paths.has("/api/auth/refresh")).isTrue();
+		assertThat(paths.has("/api/auth/logout")).isTrue();
+	}
+
+	@Test
 	void openApiDocumentUsesForwardedHttpsServerUrlBehindReverseProxy() throws Exception {
 		HttpRequest request = HttpRequest.newBuilder(uri("/v3/api-docs"))
 				.header("X-Forwarded-Proto", "https")

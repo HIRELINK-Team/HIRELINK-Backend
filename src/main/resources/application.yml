@@ -33,6 +33,8 @@ jwt:
   issuer: hirelink
 
 auth:
+  local:
+    enabled: ${LOCAL_LOGIN_ENABLED:false}
   cookie:
     secure: ${AUTH_COOKIE_SECURE:true}
   social:
