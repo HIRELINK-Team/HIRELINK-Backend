@@ -146,7 +146,7 @@ public class SocialSignupPhoneService {
 		requireUnexpired(session, now);
 		if (!verification.isActive(now)) { throw new InvalidPhoneVerificationCodeException(); }
 		var registration = registrationTransfer.requireVerified(session);
-		if (users.existsByPhoneNumber(phoneNumber)) {
+		if (users.existsByPhoneNumberAndWithdrawalFinalizedAtIsNull(phoneNumber)) {
 			// 중복 안내는 정상 반환하여 이번 가입 정보 삭제를 커밋한다.
 			sessions.delete(session);
 			return Optional.empty();

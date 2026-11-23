@@ -3,12 +3,14 @@ package com.hirelink.domain.member.service;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.hirelink.domain.member.entity.MemberRole;
 import com.hirelink.domain.member.repository.UserAccountRepository;
+import com.hirelink.domain.member.repository.StudentWithdrawalRetentionRepository;
 import com.hirelink.domain.auth.repository.AuthAccountRepository;
 import com.hirelink.domain.auth.repository.SocialAuthSessionRepository;
 import com.hirelink.domain.auth.repository.RefreshTokenRepository;
@@ -27,10 +29,14 @@ public class StudentWithdrawalFinalizer {
     private final StudentDocumentStorageClient storage;
     private final StudentEnrollmentDocumentRepository documents;
     private final StudentDocumentCleanupRepository cleanup;
+    private final StudentWithdrawalRetentionRepository retention;
+    private final Clock clock;
     public StudentWithdrawalFinalizer(UserAccountRepository users,AuthAccountRepository accounts,SocialAuthSessionRepository sessions,
             RefreshTokenRepository tokens,ProviderUnlinkClient unlink,StudentDocumentStorageClient storage,
-            StudentEnrollmentDocumentRepository documents,StudentDocumentCleanupRepository cleanup) {
+            StudentEnrollmentDocumentRepository documents,StudentDocumentCleanupRepository cleanup,
+            StudentWithdrawalRetentionRepository retention,Clock clock) {
         this.users=users; this.accounts=accounts; this.sessions=sessions; this.tokens=tokens; this.unlink=unlink; this.storage=storage; this.documents=documents; this.cleanup=cleanup;
+        this.retention=retention; this.clock=clock;
     }
     @Transactional(timeout=120)
     public void finalizeDue(Long userId) {
@@ -38,7 +44,7 @@ public class StudentWithdrawalFinalizer {
         var connections=accounts.findAllByUserAccountIdOrderById(userId);
         connections.stream().map(a->a.getProvider().name()+":"+a.getProviderUserId()).sorted().forEach(identity->sessions.lockIdentity(hash(identity)));
         var user=users.findByIdForUpdate(userId).orElseThrow();
-        Instant now=Instant.now();
+        Instant now=Instant.now(clock);
         if(user.getRole()!=MemberRole.STUDENT || user.getWithdrawalRequestedAt()==null || user.getWithdrawalFinalizedAt()!=null
                 || now.isBefore(user.getWithdrawalRequestedAt().plus(Duration.ofDays(30)))) return;
         var saved=documents.findAllByUserId(userId);
@@ -56,8 +62,13 @@ public class StudentWithdrawalFinalizer {
             unlink.unlink(account);
             sessions.deleteByIdentity(account.getProvider().name(),account.getProviderUserId());
         }
-        documents.deleteAll(saved); tokens.deleteAllByUserAccountId(userId); accounts.deleteAll(connections);
-        user.finalizeWithdrawal(now);
+        for(var doc:saved) {
+            if(doc.getRegisteredAt()==null) { documents.delete(doc); }
+            else { doc.softDelete(now); }
+        }
+        retention.clearAuthenticationDrafts(userId);
+        tokens.deleteAllByUserAccountId(userId); accounts.deleteAll(connections);
+        user.finalizeWithdrawal(Instant.now(clock));
     }
     private String hash(String value) {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }
