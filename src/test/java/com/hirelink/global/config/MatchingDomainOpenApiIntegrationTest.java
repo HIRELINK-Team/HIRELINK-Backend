@@ -44,7 +44,9 @@ class MatchingDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 			new OperationSpec("/api/offers/{offerId}/accept", "patch", "Employment Offers", "200", "400", "401", "403", "404", "409"),
 			new OperationSpec("/api/offers/{offerId}/reject", "patch", "Employment Offers", "200", "400", "401", "403", "404", "409"),
 			new OperationSpec("/api/matches/{id}", "get", "Employment Matches", "200", "400", "401", "403", "404"),
-			new OperationSpec("/api/matches/me", "get", "Employment Matches", "200", "400", "401", "403", "404"));
+			new OperationSpec("/api/matches/me", "get", "Employment Matches", "200", "400", "401", "403", "404"),
+			new OperationSpec("/api/job-postings/{jobPostingId}/matches", "delete", "Employment Matches", "204", "400", "401", "403", "404"),
+			new OperationSpec("/api/job-postings/{jobPostingId}/matches/all", "delete", "Employment Matches", "204", "400", "401", "403", "404"));
 
 	@DynamicPropertySource
 	static void securityProperties(DynamicPropertyRegistry registry) {
@@ -88,11 +90,17 @@ class MatchingDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 				JsonNode response = responses.path(responseCode);
 				assertThat(response.isMissingNode()).as(spec.path() + " " + responseCode).isFalse();
 				assertThat(response.path("description").asString()).as(spec.path() + " " + responseCode).isNotBlank();
+				if (responseCode.equals("204")) {
+					assertThat(response.path("content").isMissingNode()).isTrue();
+					continue;
+				}
 				assertThat(response.path("content").path("application/json").path("schema").isMissingNode())
 						.as(spec.path() + " " + responseCode).isFalse();
 			}
 		}
 		assertSchemaReference(document, "/api/applications", "post", "requestBody", "ApplicationCreateRequest");
+		assertSchemaReference(document, "/api/job-postings/{jobPostingId}/matches", "delete", "requestBody",
+				"EmploymentMatchDeleteRequest");
 		assertThat(operation(document, "/api/applications", "post").path("responses").path("201")
 				.path("content").path("application/json").path("schema").path("$ref").asString())
 				.endsWith("/ApplicationCreateResponse");
