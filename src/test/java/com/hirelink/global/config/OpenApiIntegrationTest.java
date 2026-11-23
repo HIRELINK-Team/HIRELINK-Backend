@@ -75,7 +75,7 @@ class OpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
-	void localAuthDocumentsDevelopmentOnlyAccessAndForbiddenResponse() throws Exception {
+	void localAuthDocumentsDevelopmentAccessQaLoginExceptionAndForbiddenResponse() throws Exception {
 		JsonNode paths = objectMapper.readTree(get("/v3/api-docs").body()).path("paths");
 		for (String path : new String[]{"/api/auth/signup", "/api/auth/login"}) {
 			JsonNode operation = paths.path(path).path("post");
@@ -88,6 +88,10 @@ class OpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 		}
 		assertThat(paths.has("/api/auth/refresh")).isTrue();
 		assertThat(paths.has("/api/auth/logout")).isTrue();
+		assertThat(paths.path("/api/auth/login").path("post").path("description").asString())
+				.contains("QA_LOGIN_ALLOWED_EMAILS", "기존 LOCAL 계정", "회원가입이나 회원 유형별 권한을 변경하지 않는다");
+		assertThat(paths.path("/api/auth/signup").path("post").path("description").asString())
+				.doesNotContain("QA_LOGIN_ALLOWED_EMAILS");
 	}
 
 	@Test
