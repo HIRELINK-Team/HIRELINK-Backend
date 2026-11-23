@@ -42,10 +42,10 @@ public class TermAgreementController {
 	@GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
 	@Operation(summary = "내 약관 동의 기록과 현재 버전 조회", description = "약관 종류·필수 여부·현재 본문 버전과 본인의 동의 여부·시각·버전을 구분하여 반환한다. 본문은 프론트에서 제공한다. 개정된 본문을 읽어도 기존 동의 기록은 변경하지 않는다. 기존 버전 미기록은 agreedVersion=null이며 미동의라는 뜻이 아니다. 본문 버전 미설정은 currentVersion=null이다.")
 	@ApiResponses({
-		@ApiResponse(responseCode = "200", description = "현재 메타데이터와 기존 동의 기록", content = @Content(mediaType = "application/json", schema = @Schema(implementation = TermAgreementOverviewResponse.class), examples = @ExampleObject(value = "{\"terms\":[{\"termTypeId\":4,\"termTypeName\":\"서비스 이용약관\",\"isRequired\":true,\"currentVersion\":\"example-v2\",\"isAgreed\":true,\"agreedAt\":\"2026-11-01T01:00:00Z\",\"agreedVersion\":\"example-v1\"}]}"))),
-		@ApiResponse(responseCode = "401", description = "로그인 필요", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(value = "{\"code\":\"UNAUTHORIZED\",\"message\":\"유효한 인증 정보가 필요합니다.\"}"))),
-		@ApiResponse(responseCode = "403", description = "탈퇴한 계정", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(value = "{\"code\":\"WITHDRAWN_ACCOUNT\",\"message\":\"탈퇴한 계정입니다.\"}"))),
-		@ApiResponse(responseCode = "500", description = "서버 오류", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(value = "{\"code\":\"INTERNAL_SERVER_ERROR\",\"message\":\"서버 오류가 발생했습니다.\"}")))
+		@ApiResponse(responseCode = "200", description = "현재 메타데이터와 기존 동의 기록", content = @Content(mediaType = "application/json", schema = @Schema(implementation = TermAgreementOverviewResponse.class), examples = @ExampleObject(name = "success", value = "{\"terms\":[{\"termTypeId\":4,\"termTypeName\":\"서비스 이용약관\",\"isRequired\":true,\"currentVersion\":\"example-v2\",\"isAgreed\":true,\"agreedAt\":\"2026-11-01T01:00:00Z\",\"agreedVersion\":\"example-v1\"}]}"))),
+		@ApiResponse(responseCode = "401", description = "로그인 필요", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "UNAUTHORIZED", value = "{\"code\":\"UNAUTHORIZED\",\"message\":\"유효한 인증 정보가 필요합니다.\"}"))),
+		@ApiResponse(responseCode = "403", description = "탈퇴한 계정", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "WITHDRAWN_ACCOUNT", value = "{\"code\":\"WITHDRAWN_ACCOUNT\",\"message\":\"탈퇴한 계정입니다.\"}"))),
+		@ApiResponse(responseCode = "500", description = "서버 오류", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "INTERNAL_SERVER_ERROR", value = "{\"code\":\"INTERNAL_SERVER_ERROR\",\"message\":\"서버 오류가 발생했습니다.\"}")))
 	})
 	public ResponseEntity<TermAgreementOverviewResponse> getAgreements(@AuthenticationPrincipal Jwt jwt) {
 		return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store")
@@ -95,8 +95,8 @@ public class TermAgreementController {
 						examples = {
 							@ExampleObject(name = "TERM_TYPE_NOT_FOUND", value = "{\"code\":\"TERM_TYPE_NOT_FOUND\",\"message\":\"존재하지 않는 약관 유형입니다.\"}")
 						})),
-		@ApiResponse(responseCode = "409", description = "TERM_VERSION_MISMATCH / TERM_RECONSENT_NOT_SUPPORTED", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(value = "{\"code\":\"TERM_VERSION_MISMATCH\",\"message\":\"현재 약관 본문을 확인한 후 다시 동의해주세요.\"}"))),
-		@ApiResponse(responseCode = "503", description = "TERM_VERSION_UNAVAILABLE", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(value = "{\"code\":\"TERM_VERSION_UNAVAILABLE\",\"message\":\"약관 버전이 아직 준비되지 않았습니다.\"}"))),
+		@ApiResponse(responseCode = "409", description = "TERM_VERSION_MISMATCH / TERM_RECONSENT_NOT_SUPPORTED", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "TERM_VERSION_MISMATCH", value = "{\"code\":\"TERM_VERSION_MISMATCH\",\"message\":\"현재 약관 본문을 확인한 후 다시 동의해주세요.\"}"))),
+		@ApiResponse(responseCode = "503", description = "TERM_VERSION_UNAVAILABLE", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "TERM_VERSION_UNAVAILABLE", value = "{\"code\":\"TERM_VERSION_UNAVAILABLE\",\"message\":\"약관 버전이 아직 준비되지 않았습니다.\"}"))),
 		@ApiResponse(responseCode = "500", description = "예상하지 못한 서버 오류",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {
