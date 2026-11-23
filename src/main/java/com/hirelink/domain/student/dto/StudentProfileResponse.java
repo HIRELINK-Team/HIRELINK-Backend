@@ -39,8 +39,8 @@ public record StudentProfileResponse(
 				example = "INTERMEDIATE",
 				requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 		KoreanLevel koreanLevel,
-		@Schema(description = "온보딩 완료 시 등록증과 선택한 학업과정으로 결정한 지원 세부 코드. 기존 회원의 과거 코드는 조회 시 그대로 보존한다",
-				pattern = "^(D-2|D-4|D-2-1|D-2-2|D-2-3|D-2-4|D-2-6|D-2-7|D-2-8|D-4-1|D-4-7)$",
+		@Schema(description = "D-2는 저장된 학업과정으로 결정한 세부 코드. 갱신 시 D-10 등 지원 대상 밖의 체류자격도 원문으로 저장·조회한다",
+				maxLength = 20,
 				example = "D-2",
 				requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
 		String visaCode,

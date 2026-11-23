@@ -20,7 +20,8 @@ import com.hirelink.domain.auth.dto.RegistrationRenewalFrontResponse;
 import com.hirelink.domain.auth.dto.RegistrationRenewalVerificationResponse;
 import com.hirelink.domain.member.entity.MemberRole;
 import com.hirelink.domain.member.repository.UserAccountRepository;
-import com.hirelink.domain.student.dto.StudentBadgeResponse;
+import com.hirelink.domain.auth.dto.RegistrationRenewalConfirmationResponse;
+import com.hirelink.domain.student.service.StudentRegistrationStatusService;
 import com.hirelink.domain.student.entity.StudentRegistrationVerification;
 import com.hirelink.domain.student.repository.StudentProfileRepository;
 import com.hirelink.domain.student.repository.StudentRegistrationVerificationRepository;
@@ -42,14 +43,16 @@ public class StudentRegistrationRenewalService {
     private final ApickRegistrationClient apick;
     private final ObjectMapper mapper;
     private final StudentBadgeService badges;
+    private final StudentRegistrationStatusService status;
     private final boolean enabled;
 
     public StudentRegistrationRenewalService(UserAccountRepository users, StudentProfileRepository profiles,
             StudentRegistrationVerificationRepository registrations, RegistrationCipher cipher,
             RegistrationOcrClient ocr, ApickRegistrationClient apick, ObjectMapper mapper, StudentBadgeService badges,
+            StudentRegistrationStatusService status,
             @Value("${registration-verification.enabled:false}") boolean enabled) {
         this.users=users; this.profiles=profiles; this.registrations=registrations; this.cipher=cipher;
-        this.ocr=ocr; this.apick=apick; this.mapper=mapper; this.badges=badges; this.enabled=enabled;
+        this.ocr=ocr; this.apick=apick; this.mapper=mapper; this.badges=badges; this.status=status; this.enabled=enabled;
     }
 
     // 재촬영 실패도 이전 미확정 결과의 무효화를 유지한다. 최종 등록값은 건드리지 않는다.
@@ -66,10 +69,11 @@ public class StudentRegistrationRenewalService {
             if (name.length()>100 || !number.matches("[0-9]{6}[5-8][0-9]{6}") || issued.isAfter(LocalDate.now(KOREA))) {
                 throw RegistrationOcrClient.unreadable();
             }
-            SocialSignupRegistrationService.requireSupportedVisa(visa);
+            if (!visa.matches("[A-Z]-[0-9]{1,2}(?:-[0-9]{1,2})?")) { throw RegistrationOcrClient.unreadable(); }
             UUID id=UUID.randomUUID(); Instant until=Instant.now().plusSeconds(1800);
             registration.startRenewal(id,until);
-            ObjectNode payload=mapper.createObjectNode().put("registrationNumber",number).put("issueDate",issued.toString());
+            ObjectNode payload=mapper.createObjectNode().put("registrationNumber",number).put("issueDate",issued.toString())
+                    .put("name",name).put("nationalityCode",country).put("visaCode",visa);
             registration.saveRenewalPayload(cipher.encrypt(mapper.writeValueAsString(payload),aad(userId,id)));
             return new RegistrationRenewalFrontResponse(id,name,country,visa,number.substring(0,6)+"-"+number.substring(6),issued,until);
         } finally { Arrays.fill(bytes,(byte)0); }
@@ -94,7 +98,8 @@ public class StudentRegistrationRenewalService {
             requireUnexpired(registration);
             boolean pdf=expiry.isBefore(LocalDate.now(KOREA));
             front.remove("issueDate"); front.put("serialNumber",serialNumber);
-            registration.verifyRenewalCard(expiry,Instant.now(),pdf?cipher.encrypt(mapper.writeValueAsString(front),aad(userId,id)):null);
+            if (!pdf) { front.remove("registrationNumber"); front.remove("serialNumber"); }
+            registration.verifyRenewalCard(expiry,Instant.now(),cipher.encrypt(mapper.writeValueAsString(front),aad(userId,id)));
             return response(registration,serialNumber,expiry,false,pdf);
         } finally { Arrays.fill(bytes,(byte)0); }
     }
@@ -109,6 +114,7 @@ public class StudentRegistrationRenewalService {
             throw new SocialAuthException(HttpStatus.CONFLICT,"STAY_DOCUMENT_NOT_REQUIRED","카드의 체류기간이 유효하여 PDF 제출이 필요하지 않습니다.");
         }
         ObjectNode front=payload(registration,userId,id);
+        if (!front.path("registrationNumber").isString()) { throw frontRequired(); }
         byte[] bytes=readFile(file,true);
         try {
             registration.resetRenewalDocument(); registrations.flush();
@@ -125,13 +131,14 @@ public class StudentRegistrationRenewalService {
                 throw new SocialAuthException(HttpStatus.UNPROCESSABLE_ENTITY,"STAY_DOCUMENT_EXPIRED","증빙서류의 체류기간이 지났습니다. 유효한 PDF를 다시 선택해주세요.");
             }
             String serial=front.path("serialNumber").isString()?front.path("serialNumber").stringValue():null;
-            registration.verifyRenewalDocument(expiry,Instant.now());
+            front.remove("registrationNumber"); front.remove("serialNumber");
+            registration.verifyRenewalDocument(expiry,Instant.now(),cipher.encrypt(mapper.writeValueAsString(front),aad(userId,id)));
             return response(registration,serial,expiry,true,false);
         } finally { Arrays.fill(bytes,(byte)0); }
     }
 
     @Transactional(timeout=120)
-    public StudentBadgeResponse confirm(Long userId, UUID id) {
+    public RegistrationRenewalConfirmationResponse confirm(Long userId, UUID id) {
         var registration=draft(userId,id);
         if (registration.getRenewalCardVerifiedAt()==null) {
             throw new SocialAuthException(HttpStatus.CONFLICT,"REGISTRATION_BACK_REQUIRED","등록증 앞면과 뒷면의 진위 확인을 먼저 완료해주세요.");
@@ -144,12 +151,19 @@ public class StudentRegistrationRenewalService {
             }
         }
         var profile=profiles.findById(userId).orElseThrow(StudentProfileNotFoundException::new);
+        ObjectNode extracted=payload(registration,userId,id);
+        if (!extracted.path("name").isString() || !extracted.path("nationalityCode").isString()
+                || !extracted.path("visaCode").isString()) { throw frontRequired(); }
         boolean wasActive=badges.status(profile).active();
-        registration.confirmRenewal(expiry,documentTime);
-        profile.updateVerifiedStayExpiration(expiry);
-        badges.issueIfEligible(profile,!wasActive);
+        String rawVisa=text(extracted,"visaCode");
+        var program=status.studyProgram(profile);
+        String visa=status.displayVisa(rawVisa,program);
+        registration.confirmRenewal(text(extracted,"nationalityCode"),rawVisa,expiry,documentTime);
+        profile.getUserAccount().updateName(text(extracted,"name"));
+        profile.updateVerifiedRegistration(text(extracted,"nationalityCode"),visa,expiry);
+        if (status.supported(rawVisa,program)) { badges.issueIfEligible(profile,!wasActive); }
         registrations.flush(); profiles.flush();
-        return badges.status(profile);
+        return status.response(profile,registration);
     }
 
     private StudentRegistrationVerification member(Long userId) {
