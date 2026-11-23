@@ -40,7 +40,8 @@ import static org.mockito.ArgumentMatchers.*;
     "registration-verification.enabled=true",
     "registration-verification.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
     "registration-verification.renewal-cleanup-initial-delay=3600000",
-    "student-document.cleanup-initial-delay=3600000"})
+    "student-document.cleanup-initial-delay=3600000",
+    "student-working-conditions.refresh-enabled=false"})
 class StudentWorkingConditionsIntegrationTest extends PostgreSQLIntegrationTest {
     private static final String PATH="/api/students/me/working-conditions";
     private static final LocalDate INITIAL=LocalDate.of(2026,11,23);
@@ -51,6 +52,9 @@ class StudentWorkingConditionsIntegrationTest extends PostgreSQLIntegrationTest 
     @Autowired StudentEnrollmentService enrollments;
     @Autowired StudentRegistrationRenewalService renewals;
     @Autowired AccreditedUniversityService universities;
+    @Autowired StudentWorkingConditionsService conditions;
+    @Autowired com.hirelink.domain.student.repository.StudentProfileRepository profiles;
+    @MockitoBean Clock clock;
     @MockitoBean AcademicOcrClient academicOcr;
     @MockitoBean EnrollmentOcrClient enrollmentOcr;
     @MockitoBean RegistrationOcrClient registrationOcr;
@@ -67,6 +71,7 @@ class StudentWorkingConditionsIntegrationTest extends PostgreSQLIntegrationTest 
         jdbc.execute("INSERT INTO study_program(program_name) VALUES ('전문학사'),('학사'),('석사'),('박사'),('교환학생') ON CONFLICT (program_name) DO NOTHING");
         reset(academicOcr,enrollmentOcr,registrationOcr,apick,storage);
         today=LocalDate.now(ZoneId.of("Asia/Seoul")); user=student("STUDENT");
+        clockDate(today);
         ready(user);
         when(academicOcr.recognize(eq("TRANSCRIPT"),any(),anyString())).thenReturn(new AcademicExtraction(2026,"FIRST",new java.math.BigDecimal("4.24"),null));
         when(academicOcr.recognize(eq("TOPIK"),any(),anyString())).thenReturn(new AcademicExtraction(null,null,null,(short)5));
@@ -102,7 +107,9 @@ class StudentWorkingConditionsIntegrationTest extends PostgreSQLIntegrationTest 
         error(get(PATH,user),403,"ACTIVE_BADGE_REQUIRED");
         var id=renewals.front(user,image()).renewalId(); renewals.back(user,id,image());
         error(get(PATH,user),403,"ACTIVE_BADGE_REQUIRED");
-        renewals.confirm(user,id); assertThat(get(PATH,user).statusCode()).isEqualTo(200);
+        renewals.confirm(user,id);
+        assertThat(stored().path("estimate").path("termWeekdays").path("hours").asInt()).isEqualTo(30);
+        assertThat(get(PATH,user).statusCode()).isEqualTo(200);
         jdbc.update("update student_profile set hirelink_badge_issued_at=null where id=?",user);
         error(get(PATH,user),403,"ACTIVE_BADGE_REQUIRED");
     }
@@ -148,7 +155,7 @@ class StudentWorkingConditionsIntegrationTest extends PostgreSQLIntegrationTest 
     }
     @Test void changedListRemovesOnlyItsBenefitAndNeverChangesBadgeOrCompletion() throws Exception {
         weekday(30);
-        var profile=jdbc.queryForMap("select * from student_profile where id=?",user);
+        var profile=profileWithoutEstimate();
         var documents=jdbc.queryForList("select * from student_enrollment_document where user_id=? order by document_type",user);
         var completion=get("/api/students/me/documents/completion",user).body();
         // 같은 적용 스냅샷의 테스트 데이터를 교체해 조회 결과가 캐시에 남지 않는지 확인한다.
@@ -158,7 +165,7 @@ class StudentWorkingConditionsIntegrationTest extends PostgreSQLIntegrationTest 
             var value=current().path("estimate");
             assertThat(value.path("weekendsAndHolidays").path("type").asString()).isEqualTo("NO_TIME_CAP");
             assertThat(value.path("vacations").path("type").asString()).isEqualTo("NO_TIME_CAP");
-            assertThat(jdbc.queryForMap("select * from student_profile where id=?",user)).isEqualTo(profile);
+            assertThat(profileWithoutEstimate()).isEqualTo(profile);
             assertThat(jdbc.queryForList("select * from student_enrollment_document where user_id=? order by document_type",user)).isEqualTo(documents);
             assertThat(get("/api/students/me/documents/completion",user).body()).isEqualTo(completion);
             jdbc.update("update student_enrollment_document set average_gpa=4.0 where user_id=? and document_type='TRANSCRIPT'",user); weekday(30);
@@ -189,6 +196,125 @@ class StudentWorkingConditionsIntegrationTest extends PostgreSQLIntegrationTest 
         error(get(PATH,user),403,"WITHDRAWN_ACCOUNT");
     }
 
+    @Test void finalDocumentIssuesBadgeAndPersistsEstimateBeforeAnyReadRequest() throws Exception {
+        jdbc.update("update student_profile set hirelink_badge_issued_at=null where id=?",user);
+        jdbc.update("delete from student_enrollment_document where user_id=? and document_type='TOPIK'",user);
+        var draft=academics.preview(user,"topik",pdf());
+        assertThat(stored()).isNull();
+        assertThat(jdbc.queryForObject("select hirelink_badge_issued_at from student_profile where id=?",java.sql.Timestamp.class,user)).isNull();
+
+        academics.confirm(user,"topik",draft.draftId());
+
+        assertThat(stored().path("estimate").path("termWeekdays").path("hours").asInt()).isEqualTo(30);
+        assertThat(stored().path("estimate").path("weekendsAndHolidays").path("type").asString()).isEqualTo("NO_TIME_CAP");
+        assertThat(stored().path("basicInformation").path("topikLevel").asInt()).isEqualTo(5);
+        assertThat(jdbc.queryForObject("select hirelink_badge_issued_at from student_profile where id=?",java.sql.Timestamp.class,user)).isNotNull();
+        assertThat(profiles.findById(user).orElseThrow().getWorkingConditions()).containsKeys("basicInformation","estimate","calculatedOn","accreditationEffectiveFrom");
+        assertThat(current()).isEqualTo(stored());
+    }
+
+    @Test void successfulReRegistrationStoresNewEstimateWithoutCallingReadApi() throws Exception {
+        school("미인증대학교"); conditions.refreshExisting(user);
+        var initial=stored();
+        assertThat(initial.path("estimate").path("termWeekdays").path("hours").asInt()).isEqualTo(25);
+        var draft=academics.preview(user,"transcript",pdf());
+        assertThat(stored()).isEqualTo(initial);
+        academics.confirm(user,"transcript",draft.draftId());
+        assertThat(stored().path("estimate").path("termWeekdays").path("hours").asInt()).isEqualTo(30);
+
+        var before=stored();
+        when(academicOcr.recognize(eq("TRANSCRIPT"),any(),anyString())).thenThrow(AcademicExtraction.unreadable());
+        assertThatThrownBy(()->academics.preview(user,"transcript",pdf())).isInstanceOf(StudentDocumentException.class);
+        assertThat(stored()).isEqualTo(before);
+    }
+
+    @Test void snapshotWriteFailureRollsBackFinalDocumentProfileAndBadge() throws Exception {
+        conditions.refreshExisting(user);
+        var draft=academics.preview(user,"transcript",pdf());
+        var before=jdbc.queryForMap("select * from student_profile where id=?",user);
+        var docBefore=jdbc.queryForMap("select * from student_enrollment_document where user_id=? and document_type='TRANSCRIPT'",user);
+        jdbc.execute("""
+            CREATE FUNCTION fail_working_conditions_update() RETURNS trigger AS $$
+            BEGIN RAISE EXCEPTION 'snapshot write failed'; END;
+            $$ LANGUAGE plpgsql
+            """);
+        jdbc.execute("CREATE TRIGGER fail_working_conditions_update BEFORE UPDATE ON student_profile FOR EACH ROW EXECUTE FUNCTION fail_working_conditions_update()");
+        try {
+            assertThatThrownBy(()->academics.confirm(user,"transcript",draft.draftId())).isInstanceOf(RuntimeException.class);
+            assertThat(jdbc.queryForMap("select * from student_profile where id=?",user)).isEqualTo(before);
+            assertThat(jdbc.queryForMap("select * from student_enrollment_document where user_id=? and document_type='TRANSCRIPT'",user)).isEqualTo(docBefore);
+            verify(storage,never()).delete("transcript/original");
+        } finally {
+            jdbc.execute("DROP TRIGGER fail_working_conditions_update ON student_profile");
+            jdbc.execute("DROP FUNCTION fail_working_conditions_update()");
+        }
+    }
+
+    @Test void schedulerBackfillsAndAppliesNewCatalogOnItsKoreanEffectiveDate() throws Exception {
+        var scheduler=new StudentWorkingConditionsScheduler(profiles,conditions);
+        assertThat(stored()).isNull();
+        scheduler.refreshAll();
+        assertThat(stored().path("estimate").path("termWeekdays").path("hours").asInt()).isEqualTo(30);
+        var badge=jdbc.queryForObject("select hirelink_badge_issued_at from student_profile where id=?",java.sql.Timestamp.class,user);
+        var originalDocuments=jdbc.queryForList("select * from student_enrollment_document where user_id=?",user);
+        LocalDate next=today.plusDays(1);
+        catalog(next,"새인증대학교");
+        scheduler.refreshAll();
+        assertThat(stored().path("accreditationEffectiveFrom").asString()).isEqualTo(INITIAL.toString());
+        clockDate(next);
+        scheduler.refreshAll();
+        assertThat(stored().path("accreditationEffectiveFrom").asString()).isEqualTo(next.toString());
+        assertThat(stored().path("calculatedOn").asString()).isEqualTo(next.toString());
+        assertThat(stored().path("estimate").path("termWeekdays").path("hours").asInt()).isEqualTo(25);
+        assertThat(stored().path("estimate").path("vacations").path("type").asString()).isEqualTo("NO_TIME_CAP");
+        assertThat(jdbc.queryForObject("select hirelink_badge_issued_at from student_profile where id=?",java.sql.Timestamp.class,user)).isEqualTo(badge);
+        assertThat(jdbc.queryForList("select * from student_enrollment_document where user_id=?",user)).isEqualTo(originalDocuments);
+        verifyNoInteractions(academicOcr,enrollmentOcr,registrationOcr,apick,storage);
+    }
+
+    @Test void incompleteCatalogRetainsStoredValueAndDoesNotReturnItAsCurrent() throws Exception {
+        conditions.refreshExisting(user); var before=stored();
+        jdbc.update("update accredited_university_catalog set expected_entry_count=185 where effective_from=?",INITIAL);
+        try {
+            new StudentWorkingConditionsScheduler(profiles,conditions).refreshAll();
+            assertThat(stored()).isEqualTo(before);
+            error(get(PATH,user),503,"ACCREDITED_UNIVERSITY_LIST_UNAVAILABLE");
+        } finally { jdbc.update("update accredited_university_catalog set expected_entry_count=184 where effective_from=?",INITIAL); }
+    }
+
+    @Test void storedEstimateDoesNotBypassBadgeAndRefreshStopsAtWithdrawalDeadline() throws Exception {
+        conditions.refreshExisting(user); var before=stored();
+        jdbc.update("update student_registration_verification set stay_expires_on=? where user_id=?",today.minusDays(1),user);
+        conditions.refreshExisting(user);
+        assertThat(stored()).isEqualTo(before);
+        error(get(PATH,user),403,"ACTIVE_BADGE_REQUIRED");
+        jdbc.update("update student_registration_verification set stay_expires_on=? where user_id=?",today.plusDays(30),user);
+        Instant now=clock.instant();
+        var requested=java.sql.Timestamp.from(now.minus(Duration.ofDays(1)));
+        jdbc.update("update user_account set withdrawn_at=?,withdrawal_requested_at=? where id=?",requested,requested,user);
+        school("미인증대학교"); conditions.refreshExisting(user);
+        assertThat(stored().path("estimate").path("termWeekdays").path("hours").asInt()).isEqualTo(25);
+        error(get(PATH,user),403,"WITHDRAWN_ACCOUNT");
+        var pending=stored();
+        jdbc.update("update user_account set withdrawal_requested_at=? where id=?",java.sql.Timestamp.from(now.minus(Duration.ofDays(30))),user);
+        school("숭실대학교"); conditions.refreshExisting(user);
+        assertThat(stored()).isEqualTo(pending);
+    }
+
+    private void clockDate(LocalDate date) {
+        var fixed=Clock.fixed(date.atTime(12,0).atZone(ZoneId.of("Asia/Seoul")).toInstant(),ZoneId.of("Asia/Seoul"));
+        when(clock.instant()).thenReturn(fixed.instant());
+        when(clock.getZone()).thenReturn(fixed.getZone());
+        when(clock.withZone(any())).thenAnswer(call->fixed.withZone(call.getArgument(0)));
+    }
+    private JsonNode stored() throws Exception {
+        String json=jdbc.queryForObject("select working_conditions::text from student_profile where id=?",String.class,user);
+        return json==null?null:mapper.readTree(json);
+    }
+    private Map<String,Object> profileWithoutEstimate() {
+        var value=new HashMap<>(jdbc.queryForMap("select * from student_profile where id=?",user));
+        value.remove("working_conditions"); return value;
+    }
     private void catalog(LocalDate date,String school) {
         testCatalogs.add(date);
         jdbc.update("insert into accredited_university_catalog(effective_from,source_name,expected_entry_count) values (?,'test',1)",date);
