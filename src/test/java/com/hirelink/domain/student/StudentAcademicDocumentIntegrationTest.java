@@ -93,6 +93,39 @@ class StudentAcademicDocumentIntegrationTest extends PostgreSQLIntegrationTest {
         assertThat(snapshot()).isEqualTo(before); assertThat(files).containsOnlyKeys(original);
     }
 
+    @Test void missingAcademicValuesAreExplainedAndRejectedAtBothStages() throws Exception {
+        assertThat(confirm(user,preview(user)).statusCode()).isEqualTo(200);
+        UUID topik=uploadKind("topik");
+        assertThat(send("POST","/api/students/me/documents/topik/"+topik+"/confirm",user).statusCode()).isEqualTo(200);
+        for (String kind : new String[]{"transcript","topik"}) {
+            String type=kind.toUpperCase(java.util.Locale.ROOT);
+            String label=kind.equals("transcript") ? "직전 학기 평균 학점을" : "TOPIK 등급을";
+            var valid=kind.equals("transcript") ? new AcademicExtraction(2026,"FIRST",new java.math.BigDecimal("4.24"),null)
+                    : new AcademicExtraction(null,null,null,(short)4);
+            var before=jdbc.queryForList("select * from student_enrollment_document where user_id=? order by document_type",user);
+            var profile=jdbc.queryForMap("select * from student_profile where id=?",user);
+            var keys=java.util.Set.copyOf(files.keySet());
+            when(ocr.recognize(eq(type),any(),anyString())).thenReturn(new AcademicExtraction(null,null,null,null));
+            clearInvocations(storage);
+            var response=uploadResponse(kind); assertError(response,422,"UNREADABLE_STUDENT_DOCUMENT");
+            assertThat(mapper.readTree(response.body()).path("message").asString()).startsWith(label+" 확인하지 못했습니다.");
+            assertThat(jdbc.queryForList("select * from student_enrollment_document where user_id=? order by document_type",user)).isEqualTo(before);
+            assertThat(jdbc.queryForMap("select * from student_profile where id=?",user)).isEqualTo(profile);
+            assertThat(files.keySet()).isEqualTo(keys); verifyNoInteractions(storage);
+            when(ocr.recognize(eq(type),any(),anyString())).thenReturn(valid);
+            UUID draft=uploadKind(kind);
+            jdbc.update("update student_enrollment_document set draft_average_gpa=null,draft_topik_level=null where user_id=? and document_type=?",user,type);
+            before=jdbc.queryForList("select * from student_enrollment_document where user_id=? order by document_type",user);
+            keys=java.util.Set.copyOf(files.keySet());
+            response=send("POST","/api/students/me/documents/"+kind+"/"+draft+"/confirm",user);
+            assertError(response,422,"UNREADABLE_STUDENT_DOCUMENT");
+            assertThat(mapper.readTree(response.body()).path("message").asString()).startsWith(label+" 확인하지 못했습니다.");
+            assertThat(jdbc.queryForList("select * from student_enrollment_document where user_id=? order by document_type",user)).isEqualTo(before);
+            assertThat(jdbc.queryForMap("select * from student_profile where id=?",user)).isEqualTo(profile);
+            assertThat(files.keySet()).isEqualTo(keys);
+        }
+    }
+
     @Test void databaseFailureAtConfirmPreservesOriginalAndProfile() throws Exception {
         assertThat(confirm(user,preview(user)).statusCode()).isEqualTo(200);
         when(ocr.recognize(eq("TRANSCRIPT"),any(),anyString())).thenReturn(new AcademicExtraction(2026,"FIRST",new java.math.BigDecimal("3.81"),null));
@@ -132,6 +165,11 @@ class StudentAcademicDocumentIntegrationTest extends PostgreSQLIntegrationTest {
         var docs=mapper.readTree(send("GET","/v3/api-docs",0).body());
         var path=docs.path("paths").path("/api/students/me/documents/{kind}/{draftId}/confirm").path("post");
         assertThat(path.isMissingNode()).isFalse(); assertThat(path.has("requestBody")).isFalse();
+        for (String suffix : new String[]{"/preview", "/{draftId}/confirm"}) {
+            var examples=docs.path("paths").path("/api/students/me/documents/{kind}"+suffix).path("post").path("responses").path("422").path("content").path("application/json").path("examples");
+            assertThat(examples.path("TRANSCRIPT_GPA_UNREADABLE").path("value").path("message").asString()).contains("직전 학기 평균 학점");
+            assertThat(examples.path("TOPIK_LEVEL_UNREADABLE").path("value").path("message").asString()).contains("TOPIK 등급");
+        }
     }
 
     private UUID uploadKind(String kind) throws Exception {

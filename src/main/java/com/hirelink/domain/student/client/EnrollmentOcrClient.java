@@ -35,12 +35,12 @@ public class EnrollmentOcrClient {
 					|| !(uri.getPath().isEmpty() || uri.getPath().equals("/"))) { throw failed(); }
 			JsonNode result = client.post().uri(uri.resolve("/student/enrollment")).contentType(MediaType.parseMediaType(contentType))
 					.body(bytes).retrieve().onStatus(status -> status.value() != 200, (request, response) -> {
-						if (response.getStatusCode().value() == 422) { throw EnrollmentExtraction.unreadable(); }
+						if (response.getStatusCode().value() == 422) { throw StudentDocumentOcrErrors.unreadable(response.getBody(), "ENROLLMENT"); }
 						throw failed();
 					}).body(JsonNode.class);
-			if (result == null || !result.isObject() || result.size() != 4 || !result.path("universityName").isString()
+			if (result == null || !result.isObject() || result.size() != 4 || !(result.path("universityName").isNull() || result.path("universityName").isString())
 					|| !(result.path("campusName").isNull() || result.path("campusName").isString())) { throw failed(); }
-			return new EnrollmentExtraction(result.path("universityName").stringValue(), result.path("campusName").isNull() ? null : result.path("campusName").stringValue(),
+			return new EnrollmentExtraction(result.path("universityName").isNull() ? null : result.path("universityName").stringValue(), result.path("campusName").isNull() ? null : result.path("campusName").stringValue(),
 					integer(result.path("gradeLevel")), integer(result.path("semesterCount")));
 		} catch (RestClientException | IllegalArgumentException exception) { throw failed(); }
 	}

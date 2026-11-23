@@ -2,6 +2,7 @@ import re
 import unicodedata
 
 from recognition import UnreadableDocument
+from student_document_errors import UnreadableStudentFields
 
 
 def extract_enrollment(pages):
@@ -33,14 +34,19 @@ def extract_enrollment(pages):
             campuses.add(re.sub(r"\s*캠퍼스$", "", campus.group(1)))
         for value in re.findall(r"([가-힣A-Za-z]+)\s*캠퍼스", line):
             campuses.add(value)
-    if len(schools) != 1 or len(campuses) > 1 or len(years) > 1:
-        raise UnreadableDocument()
-    if not years and len(semesters) != 1:
+    missing = []
+    if len(schools) != 1 or any(not school.strip() or len(school) > 150 for school in schools):
+        missing.append("universityName")
+    if len(years) > 1 or (years and min(years) < 1) or (not years and (len(semesters) != 1 or min(semesters) < 1)):
+        missing.append("gradeLevelOrSemesterCount")
+    if missing:
+        raise UnreadableStudentFields(*missing)
+    if len(campuses) > 1:
         raise UnreadableDocument()
     year = next(iter(years)) if years else None
     semester = next(iter(semesters)) if not years else None
     school = next(iter(schools))
     campus = next(iter(campuses)) if campuses else None
-    if (year is not None and year < 1) or (semester is not None and semester < 1) or len(school) > 150 or (campus and len(campus) > 150):
+    if campus and len(campus) > 150:
         raise UnreadableDocument()
     return {"universityName": school, "campusName": campus, "gradeLevel": year, "semesterCount": semester}

@@ -2,6 +2,7 @@ import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
 from recognition import UnreadableDocument
+from student_document_errors import UnreadableStudentFields
 
 
 def normalized(pages):
@@ -14,7 +15,7 @@ def extract_transcript(pages):
         raise UnreadableDocument()
     headers = list(re.finditer(r"(?<!\d)(20\d{2}|19\d{2})\s*(?:학년도|년도|년)?\s*[-./:]?\s*(?:제\s*)?(1|2|여름|겨울|하계|동계)\s*(?:계절\s*)?학기", text))
     if not headers:
-        raise UnreadableDocument()
+        raise UnreadableStudentFields("latestSemesterAverageGpa")
     terms = {}
     rank = {"1": 1, "여름": 2, "하계": 2, "2": 3, "겨울": 4, "동계": 4}
     for i, header in enumerate(headers):
@@ -27,13 +28,13 @@ def extract_transcript(pages):
     key = max(terms)
     values = set(terms[key])
     if len(values) != 1:
-        raise UnreadableDocument()
+        raise UnreadableStudentFields("latestSemesterAverageGpa")
     try:
         value = Decimal(next(iter(values)))
         if value < 0 or value >= 1000000:
-            raise UnreadableDocument()
+            raise UnreadableStudentFields("latestSemesterAverageGpa")
     except InvalidOperation:
-        raise UnreadableDocument()
+        raise UnreadableStudentFields("latestSemesterAverageGpa")
     return {"academicYear": key[0], "semester": {1:"FIRST",2:"SUMMER",3:"SECOND",4:"WINTER"}[key[1]], "averageGpa": str(value), "topikLevel": None}
 
 
@@ -45,5 +46,5 @@ def extract_topik(pages):
     if not values:
         values = set(int(v) for v in re.findall(r"(?<!\d)([0-9]+)\s*급", text))
     if len(values) != 1 or not 1 <= next(iter(values)) <= 6:
-        raise UnreadableDocument()
+        raise UnreadableStudentFields("topikLevel")
     return {"academicYear": None, "semester": None, "averageGpa": None, "topikLevel": next(iter(values))}

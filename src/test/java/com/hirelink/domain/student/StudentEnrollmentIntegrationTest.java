@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -97,6 +98,32 @@ class StudentEnrollmentIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(snapshot()).isEqualTo(before); assertThat(files).containsKey(original).hasSize(1);
 	}
 
+	@Test void missingFieldsAreExplainedAtUploadAndConfirmationWithoutReplacingFinalData() throws Exception {
+		assertThat(confirm(user, preview(user)).statusCode()).isEqualTo(200);
+		var before = snapshot(); String original = currentKey();
+		var cases = Map.of(
+				new EnrollmentExtraction(null,null,2,null), "대학교명을",
+				new EnrollmentExtraction("학교",null,null,null), "학년 또는 학기 수를",
+				new EnrollmentExtraction(null,null,null,null), "대학교명과 학년 또는 학기 수를");
+		clearInvocations(storage);
+		for (var entry : cases.entrySet()) {
+			when(ocr.recognize(any(),anyString())).thenReturn(entry.getKey());
+			var response = upload(user,"%PDF-new","application/pdf");
+			assertError(response,422,"UNREADABLE_ENROLLMENT");
+			assertThat(mapper.readTree(response.body()).path("message").asString()).startsWith(entry.getValue()+" 확인하지 못했습니다.");
+			assertThat(snapshot()).isEqualTo(before); assertThat(files).containsOnlyKeys(original);
+		}
+		verifyNoInteractions(storage);
+		when(ocr.recognize(any(),anyString())).thenReturn(new EnrollmentExtraction("새학교",null,3,null));
+		UUID draft = preview(user);
+		jdbc.update("update student_enrollment_document set draft_university_name=null,draft_grade_level=null,draft_semester_count=null where user_id=?",user);
+		before = snapshot(); var keys = Set.copyOf(files.keySet());
+		var response = confirm(user,draft);
+		assertError(response,422,"UNREADABLE_ENROLLMENT");
+		assertThat(mapper.readTree(response.body()).path("message").asString()).startsWith("대학교명과 학년 또는 학기 수를 확인하지 못했습니다.");
+		assertThat(snapshot()).isEqualTo(before); assertThat(files.keySet()).isEqualTo(keys);
+	}
+
 	@Test void finalConfirmationRevalidatesSavedExtractionAndRollsBackOnDatabaseFailure() throws Exception {
 		assertThat(confirm(user, preview(user)).statusCode()).isEqualTo(200);
 		UUID draft = preview(user);
@@ -174,6 +201,12 @@ class StudentEnrollmentIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(doc.path("paths").path(PATH+"/preview").path("post").path("requestBody").path("content").has("multipart/form-data")).isTrue();
 		assertThat(doc.path("paths").path(PATH+"/{draftId}/confirm").path("post").has("requestBody")).isFalse();
 		assertThat(doc.path("paths").path(PATH+"/preview").path("post").path("responses").has("422")).isTrue();
+		for (String suffix : new String[]{"/preview", "/{draftId}/confirm"}) {
+			var examples=doc.path("paths").path(PATH+suffix).path("post").path("responses").path("422").path("content").path("application/json").path("examples");
+			assertThat(examples.path("UNIVERSITY_UNREADABLE").path("value").path("message").asString()).contains("대학교명");
+			assertThat(examples.path("GRADE_UNREADABLE").path("value").path("message").asString()).contains("학년 또는 학기 수");
+			assertThat(examples.path("UNIVERSITY_AND_GRADE_UNREADABLE").path("value").path("message").asString()).contains("대학교명과 학년 또는 학기 수");
+		}
 		assertThat(doc.path("components").path("schemas").path("EnrollmentPreviewResponse").path("properties").has("draftId")).isTrue();
 	}
 

@@ -150,6 +150,52 @@ class StudentDocumentCompletionIntegrationTest extends PostgreSQLIntegrationTest
         assertThat(jdbc.queryForMap("select object_key,registered_at,grade_level,university_name from student_enrollment_document where user_id=?",user)).isEqualTo(before);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"ENROLLMENT", "TRANSCRIPT", "TOPIK"})
+    void missingRequiredFieldsNeitherCompleteRegistrationNorIssueOrChangeBadge(String type) throws Exception {
+        verification(user,today);
+        for (String other : Set.of("ENROLLMENT","TRANSCRIPT","TOPIK")) { if (!other.equals(type)) complete(other); }
+        if (type.equals("ENROLLMENT")) {
+            when(enrollmentOcr.recognize(any(),anyString())).thenReturn(new EnrollmentExtraction(null,null,null,null));
+        } else {
+            when(academicOcr.recognize(eq(type),any(),anyString())).thenReturn(new AcademicExtraction(null,null,null,null));
+        }
+        Runnable upload = () -> {
+            if (type.equals("ENROLLMENT")) enrollments.upload(user,pdf());
+            else academics.preview(user,type.toLowerCase(Locale.ROOT),pdf());
+        };
+        assertThatThrownBy(upload::run).isInstanceOf(com.hirelink.global.exception.StudentDocumentException.class);
+        percentage(75);
+        assertThat(mapper.readTree(get("/api/students/me/badge",user).body()).path("active").asBoolean()).isFalse();
+        assertThat(jdbc.queryForMap("select hirelink_badge_issued_at from student_profile where id=?",user).get("hirelink_badge_issued_at")).isNull();
+        assertThat(jdbc.queryForObject("select count(*) from student_enrollment_document where user_id=? and document_type=?",Integer.class,user,type)).isZero();
+
+        if (type.equals("ENROLLMENT")) {
+            when(enrollmentOcr.recognize(any(),anyString())).thenReturn(new EnrollmentExtraction("학교",null,2,null));
+            var draft=enrollments.upload(user,pdf()); enrollments.confirm(user,draft.draftId());
+            when(enrollmentOcr.recognize(any(),anyString())).thenReturn(new EnrollmentExtraction(null,null,null,null));
+        } else {
+            var valid=type.equals("TRANSCRIPT") ? new AcademicExtraction(2026,"FIRST",new java.math.BigDecimal("4.24"),null)
+                    : new AcademicExtraction(null,null,null,(short)4);
+            when(academicOcr.recognize(eq(type),any(),anyString())).thenReturn(valid);
+            var draft=academics.preview(user,type.toLowerCase(Locale.ROOT),pdf());
+            academics.confirm(user,type.toLowerCase(Locale.ROOT),draft.draftId());
+            when(academicOcr.recognize(eq(type),any(),anyString())).thenReturn(new AcademicExtraction(null,null,null,null));
+        }
+        percentage(100);
+        var badge=get("/api/students/me/badge",user);
+        assertThat(badge.statusCode()).isEqualTo(200);
+        assertThat(mapper.readTree(badge.body()).path("active").asBoolean()).isTrue();
+        var profile=jdbc.queryForMap("select * from student_profile where id=?",user);
+        assertThat(profile.get("hirelink_badge_issued_at")).isNotNull();
+        var documents=jdbc.queryForList("select * from student_enrollment_document where user_id=? order by document_type",user);
+        assertThatThrownBy(upload::run).isInstanceOf(com.hirelink.global.exception.StudentDocumentException.class);
+        percentage(100);
+        assertThat(get("/api/students/me/badge",user).body()).isEqualTo(badge.body());
+        assertThat(jdbc.queryForMap("select * from student_profile where id=?",user)).isEqualTo(profile);
+        assertThat(jdbc.queryForList("select * from student_enrollment_document where user_id=? order by document_type",user)).isEqualTo(documents);
+    }
+
     @Test void manualProfileExpiryAndAnotherStudentsDocumentsDoNotCount() throws Exception {
         jdbc.update("update student_profile set stay_expiration_date=? where id=?",today.plusYears(1),user);
         long other=student("STUDENT"); verification(other,today.plusDays(1));
