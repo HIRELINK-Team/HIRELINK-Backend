@@ -193,6 +193,10 @@ public class StudentProfile {
 		return profileImageKey;
 	}
 
+	public void updateVerifiedRegistration(String nationality, String visaCode, LocalDate expiry) {
+		this.nationality = nationality; this.visaCode = visaCode; this.stayExpirationDate = expiry;
+	}
+
 	public void updateVerifiedStayExpiration(LocalDate expiry) { stayExpirationDate = expiry; }
 	public void issueHirelinkBadge(Instant issuedAt, boolean reissue) {
 		if (hirelinkBadgeIssuedAt == null || reissue) { hirelinkBadgeIssuedAt = issuedAt; }

@@ -3,6 +3,10 @@ package com.hirelink.domain.student.entity;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
+import java.util.Set;
+import java.util.HashSet;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import com.hirelink.domain.member.entity.UserAccount;
 import jakarta.persistence.Column;
@@ -39,6 +43,17 @@ public class StudentRegistrationVerification {
 	private Instant registeredAt;
 	@Column(name = "birth_date")
 	private LocalDate birthDate;
+
+	@JdbcTypeCode(SqlTypes.JSON)
+	@Column(name = "expiry_notice_dates", nullable = false, columnDefinition = "jsonb")
+	private Set<String> expiryNoticeDates = new HashSet<>();
+
+	public boolean hasExpiryNotice(LocalDate expiry) { return expiryNoticeDates.contains(expiry.toString()); }
+	public void recordExpiryNotice(LocalDate expiry) {
+		var dates = new HashSet<>(expiryNoticeDates);
+		dates.add(expiry.toString());
+		expiryNoticeDates = dates;
+	}
 
 	@Column(name = "renewal_id")
 	private UUID renewalId;
@@ -77,10 +92,11 @@ public class StudentRegistrationVerification {
 	public void verifyRenewalCard(LocalDate expiry, Instant now, String payload) {
 		renewalCardExpiresOn = expiry; renewalCardVerifiedAt = now; renewalPayload = payload;
 	}
-	public void verifyRenewalDocument(LocalDate expiry, Instant now) {
-		renewalDocumentExpiresOn = expiry; renewalDocumentVerifiedAt = now; renewalPayload = null;
+	public void verifyRenewalDocument(LocalDate expiry, Instant now, String payload) {
+		renewalDocumentExpiresOn = expiry; renewalDocumentVerifiedAt = now; renewalPayload = payload;
 	}
-	public void confirmRenewal(LocalDate expiry, Instant documentTime) {
+	public void confirmRenewal(String nationality, String visaCode, LocalDate expiry, Instant documentTime) {
+		this.nationality = nationality; this.visaCode = visaCode;
 		stayExpiresOn = expiry; cardVerifiedAt = renewalCardVerifiedAt; documentVerifiedAt = documentTime;
 		clearRenewal();
 	}

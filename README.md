@@ -979,3 +979,5 @@ Windows PowerShell:
 - [Commit Message Convention](docs/convention/commit-message.md)
 
 Issue를 먼저 생성하고 작업 브랜치와 PR에 연결하는 흐름을 기본안으로 제안합니다. 세부 브랜치 전략, 리뷰 승인 수, merge 방식은 팀 합의 후 확정합니다.
+
+기존 회원의 등록증 갱신은 최종 확인 시 이름·국적·체류자격·만료일을 함께 반영합니다. 지원 대상 밖의 체류자격도 인증된 값을 저장하고 지원 여부를 구분합니다. 현재 등록증 정보 조회와 만료일별 최초 안내 API는 [등록증 갱신과 체류 만료 안내](docs/api/student-registration-renewal.md)를 참고하세요.
