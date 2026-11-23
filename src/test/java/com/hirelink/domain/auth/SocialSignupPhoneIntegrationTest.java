@@ -89,11 +89,11 @@ class SocialSignupPhoneIntegrationTest extends PostgreSQLIntegrationTest {
 	@MockitoSpyBean private UserTermAgreementRepository agreements;
 
 	@AfterEach
-	void resetTermVersions() { jdbc.update("update term_type set current_version=null"); }
+	void resetTermVersions() { jdbc.update("update term_type set current_version='v1'"); }
 
 	@BeforeEach
 	void prepare() {
-		jdbc.update("update term_type set current_version='test-v1'");
+		jdbc.update("update term_type set current_version='v1'");
 		jdbc.execute("truncate table user_account, social_auth_session restart identity cascade");
 		doNothing().when(smsSender).sendAndWait(any(SmsSendRequest.class));
 	}
@@ -402,7 +402,7 @@ class SocialSignupPhoneIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private void agree(Browser browser) throws Exception {
 		List<Map<String, Object>> values = jdbc.queryForList("select id from term_type where is_social_signup and is_required and not is_student_registration", Long.class)
-				.stream().map(id -> Map.<String, Object>of("termTypeId", id, "version", "test-v1", "isAgreed", true)).toList();
+				.stream().map(id -> Map.<String, Object>of("termTypeId", id, "version", "v1", "isAgreed", true)).toList();
 		HttpRequest request = HttpRequest.newBuilder(uri("/api/auth/social/terms")).header("Content-Type", "application/json")
 				.header("X-XSRF-TOKEN", browser.csrf()).PUT(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(Map.of("agreements", values)))).build();
 		assertThat(browser.client().send(request, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(200);

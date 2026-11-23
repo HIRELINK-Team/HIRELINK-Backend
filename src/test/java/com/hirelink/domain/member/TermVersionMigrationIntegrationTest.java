@@ -35,5 +35,20 @@ class TermVersionMigrationIntegrationTest {
 		assertThatThrownBy(() -> jdbc.update("update term_type set current_version=' ' where id=1"))
 				.isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
 		assertThat(flyway.migrate().migrationsExecuted).isZero();
+
+		var initialization = Flyway.configure().dataSource(source).target("38").load();
+		assertThat(initialization.migrate().migrationsExecuted).isEqualTo(1);
+		initialization.validate();
+		assertThat(jdbc.queryForObject("select current_version from term_type where id=1", String.class))
+				.isEqualTo("body-2026-11");
+		assertThat(jdbc.queryForList("select current_version from term_type where id<>1", String.class))
+				.isNotEmpty().containsOnly("v1");
+		assertThat(jdbc.queryForList("select user_id,term_type_id,is_agreed,agreed_at from user_term_agreement order by term_type_id"))
+				.isEqualTo(users);
+		assertThat(jdbc.queryForList("select token_hash,term_type_id,is_agreed,agreed_at from social_auth_session_term_agreement"))
+				.isEqualTo(sessions);
+		assertThat(jdbc.queryForObject("select count(*) from user_term_agreement where term_version is not null", Integer.class)).isZero();
+		assertThat(jdbc.queryForObject("select count(*) from social_auth_session_term_agreement where term_version is not null", Integer.class)).isZero();
+		assertThat(initialization.migrate().migrationsExecuted).isZero();
 	}
 }

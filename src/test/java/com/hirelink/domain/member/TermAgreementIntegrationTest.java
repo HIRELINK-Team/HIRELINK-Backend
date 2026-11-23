@@ -57,11 +57,11 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 	private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
 	@AfterEach
-	void resetTermVersions() { jdbc.update("update term_type set current_version=null"); }
+	void resetTermVersions() { jdbc.update("update term_type set current_version='v1'"); }
 
 	@BeforeEach
 	void clearTestDatabase() {
-		jdbc.update("update term_type set current_version='test-v1'");
+		jdbc.update("update term_type set current_version='v1'");
 		jdbc.execute("TRUNCATE TABLE student_enrollment_document, student_document_cleanup, employment_popup_notification, employment_match, employment_offer, application, recommendation, recommendation_batch, "
 				+ "employer_profile, student_preferred_job, student_preferred_work_time, student_preferred_location, "
 				+ "student_job_preference, student_priority, job_posting_work_time, job_posting, workplace, student_career, "
@@ -76,7 +76,7 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 				.containsExactly("이용약관", "개인정보처리방침", "광고성 정보 수신", "위치기반 서비스 이용약관");
 		String token = createUser(role);
 		HttpResponse<String> response = save(token, """
-				{"agreements":[{"termTypeId":1,"version":"test-v1","isAgreed":true},{"termTypeId":2,"version":"test-v1","isAgreed":false}]}
+				{"agreements":[{"termTypeId":1,"version":"v1","isAgreed":true},{"termTypeId":2,"version":"v1","isAgreed":false}]}
 				""");
 		assertThat(response.statusCode()).isEqualTo(200);
 		JsonNode body = mapper.readTree(response.body());
@@ -84,7 +84,7 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(body.path("agreements").size()).isEqualTo(2);
 		JsonNode agreed = body.path("agreements").get(0);
 		assertThat(agreed.size()).isEqualTo(4);
-		assertThat(agreed.path("agreedVersion").asString()).isEqualTo("test-v1");
+		assertThat(agreed.path("agreedVersion").asString()).isEqualTo("v1");
 		assertThat(agreed.path("termTypeId").asLong()).isEqualTo(1);
 		assertThat(agreed.path("isAgreed").asBoolean()).isTrue();
 		assertThat(Instant.parse(agreed.path("agreedAt").asString())).isEqualTo(storedAgreedAt(1));
@@ -98,14 +98,14 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 	@Test
 	void repeatsPreserveTimestampAndChangedConsentUpdatesIt() throws Exception {
 		String token = createUser("EMPLOYER");
-		String agree = "{\"agreements\":[{\"termTypeId\":1,\"version\":\"test-v1\",\"isAgreed\":true}]}";
+		String agree = "{\"agreements\":[{\"termTypeId\":1,\"version\":\"v1\",\"isAgreed\":true}]}";
 		HttpResponse<String> first = save(token, agree);
 		assertThat(first.statusCode()).isEqualTo(200);
 		Instant firstAgreedAt = storedAgreedAt(1);
 		assertThat(save(token, agree).body()).isEqualTo(first.body());
 		assertThat(storedAgreedAt(1)).isEqualTo(firstAgreedAt);
 
-		HttpResponse<String> declined = save(token, "{\"agreements\":[{\"termTypeId\":1,\"version\":\"test-v1\",\"isAgreed\":false}]}");
+		HttpResponse<String> declined = save(token, "{\"agreements\":[{\"termTypeId\":1,\"version\":\"v1\",\"isAgreed\":false}]}");
 		assertThat(declined.statusCode()).isEqualTo(200);
 		assertThat(storedAgreedAt(1)).isNull();
 		assertThat(save(token, agree).statusCode()).isEqualTo(200);
@@ -117,10 +117,10 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 	void updatesOnlyRequestedTermsAndAllowsEmptyListWithoutChanges() throws Exception {
 		String token = createUser("STUDENT");
 		assertThat(save(token, """
-				{"agreements":[{"termTypeId":1,"version":"test-v1","isAgreed":true},{"termTypeId":2,"version":"test-v1","isAgreed":true}]}
+				{"agreements":[{"termTypeId":1,"version":"v1","isAgreed":true},{"termTypeId":2,"version":"v1","isAgreed":true}]}
 				""").statusCode()).isEqualTo(200);
 		Instant untouched = storedAgreedAt(2);
-		HttpResponse<String> response = save(token, "{\"agreements\":[{\"termTypeId\":1,\"version\":\"test-v1\",\"isAgreed\":false}]}");
+		HttpResponse<String> response = save(token, "{\"agreements\":[{\"termTypeId\":1,\"version\":\"v1\",\"isAgreed\":false}]}");
 		assertThat(response.statusCode()).isEqualTo(200);
 		assertThat(mapper.readTree(response.body()).path("agreements").size()).isEqualTo(1);
 		assertThat(storedAgreedAt(2)).isEqualTo(untouched);
@@ -133,13 +133,13 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 
 	@Test
 	void requiresAuthenticationAndUsesOnlyTokenUser() throws Exception {
-		String body = "{\"agreements\":[{\"termTypeId\":1,\"version\":\"test-v1\",\"isAgreed\":true}]}";
+		String body = "{\"agreements\":[{\"termTypeId\":1,\"version\":\"v1\",\"isAgreed\":true}]}";
 		assertError(save(null, body), 401, "UNAUTHORIZED");
 		String first = createUser("STUDENT");
 		String second = createUser("EMPLOYER");
 		assertThat(save(first, body).statusCode()).isEqualTo(200);
 		HttpResponse<String> response = save(second, """
-				{"userId":1,"agreements":[{"termTypeId":1,"version":"test-v1","isAgreed":false}]}
+				{"userId":1,"agreements":[{"termTypeId":1,"version":"v1","isAgreed":false}]}
 				""");
 		assertThat(response.statusCode()).isEqualTo(200);
 		assertThat(jdbc.queryForObject("select is_agreed from user_term_agreement where user_id = 1", Boolean.class)).isTrue();
@@ -153,8 +153,8 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 			"{}",
 			"{\"agreements\":[null]}",
 			"{\"agreements\":[{\"termTypeId\":1}]}",
-			"{\"agreements\":[{\"termTypeId\":0,\"version\":\"test-v1\",\"isAgreed\":true}]}",
-			"{\"agreements\":[{\"termTypeId\":1,\"version\":\"test-v1\",\"isAgreed\":true},{\"termTypeId\":1,\"version\":\"test-v1\",\"isAgreed\":false}]}"
+			"{\"agreements\":[{\"termTypeId\":0,\"version\":\"v1\",\"isAgreed\":true}]}",
+			"{\"agreements\":[{\"termTypeId\":1,\"version\":\"v1\",\"isAgreed\":true},{\"termTypeId\":1,\"version\":\"v1\",\"isAgreed\":false}]}"
 	})
 	void rejectsInvalidInputWithoutSaving(String body) throws Exception {
 		assertError(save(createUser("STUDENT"), body), 400, "INVALID_INPUT");
@@ -164,9 +164,9 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 	@Test
 	void unknownTermRejectsWholeRequest() throws Exception {
 		String token = createUser("EMPLOYER");
-		assertThat(save(token, "{\"agreements\":[{\"termTypeId\":1,\"version\":\"test-v1\",\"isAgreed\":false}]}").statusCode()).isEqualTo(200);
+		assertThat(save(token, "{\"agreements\":[{\"termTypeId\":1,\"version\":\"v1\",\"isAgreed\":false}]}").statusCode()).isEqualTo(200);
 		assertError(save(token, """
-				{"agreements":[{"termTypeId":1,"version":"test-v1","isAgreed":true},{"termTypeId":999,"version":"test-v1","isAgreed":true}]}
+				{"agreements":[{"termTypeId":1,"version":"v1","isAgreed":true},{"termTypeId":999,"version":"v1","isAgreed":true}]}
 				"""), 404, "TERM_TYPE_NOT_FOUND");
 		assertThat(jdbc.queryForObject("select is_agreed from user_term_agreement", Boolean.class)).isFalse();
 		assertThat(jdbc.queryForObject("select count(*) from user_term_agreement", Integer.class)).isEqualTo(1);
@@ -179,7 +179,7 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 		jdbc.execute("alter table user_term_agreement add constraint test_storage_failure check (term_type_id <> 2)");
 		try {
 			assertError(save(token, """
-					{"agreements":[{"termTypeId":1,"version":"test-v1","isAgreed":true},{"termTypeId":2,"version":"test-v1","isAgreed":true}]}
+					{"agreements":[{"termTypeId":1,"version":"v1","isAgreed":true},{"termTypeId":2,"version":"v1","isAgreed":true}]}
 					"""), 500, "INTERNAL_SERVER_ERROR");
 			assertThat(jdbc.queryForObject("select count(*) from user_term_agreement", Integer.class)).isZero();
 		} finally {
@@ -190,7 +190,7 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 	@Test
 	void simultaneousRequestsKeepOneAgreementAndSameTimestamp() throws Exception {
 		String token = createUser("EMPLOYER");
-		HttpRequest request = httpRequest(token, "{\"agreements\":[{\"termTypeId\":1,\"version\":\"test-v1\",\"isAgreed\":true}]}");
+		HttpRequest request = httpRequest(token, "{\"agreements\":[{\"termTypeId\":1,\"version\":\"v1\",\"isAgreed\":true}]}");
 		CompletableFuture<HttpResponse<String>> one = client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
 		CompletableFuture<HttpResponse<String>> two = client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
 		HttpResponse<String> first = one.get(15, TimeUnit.SECONDS);
@@ -219,8 +219,8 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 	void locationConsentUsesExistingSaveAndPreservesTimestampAcrossLaterVisits() throws Exception {
 		String token = createUser("STUDENT");
 		long id = locationTermId();
-		String agree = "{\"agreements\":[{\"termTypeId\":" + id + ",\"version\":\"test-v1\",\"isAgreed\":true}]}";
-		assertThat(save(token, "{\"agreements\":[{\"termTypeId\":1,\"version\":\"test-v1\",\"isAgreed\":true}]}").statusCode()).isEqualTo(200);
+		String agree = "{\"agreements\":[{\"termTypeId\":" + id + ",\"version\":\"v1\",\"isAgreed\":true}]}";
+		assertThat(save(token, "{\"agreements\":[{\"termTypeId\":1,\"version\":\"v1\",\"isAgreed\":true}]}").statusCode()).isEqualTo(200);
 		Instant otherTermTime = storedAgreedAt(1);
 		HttpResponse<String> saved = save(token, agree);
 		assertThat(saved.statusCode()).as(saved.body()).isEqualTo(200);
@@ -232,7 +232,7 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(save(token, agree).statusCode()).isEqualTo(200);
 		assertLocation(locationConsent(token), id, true, earlier);
 		assertThat(storedAgreedAt(1)).isEqualTo(otherTermTime);
-		assertThat(save(token, "{\"agreements\":[{\"termTypeId\":" + id + ",\"version\":\"test-v1\",\"isAgreed\":false}]}").statusCode()).isEqualTo(200);
+		assertThat(save(token, "{\"agreements\":[{\"termTypeId\":" + id + ",\"version\":\"v1\",\"isAgreed\":false}]}").statusCode()).isEqualTo(200);
 		assertLocation(locationConsent(token), id, false, null);
 		assertThat(save(token, agree).statusCode()).isEqualTo(200);
 		assertThat(storedAgreedAt(id)).isAfter(earlier);
@@ -247,7 +247,7 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 		String first = createUser("STUDENT");
 		String second = createUser("EMPLOYER");
 		long id = locationTermId();
-		assertThat(save(first, "{\"agreements\":[{\"termTypeId\":" + id + ",\"version\":\"test-v1\",\"isAgreed\":true}]}").statusCode()).isEqualTo(200);
+		assertThat(save(first, "{\"agreements\":[{\"termTypeId\":" + id + ",\"version\":\"v1\",\"isAgreed\":true}]}").statusCode()).isEqualTo(200);
 		assertLocation(locationConsent(second), id, false, null);
 		HttpRequest otherId = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/users/me/term-agreements/location?userId=1"))
 				.header("Authorization", "Bearer " + second).GET().build();
@@ -266,7 +266,7 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 	void simultaneousLocationAgreementsKeepOneRowAndOriginalTimestamp() throws Exception {
 		String token = createUser("STUDENT");
 		long id = locationTermId();
-		HttpRequest request = httpRequest(token, "{\"agreements\":[{\"termTypeId\":" + id + ",\"version\":\"test-v1\",\"isAgreed\":true}]}");
+		HttpRequest request = httpRequest(token, "{\"agreements\":[{\"termTypeId\":" + id + ",\"version\":\"v1\",\"isAgreed\":true}]}");
 		var one = client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
 		var two = client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
 		HttpResponse<String> first = one.get(15, TimeUnit.SECONDS);
@@ -310,7 +310,7 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 	@Test
 	void metadataReadPreservesOldVersionAndUnknownLegacyConsent() throws Exception {
 		String token = createUser("STUDENT");
-		assertThat(save(token, "{\"agreements\":[{\"termTypeId\":1,\"version\":\"test-v1\",\"isAgreed\":true}]}").statusCode()).isEqualTo(200);
+		assertThat(save(token, "{\"agreements\":[{\"termTypeId\":1,\"version\":\"v1\",\"isAgreed\":true}]}").statusCode()).isEqualTo(200);
 		jdbc.update("insert into user_term_agreement(user_id,term_type_id,is_agreed,agreed_at) values (1,2,true,'2026-01-01T00:00:00Z')");
 		var before = jdbc.queryForList("select * from user_term_agreement order by term_type_id");
 		jdbc.update("update term_type set current_version='test-v2' where id in (1,2)");
@@ -319,7 +319,7 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
 		var terms = mapper.readTree(response.body()).path("terms");
 		assertThat(terms.get(0).path("currentVersion").asString()).isEqualTo("test-v2");
-		assertThat(terms.get(0).path("agreedVersion").asString()).isEqualTo("test-v1");
+		assertThat(terms.get(0).path("agreedVersion").asString()).isEqualTo("v1");
 		assertThat(terms.get(1).path("isAgreed").asBoolean()).isTrue();
 		assertThat(terms.get(1).path("agreedVersion").isNull()).isTrue();
 		assertThat(jdbc.queryForList("select * from user_term_agreement order by term_type_id")).isEqualTo(before);
@@ -338,10 +338,10 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 		String token = createUser("STUDENT");
 		assertError(save(token,"{\"agreements\":[{\"termTypeId\":1,\"isAgreed\":true}]}"),400,"INVALID_INPUT");
 		assertError(save(token,"{\"agreements\":[{\"termTypeId\":1,\"version\":\" \",\"isAgreed\":true}]}"),400,"INVALID_INPUT");
-		assertError(save(token,"{\"agreements\":[{\"termTypeId\":1,\"version\":\"test-v1\",\"isAgreed\":true},{\"termTypeId\":2,\"version\":\"wrong\",\"isAgreed\":true}]}"),409,"TERM_VERSION_MISMATCH");
+		assertError(save(token,"{\"agreements\":[{\"termTypeId\":1,\"version\":\"v1\",\"isAgreed\":true},{\"termTypeId\":2,\"version\":\"wrong\",\"isAgreed\":true}]}"),409,"TERM_VERSION_MISMATCH");
 		assertThat(jdbc.queryForObject("select count(*) from user_term_agreement",Integer.class)).isZero();
 		jdbc.update("update term_type set current_version=null where id=1");
-		assertError(save(token,"{\"agreements\":[{\"termTypeId\":1,\"version\":\"test-v1\",\"isAgreed\":true}]}"),503,"TERM_VERSION_UNAVAILABLE");
+		assertError(save(token,"{\"agreements\":[{\"termTypeId\":1,\"version\":\"v1\",\"isAgreed\":true}]}"),503,"TERM_VERSION_UNAVAILABLE");
 		assertThat(jdbc.queryForObject("select count(*) from user_term_agreement",Integer.class)).isZero();
 	}
 
