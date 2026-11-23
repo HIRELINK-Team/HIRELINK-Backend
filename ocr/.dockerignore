@@ -4,4 +4,7 @@
 !recognition.py
 !registration.py
 !stay_document.py
+!enrollment.py
+!academic.py
+!student_document_errors.py
 !main.py
