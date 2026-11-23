@@ -1,5 +1,6 @@
 package com.hirelink.domain.application;
 
+import com.hirelink.domain.auth.support.LoginSessionFixtures;
 import com.hirelink.support.PostgreSQLIntegrationTest;
 
 import java.net.URI;
@@ -373,6 +374,7 @@ class ApplicationCreateIntegrationTest extends PostgreSQLIntegrationTest {
 				LocalDate.now(KOREA_ZONE));
 		long firstRecommendation = createRecommendation(student, firstPosting, false);
 		long secondRecommendation = createRecommendation(student, secondPosting, false);
+		String accessToken = token(student, "STUDENT");
 		CompletableFuture<HttpResponse<String>> first;
 		CompletableFuture<HttpResponse<String>> second;
 		try (Connection connection = dataSource.getConnection()) {
@@ -382,9 +384,9 @@ class ApplicationCreateIntegrationTest extends PostgreSQLIntegrationTest {
 				statement.executeQuery().close();
 			}
 			try {
-				first = client.sendAsync(request(token(student, "STUDENT"), firstRecommendation,
+				first = client.sendAsync(request(accessToken, firstRecommendation,
 						LocalDate.now(KOREA_ZONE).plusDays(1)), HttpResponse.BodyHandlers.ofString());
-				second = client.sendAsync(request(token(student, "STUDENT"), secondRecommendation,
+				second = client.sendAsync(request(accessToken, secondRecommendation,
 						LocalDate.now(KOREA_ZONE).plusDays(1)), HttpResponse.BodyHandlers.ofString());
 				await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(jdbc.queryForObject("""
 						select count(*) from pg_stat_activity where datname = current_database()
@@ -500,7 +502,7 @@ class ApplicationCreateIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private String token(long userId, String role) {
 		Instant now = Instant.now();
-		JwtClaimsSet claims = JwtClaimsSet.builder().issuer("hirelink").subject(Long.toString(userId))
+		JwtClaimsSet claims = JwtClaimsSet.builder().claim("sid", LoginSessionFixtures.create(jdbc, userId)).issuer("hirelink").subject(Long.toString(userId))
 				.issuedAt(now).notBefore(now).expiresAt(now.plusSeconds(3600)).id(UUID.randomUUID().toString())
 				.claim("role", role).claim("token_type", "access").build();
 		return jwtEncoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();

@@ -331,6 +331,7 @@ class StudentProfileUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 	void finalSaveChecksExpiryAfterWaitingForMemberLock() throws Exception {
 		long id = createStudent();
 		verifyNewPhone(id);
+		String accessToken = token(id,"STUDENT");
 		CompletableFuture<HttpResponse<String>> pending;
 		try (var connection = dataSource.getConnection()) {
 			connection.setAutoCommit(false);
@@ -338,7 +339,7 @@ class StudentProfileUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 				statement.setLong(1,id); statement.executeQuery().close();
 			}
 			try {
-				pending = client.sendAsync(request(token(id,"STUDENT"),fullRequest("새 지역")),HttpResponse.BodyHandlers.ofString());
+				pending = client.sendAsync(request(accessToken,fullRequest("새 지역")),HttpResponse.BodyHandlers.ofString());
 				await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(jdbc.queryForObject("select count(*) from pg_stat_activity where datname=current_database() and wait_event_type='Lock' and query like '%user_account%'",Integer.class)).isPositive());
 				jdbc.update("update phone_verification set verified_at=now()-interval '6 minutes',change_expires_at=now()-interval '1 minute' where user_id=?",id);
 			} finally { connection.rollback(); }

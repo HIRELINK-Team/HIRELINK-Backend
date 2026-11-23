@@ -88,7 +88,7 @@ class AuthIntegrationTest extends PostgreSQLIntegrationTest {
 	@Autowired
 	private PasswordEncoder passwordEncoder;
 
-	@Autowired
+	@MockitoSpyBean
 	private JwtEncoder jwtEncoder;
 
 	@MockitoSpyBean
@@ -588,6 +588,7 @@ class AuthIntegrationTest extends PostgreSQLIntegrationTest {
 		String refreshToken = refreshCookieValue(signup("member@example.com", "password123", "STUDENT"));
 		Instant now = Instant.now();
 		JwtClaimsSet claims = JwtClaimsSet.builder().issuer("hirelink").subject("1")
+				.claim("sid", tokenClaims(refreshToken).path("sid").asString())
 				.claim("role", "STUDENT").claim("token_type", "access")
 				.issuedAt(now.minusSeconds(7200)).expiresAt(now.minusSeconds(1)).build();
 		String expired = jwtEncoder.encode(JwtEncoderParameters.from(
@@ -779,11 +780,10 @@ class AuthIntegrationTest extends PostgreSQLIntegrationTest {
         var ready = new CountDownLatch(1);
         var resume = new CountDownLatch(1);
         doAnswer(invocation -> {
-            var found = invocation.callRealMethod();
             ready.countDown();
             if (!resume.await(20, TimeUnit.SECONDS)) throw new IllegalStateException("refresh wait timed out");
-            return found;
-        }).when(refreshTokenRepository).findByTokenHash(tokenHash(refresh));
+            return invocation.callRealMethod();
+        }).when(jwtEncoder).encode(any(JwtEncoderParameters.class));
         var request = refreshRequest(refresh, csrf()).build();
         var pending = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString());
         try {

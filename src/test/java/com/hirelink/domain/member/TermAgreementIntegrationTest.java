@@ -259,6 +259,7 @@ class TermAgreementIntegrationTest extends PostgreSQLIntegrationTest {
 		assertError(client.send(cookieOnly, HttpResponse.BodyHandlers.ofString()), 401, "UNAUTHORIZED");
 		jdbc.update("update user_account set withdrawn_at = now() where id = 2");
 		assertError(locationConsent(second), 403, "WITHDRAWN_ACCOUNT");
+		jdbc.update("delete from refresh_token where user_id = 2");
 		jdbc.update("delete from user_account where id = 2");
 		assertError(locationConsent(second), 401, "UNAUTHORIZED");
 		assertLocation(locationConsent(first), id, true, storedAgreedAt(id));

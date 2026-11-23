@@ -134,6 +134,7 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 		String token = createUser("STUDENT");
 		jdbc.update("update user_account set withdrawn_at = now()");
 		assertError(request(token, PHONE), 403, "WITHDRAWN_ACCOUNT");
+		jdbc.update("delete from refresh_token");
 		jdbc.update("delete from user_account");
 		assertError(request(token, PHONE), 401, "UNAUTHORIZED");
 	}

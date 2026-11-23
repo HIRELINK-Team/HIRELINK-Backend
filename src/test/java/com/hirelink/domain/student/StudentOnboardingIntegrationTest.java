@@ -401,6 +401,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 	@Test
 	void simultaneousCompletionRequestsSaveOnlyOneSet() throws Exception {
 		long user = verifiedStudent();
+		String accessToken = token(user, "STUDENT");
 		CompletableFuture<HttpResponse<String>> first;
 		CompletableFuture<HttpResponse<String>> second;
 		try (Connection connection = dataSource.getConnection()) {
@@ -410,8 +411,8 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 				statement.executeQuery().close();
 			}
 			try {
-				first = client.sendAsync(request("POST", PATH, token(user, "STUDENT"), FULL_REQUEST), HttpResponse.BodyHandlers.ofString());
-				second = client.sendAsync(request("POST", PATH, token(user, "STUDENT"), FULL_REQUEST), HttpResponse.BodyHandlers.ofString());
+				first = client.sendAsync(request("POST", PATH, accessToken, FULL_REQUEST), HttpResponse.BodyHandlers.ofString());
+				second = client.sendAsync(request("POST", PATH, accessToken, FULL_REQUEST), HttpResponse.BodyHandlers.ofString());
 				await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(jdbc.queryForObject("""
 						select count(*) from pg_stat_activity where datname = current_database()
 						and wait_event_type = 'Lock' and query like '%user_account%'
@@ -428,6 +429,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 	void retiredCareerWritesWaitForTheMemberLockAndReject() throws Exception {
 		long user = verifiedStudent();
 		assertThat(post(user, FULL_REQUEST).statusCode()).isEqualTo(200);
+		String accessToken = token(user, "STUDENT");
 		CompletableFuture<HttpResponse<String>> pending;
 		try (Connection connection = dataSource.getConnection()) {
 			connection.setAutoCommit(false);
@@ -436,7 +438,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 				statement.executeQuery().close();
 			}
 			try {
-				pending = client.sendAsync(request("POST", "/api/students/me/careers", token(user, "STUDENT"), body().path("careers").get(0).toString()), HttpResponse.BodyHandlers.ofString());
+				pending = client.sendAsync(request("POST", "/api/students/me/careers", accessToken, body().path("careers").get(0).toString()), HttpResponse.BodyHandlers.ofString());
 				await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(jdbc.queryForObject("""
 						select count(*) from pg_stat_activity where datname = current_database()
 						and wait_event_type = 'Lock' and query like '%user_account%'
