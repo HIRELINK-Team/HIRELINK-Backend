@@ -146,4 +146,4 @@ V26은 가입 세션과 회원 연결 인증 정보에 `birth_date`를 추가한
 - `GET /api/students/me/profile`과 프로필 수정 응답의 `studyProgram`은 선택 코드이며, `studyProgramId`는 DB의 기준 데이터 ID다. 기존 미입력·알 수 없는 기존 과정은 `studyProgram=null`로 반환하며 조회 시 추정하여 저장하지 않는다.
 - 학교·학년·학적 상태는 온보딩에서 입력하지 않는다. 프로필 PATCH에서도 `universityName`, `gradeLevel`, `academicState`, `studyProgram`, `studyProgramId`를 보내면 400이다. 기존 값은 보존하며 학교·학년은 [재학증명서 OCR 최종 등록](student-enrollment.md)으로 반영한다.
 - 인증 회원의 프로필 PATCH에서 `visaCode`를 직접 보내면 400이다. 등록증 인증 기록이 없는 개발용 기존 프로필은 지원 세부 코드만 입력 가능하며 저장된 학업과정과 충돌할 수 없다.
-- Flyway V29는 다섯 학업과정을 이름 기준으로 추가한다. 기존 이름의 ID와 기존 회원 프로필은 변경하지 않는다. 기존 미지원 회원의 추천·지원 제한 소급 적용은 팀원 담당 정책·로직과 별도이며 이번 변경에 포함하지 않는다.
+- Flyway V29는 다섯 학업과정을 이름 기준으로 추가한다. 기존 이름의 ID와 기존 회원 프로필은 변경하지 않는다. 기존 미지원 회원의 추천·지원 제한 소급 적용은 포함하지 않는다.
