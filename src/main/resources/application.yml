@@ -39,6 +39,8 @@ auth:
     kakao-admin-key: ${KAKAO_ADMIN_KEY:}
   local:
     enabled: ${LOCAL_LOGIN_ENABLED:false}
+  qa-login:
+    allowed-emails: ${QA_LOGIN_ALLOWED_EMAILS:}
   cookie:
     secure: ${AUTH_COOKIE_SECURE:true}
   social:

@@ -1,6 +1,10 @@
 package com.hirelink.domain.auth.service;
 
+import java.util.Arrays;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,16 +36,23 @@ public class AuthService {
 	private final PasswordEncoder passwordEncoder;
 	private final TokenService tokenService;
 	private final boolean localLoginEnabled;
+	private final Set<String> qaLoginAllowedEmails;
 	private final String dummyPasswordHash;
 
 	public AuthService(UserAccountRepository userAccountRepository,
 			AuthAccountRepository authAccountRepository, PasswordEncoder passwordEncoder, TokenService tokenService,
-			@Value("${auth.local.enabled:false}") boolean localLoginEnabled) {
+			@Value("${auth.local.enabled:false}") boolean localLoginEnabled,
+			@Value("${auth.qa-login.allowed-emails:}") String qaLoginAllowedEmails) {
 		this.userAccountRepository = userAccountRepository;
 		this.authAccountRepository = authAccountRepository;
 		this.passwordEncoder = passwordEncoder;
 		this.tokenService = tokenService;
 		this.localLoginEnabled = localLoginEnabled;
+		this.qaLoginAllowedEmails = Arrays.stream(qaLoginAllowedEmails.split(","))
+				.map(String::trim)
+				.filter(email -> !email.isEmpty())
+				.map(email -> email.toLowerCase(Locale.ROOT))
+				.collect(Collectors.toUnmodifiableSet());
 		this.dummyPasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
 	}
 
@@ -79,7 +90,9 @@ public class AuthService {
 
 	@Transactional
 	public AuthResult login(LoginRequest request) {
-		requireLocalLoginEnabled();
+		if (!qaLoginAllowedEmails.contains(request.email())) {
+			requireLocalLoginEnabled();
+		}
 		AuthAccount authAccount = authAccountRepository
 				.findByProviderAndProviderUserId(AuthProvider.LOCAL, request.email()).orElse(null);
 		// 존재하지 않는 이메일도 해시 비교를 수행해 응답 시간 차이를 줄인다.
