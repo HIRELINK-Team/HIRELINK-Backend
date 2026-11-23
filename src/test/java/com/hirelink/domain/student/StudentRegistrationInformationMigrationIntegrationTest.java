@@ -30,6 +30,8 @@ class StudentRegistrationInformationMigrationIntegrationTest {
         assertThat(jdbc.queryForObject("select expiry_notice_dates::text from student_registration_verification where user_id=1",String.class)).isEqualTo("[]");
         jdbc.update("update student_profile set visa_code='D-10' where id=1");
         assertThat(jdbc.queryForObject("select visa_code from student_profile where id=1",String.class)).isEqualTo("D-10");
+        jdbc.update("update student_registration_verification set visa_code='D-10' where user_id=1");
+        assertThat(jdbc.queryForObject("select visa_code from student_registration_verification where user_id=1",String.class)).isEqualTo("D-10");
         assertThat(jdbc.queryForList("select * from visa_type order by visa_code")).isEqualTo(catalog);
         assertThatThrownBy(()->jdbc.update("update student_profile set study_program_id=-1 where id=1")).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
         assertThatThrownBy(()->jdbc.update("update student_registration_verification set expiry_notice_dates='{}'::jsonb where user_id=1")).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
