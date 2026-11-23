@@ -118,7 +118,7 @@ public class StudentProfileController {
 	}
 
 	@Operation(summary = "내 유학생 프로필 수정",
-			description = "보내지 않은 필드는 유지한다. 빈 요청과 수정 대상이 아닌 필드는 400이다. topikLevel만 null로 지울 수 있으며 다른 필드의 null은 400이다. universityName·gradeLevel·academicState·studyProgram·studyProgramId는 입력받지 않고 기존 값을 보존한다. 학업과정은 온보딩에서 선택한다. 등록증 인증 회원의 visaCode 직접 수정은 400이다. 인증 기록이 없는 개발용 프로필만 D-2-1·D-2-2·D-2-3·D-2-4·D-2-6을 입력할 수 있으며 저장된 학업과정과 다르면 400이다. 과거 체류 만료일도 허용하되 기존 시작일보다 앞설 수 없다. 사진 URL은 수정 응답에 포함하지 않는다. 요청 성공 시 즉시 저장되며 온보딩 전체 일괄 저장 API가 아니다. 성공 응답은 온보딩 전체 완료를 의미하지 않는다.")
+			description = "보내지 않은 필드는 유지한다. 빈 요청과 수정 대상이 아닌 필드는 400이다. topikLevel은 null을 포함해 직접 수정할 수 없으며 TOPIK 성적증명서 최종 등록으로만 변경한다. 다른 필드의 null도 400이다. universityName·gradeLevel·academicState·studyProgram·studyProgramId는 입력받지 않고 기존 값을 보존한다. 학업과정은 온보딩에서 선택한다. 등록증 인증 회원의 visaCode 직접 수정은 400이다. 인증 기록이 없는 개발용 프로필만 D-2-1·D-2-2·D-2-3·D-2-4·D-2-6을 입력할 수 있으며 저장된 학업과정과 다르면 400이다. 과거 체류 만료일도 허용하되 기존 시작일보다 앞설 수 없다. 사진 URL은 수정 응답에 포함하지 않는다. 요청 성공 시 즉시 저장되며 온보딩 전체 일괄 저장 API가 아니다. 성공 응답은 온보딩 전체 완료를 의미하지 않는다.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = StudentProfileUpdateResponse.class),

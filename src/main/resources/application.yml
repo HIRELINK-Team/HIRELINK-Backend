@@ -33,6 +33,10 @@ jwt:
   issuer: hirelink
 
 auth:
+  withdrawal:
+    enabled: ${STUDENT_WITHDRAWAL_ENABLED:false}
+    encryption-key: ${SOCIAL_TOKEN_ENCRYPTION_KEY:}
+    kakao-admin-key: ${KAKAO_ADMIN_KEY:}
   local:
     enabled: ${LOCAL_LOGIN_ENABLED:false}
   cookie:

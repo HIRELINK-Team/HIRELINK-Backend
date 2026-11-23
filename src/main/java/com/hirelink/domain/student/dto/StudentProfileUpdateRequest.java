@@ -2,8 +2,6 @@ package com.hirelink.domain.student.dto;
 
 import java.time.LocalDate;
 
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
@@ -14,19 +12,17 @@ import tools.jackson.databind.JsonNode;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "보낸 필드만 수정한다. 빈 요청·알 수 없는 필드·topikLevel 외 null은 400. universityName·gradeLevel·academicState·studyProgram·studyProgramId는 수정 대상에서 제외된다.",
-		example = "{\"currentRegion\":\"서울 마포구\",\"topikLevel\":null}")
+@Schema(description = "보낸 필드만 수정한다. 빈 요청·알 수 없는 필드·null은 400. topikLevel·universityName·gradeLevel·academicState·studyProgram·studyProgramId는 수정 대상에서 제외된다.",
+		example = "{\"currentRegion\":\"서울 마포구\"}")
 public class StudentProfileUpdateRequest {
 
 	public static StudentProfileUpdateRequest forOnboarding(LocalDate birthDate, String nationality,
-			String currentRegion, String koreanLevel, Integer topikLevel) {
+			String currentRegion, String koreanLevel) {
 		StudentProfileUpdateRequest request = new StudentProfileUpdateRequest();
 		request.birthDate = birthDate;
 		request.nationality = nationality;
 		request.currentRegion = currentRegion;
 		request.koreanLevel = koreanLevel;
-		request.topikLevel = topikLevel;
-		request.topikLevelProvided = true;
 		return request;
 	}
 
@@ -75,15 +71,6 @@ public class StudentProfileUpdateRequest {
 			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private LocalDate stayExpirationDate;
 
-	@Min(value = 1, message = "TOPIK 급수는 1부터 6까지 입력할 수 있습니다.")
-	@Max(value = 6, message = "TOPIK 급수는 1부터 6까지 입력할 수 있습니다.")
-	@Schema(description = "TOPIK 급수. 미등록은 null. 생략하면 기존 값 유지, null이면 값 삭제", minimum = "1", maximum = "6",
-			example = "4",
-			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = true)
-	private Integer topikLevel;
-	@Schema(hidden = true)
-	private boolean topikLevelProvided;
-
 	@JsonSetter(nulls = Nulls.FAIL)
 	public void setName(JsonNode value) {
 		name = requireText(value);
@@ -119,19 +106,6 @@ public class StudentProfileUpdateRequest {
 		stayExpirationDate = LocalDate.parse(requireText(value));
 	}
 
-	@JsonSetter("topikLevel")
-	public void setTopikLevel(JsonNode value) {
-		// 미전송은 유지, 명시적인 null은 삭제로 구분한다.
-		topikLevelProvided = true;
-		if (value == null || value.isNull()) {
-			topikLevel = null;
-		} else if (value.isIntegralNumber() && value.canConvertToInt()) {
-			topikLevel = value.intValue();
-		} else {
-			throw new IllegalArgumentException("TOPIK 급수는 정수 또는 null이어야 합니다.");
-		}
-	}
-
 	@JsonAnySetter
 	public void rejectUnknownField(String field, JsonNode value) {
 		throw new IllegalArgumentException("수정할 수 없는 항목이 포함되어 있습니다.");
@@ -139,11 +113,7 @@ public class StudentProfileUpdateRequest {
 
 	public boolean hasChanges() {
 		return name != null || birthDate != null || nationality != null || currentRegion != null
-				|| koreanLevel != null || visaCode != null || stayExpirationDate != null || topikLevelProvided;
-	}
-
-	public boolean hasTopikLevel() {
-		return topikLevelProvided;
+				|| koreanLevel != null || visaCode != null || stayExpirationDate != null;
 	}
 
 	private String requireText(JsonNode value) {
@@ -181,7 +151,4 @@ public class StudentProfileUpdateRequest {
 		return stayExpirationDate;
 	}
 
-	public Integer getTopikLevel() {
-		return topikLevel;
-	}
 }

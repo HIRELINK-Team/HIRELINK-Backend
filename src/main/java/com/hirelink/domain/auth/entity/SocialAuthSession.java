@@ -51,7 +51,12 @@ public class SocialAuthSession {
 	@CollectionTable(name = "social_auth_session_term_agreement", joinColumns = @JoinColumn(name = "token_hash"))
 	private List<SocialSignupAgreement> agreements = new ArrayList<>();
 
-	protected SocialAuthSession() {
+	@Column(name="revocation_token",columnDefinition="text") private String revocationToken;
+    public String getRevocationToken() { return revocationToken; }
+    public void saveRevocationToken(String value) { revocationToken=value; }
+    public Instant getCreatedAt() { return createdAt; }
+
+    protected SocialAuthSession() {
 	}
 
 	public SocialAuthSession(String tokenHash, AuthProvider provider, String providerUserId,

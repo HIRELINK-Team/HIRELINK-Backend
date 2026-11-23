@@ -90,7 +90,7 @@ public class StudentOnboardingService {
 			profile = profiles.findById(userId).orElseThrow();
 		}
 		profileService.updateProfile(userId, StudentProfileUpdateRequest.forOnboarding(birthDate,
-				verification.getNationality(), request.getCurrentRegion(), request.getKoreanLevel(), request.getTopikLevel()));
+				verification.getNationality(), request.getCurrentRegion(), request.getKoreanLevel()));
 		if (profile.getStayStartDate() != null && verification.getStayExpiresOn().isBefore(profile.getStayStartDate())) {
 			throw new InvalidStudentProfileException("체류 만료일은 체류 시작일보다 빠를 수 없습니다.");
 		}

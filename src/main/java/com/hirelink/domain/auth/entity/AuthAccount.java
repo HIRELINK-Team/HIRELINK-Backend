@@ -39,7 +39,14 @@ public class AuthAccount {
 	@Column(name = "password_hash", length = 255)
 	private String passwordHash;
 
-	protected AuthAccount() {
+	@Column(name="revocation_token",columnDefinition="text") private String revocationToken;
+    public String getRevocationToken() { return revocationToken; }
+    public void saveRevocationToken(String value) { if(value!=null) revocationToken=value; }
+    public AuthProvider getProvider() { return provider; }
+    public String getProviderUserId() { return providerUserId; }
+    public Long getId() { return id; }
+
+    protected AuthAccount() {
 	}
 
 	public AuthAccount(UserAccount userAccount, AuthProvider provider, String providerUserId, String passwordHash) {

@@ -162,7 +162,9 @@ public class SocialSignupPhoneService {
 		UserAccount user = new UserAccount(session.getEmail(), session.getRole());
 		user.verifyPhoneNumber(phoneNumber, now);
 		users.saveAndFlush(user);
-		accounts.saveAndFlush(new AuthAccount(user, session.getProvider(), session.getProviderUserId(), null));
+		AuthAccount account=new AuthAccount(user, session.getProvider(), session.getProviderUserId(), null);
+        account.saveRevocationToken(session.getRevocationToken());
+        accounts.saveAndFlush(account);
 		registrationTransfer.save(user, registration, now);
 		Map<Long, SocialSignupAgreement> saved = agreementMap(session);
 		for (TermType term : signupTerms) {
