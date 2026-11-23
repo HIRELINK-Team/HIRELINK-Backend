@@ -156,6 +156,9 @@ public class StudentProfileService {
 				throw new InvalidStudentProfileException("저장된 학업과정과 체류자격이 일치하지 않습니다.");
 			}
 		}
+		if (request.getStayExpirationDate() != null && verifications.existsById(userId)) {
+			throw new InvalidStudentProfileException("인증된 체류 만료일은 등록증 갱신을 최종 확인하여 변경해주세요.");
+		}
 		LocalDate expirationDate = request.getStayExpirationDate() != null
 				? request.getStayExpirationDate() : profile.getStayExpirationDate();
 		if (request.getStayExpirationDate() != null && profile.getStayStartDate() != null

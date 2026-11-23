@@ -2,6 +2,7 @@ package com.hirelink.domain.student.entity;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.UUID;
 
 import com.hirelink.domain.member.entity.UserAccount;
 import jakarta.persistence.Column;
@@ -38,6 +39,51 @@ public class StudentRegistrationVerification {
 	private Instant registeredAt;
 	@Column(name = "birth_date")
 	private LocalDate birthDate;
+
+	@Column(name = "renewal_id")
+	private UUID renewalId;
+	@Column(name = "renewal_expires_at")
+	private Instant renewalExpiresAt;
+	@Column(name = "renewal_payload", columnDefinition = "text")
+	private String renewalPayload;
+	@Column(name = "renewal_card_expires_on")
+	private LocalDate renewalCardExpiresOn;
+	@Column(name = "renewal_card_verified_at")
+	private Instant renewalCardVerifiedAt;
+	@Column(name = "renewal_document_expires_on")
+	private LocalDate renewalDocumentExpiresOn;
+	@Column(name = "renewal_document_verified_at")
+	private Instant renewalDocumentVerifiedAt;
+
+	public UUID getRenewalId() { return renewalId; }
+	public Instant getRenewalExpiresAt() { return renewalExpiresAt; }
+	public String getRenewalPayload() { return renewalPayload; }
+	public LocalDate getRenewalCardExpiresOn() { return renewalCardExpiresOn; }
+	public Instant getRenewalCardVerifiedAt() { return renewalCardVerifiedAt; }
+	public LocalDate getRenewalDocumentExpiresOn() { return renewalDocumentExpiresOn; }
+	public Instant getRenewalDocumentVerifiedAt() { return renewalDocumentVerifiedAt; }
+	public void clearRenewal() {
+		renewalId = null; renewalExpiresAt = null; renewalPayload = null;
+		resetRenewalBack();
+	}
+	public void startRenewal(UUID id, Instant expiresAt) {
+		clearRenewal(); renewalId = id; renewalExpiresAt = expiresAt;
+	}
+	public void saveRenewalPayload(String payload) { renewalPayload = payload; }
+	public void resetRenewalBack() {
+		renewalCardExpiresOn = null; renewalCardVerifiedAt = null; resetRenewalDocument();
+	}
+	public void resetRenewalDocument() { renewalDocumentExpiresOn = null; renewalDocumentVerifiedAt = null; }
+	public void verifyRenewalCard(LocalDate expiry, Instant now, String payload) {
+		renewalCardExpiresOn = expiry; renewalCardVerifiedAt = now; renewalPayload = payload;
+	}
+	public void verifyRenewalDocument(LocalDate expiry, Instant now) {
+		renewalDocumentExpiresOn = expiry; renewalDocumentVerifiedAt = now; renewalPayload = null;
+	}
+	public void confirmRenewal(LocalDate expiry, Instant documentTime) {
+		stayExpiresOn = expiry; cardVerifiedAt = renewalCardVerifiedAt; documentVerifiedAt = documentTime;
+		clearRenewal();
+	}
 
 	protected StudentRegistrationVerification() { }
 

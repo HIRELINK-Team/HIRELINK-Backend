@@ -66,7 +66,7 @@ public class StudentProfileUpdateRequest {
 			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String visaCode;
 
-	@Schema(description = "체류 만료일 (YYYY-MM-DD). 과거 날짜 허용, 기존 체류 시작일보다 앞설 수 없음. 생략하면 기존 값 유지, null 불가",
+	@Schema(description = "등록증 인증 기록이 없는 개발용 프로필에만 허용. 인증 회원은 갱신 최종 확인으로만 변경. 체류 만료일 (YYYY-MM-DD). 과거 날짜 허용, 기존 체류 시작일보다 앞설 수 없음. 생략하면 기존 값 유지, null 불가",
 			example = "2027-03-01", type = "string", format = "date",
 			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private LocalDate stayExpirationDate;
