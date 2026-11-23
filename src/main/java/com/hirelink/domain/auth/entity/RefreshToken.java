@@ -1,7 +1,6 @@
 package com.hirelink.domain.auth.entity;
 
 import java.time.Instant;
-import java.util.UUID;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -30,9 +29,6 @@ public class RefreshToken {
 	@JoinColumn(name = "user_id", nullable = false)
 	private UserAccount userAccount;
 
-	@Column(name = "session_id", nullable = false, unique = true, updatable = false)
-	private UUID sessionId;
-
 	@Column(name = "token_hash", nullable = false, length = 64)
 	private String tokenHash;
 
@@ -45,16 +41,11 @@ public class RefreshToken {
 	protected RefreshToken() {
 	}
 
-	public RefreshToken(UserAccount userAccount, UUID sessionId, String tokenHash, Instant expiresAt, Instant createdAt) {
+	public RefreshToken(UserAccount userAccount, String tokenHash, Instant expiresAt, Instant createdAt) {
 		this.userAccount = userAccount;
-		this.sessionId = sessionId;
 		this.tokenHash = tokenHash;
 		this.expiresAt = expiresAt;
 		this.createdAt = createdAt;
-	}
-
-	public UUID getSessionId() {
-		return sessionId;
 	}
 
 	public UserAccount getUserAccount() {

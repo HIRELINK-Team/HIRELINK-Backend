@@ -57,7 +57,6 @@ class StudentWithdrawalIntegrationTest extends PostgreSQLIntegrationTest {
     @Test void withdrawalRetainsOriginalsAndIdentityButRevokesTokensAndFreshLoginRestores() {
         var before=Set.copyOf(files);
         var old=tokens.issueTokens(users.findById(user).orElseThrow());
-        var otherDevice=tokens.issueTokens(users.findById(user).orElseThrow());
         String staleSession=social.createSession(AuthProvider.GOOGLE,"student-subject",MemberRole.STUDENT,null);
         var result=withdrawals.request(user);
         assertThat(Duration.between(result.requestedAt(),result.recoveryDeadline())).isEqualTo(Duration.ofDays(30));
@@ -65,7 +64,6 @@ class StudentWithdrawalIntegrationTest extends PostgreSQLIntegrationTest {
         assertThat(count("auth_account")).isEqualTo(1); assertThat(files).isEqualTo(before);
         verify(unlink,never()).unlink(any()); verifyNoInteractions(storage);
         assertThatThrownBy(()->jwtDecoder.decode(old.accessToken())).isInstanceOf(JwtException.class);
-        assertThatThrownBy(()->jwtDecoder.decode(otherDevice.accessToken())).isInstanceOf(JwtException.class);
         assertThatThrownBy(()->social.getResult(staleSession)).isInstanceOf(WithdrawnAccountException.class);
         assertThat(users.findById(user).orElseThrow().isWithdrawn()).isTrue();
         String fresh=social.createSession(AuthProvider.GOOGLE,"student-subject",MemberRole.STUDENT,null,"provider-refresh");
@@ -77,26 +75,6 @@ class StudentWithdrawalIntegrationTest extends PostgreSQLIntegrationTest {
         assertThat(((Number)jwtDecoder.decode(restored.tokens().accessToken()).getClaim("account_version")).longValue()).isEqualTo(1L);
         assertThatThrownBy(()->jwtDecoder.decode(old.accessToken())).isInstanceOf(JwtException.class);
         assertThat(files).isEqualTo(before); finalizer.finalizeDue(user); assertThat(files).isEqualTo(before);
-    }
-
-    @Test void ordinaryLogoutPreservesDocumentsProfileAndSocialIdentity() {
-        var first=tokens.issueTokens(users.findById(user).orElseThrow());
-        var second=tokens.issueTokens(users.findById(user).orElseThrow());
-        var beforeFiles=Set.copyOf(files);
-        var beforeAccount=jdbc.queryForList("select * from user_account");
-        var beforeIdentity=jdbc.queryForList("select * from auth_account");
-        var beforeProfile=jdbc.queryForList("select * from student_profile");
-        var beforeDocuments=jdbc.queryForList("select * from student_enrollment_document");
-        tokens.logout(first.refreshToken());
-        assertThatThrownBy(()->jwtDecoder.decode(first.accessToken())).isInstanceOf(JwtException.class);
-        assertThat(jwtDecoder.decode(second.accessToken()).getSubject()).isEqualTo(Long.toString(user));
-        assertThat(count("refresh_token")).isEqualTo(1);
-        assertThat(jdbc.queryForList("select * from user_account")).isEqualTo(beforeAccount);
-        assertThat(jdbc.queryForList("select * from auth_account")).isEqualTo(beforeIdentity);
-        assertThat(jdbc.queryForList("select * from student_profile")).isEqualTo(beforeProfile);
-        assertThat(jdbc.queryForList("select * from student_enrollment_document")).isEqualTo(beforeDocuments);
-        assertThat(files).isEqualTo(beforeFiles);
-        verifyNoInteractions(storage,unlink);
     }
 
     @Test void thirtyDayDeadlineBlocksRestorationEvenBeforeCleanupAndPhysicallyDeletesAllKinds() {

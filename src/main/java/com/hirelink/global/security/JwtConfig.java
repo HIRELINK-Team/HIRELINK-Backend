@@ -1,10 +1,8 @@
 package com.hirelink.global.security;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
-import java.util.UUID;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
@@ -27,7 +25,6 @@ import org.springframework.security.oauth2.jwt.MappedJwtClaimSetConverter;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 
-import com.hirelink.domain.auth.repository.RefreshTokenRepository;
 import com.hirelink.domain.member.entity.MemberRole;
 
 @Configuration
@@ -48,16 +45,16 @@ public class JwtConfig {
 	}
 
 	@Bean
-	public JwtDecoder jwtDecoder(SecretKey jwtSigningKey, @Value("${jwt.issuer}") String issuer, com.hirelink.domain.member.repository.UserAccountRepository users, RefreshTokenRepository sessions) {
-		return createDecoder(jwtSigningKey, issuer, "access", users, sessions);
+	public JwtDecoder jwtDecoder(SecretKey jwtSigningKey, @Value("${jwt.issuer}") String issuer, com.hirelink.domain.member.repository.UserAccountRepository users) {
+		return createDecoder(jwtSigningKey, issuer, "access", users);
 	}
 
 	@Bean
 	public JwtDecoder refreshJwtDecoder(SecretKey jwtSigningKey, @Value("${jwt.issuer}") String issuer, com.hirelink.domain.member.repository.UserAccountRepository users) {
-		return createDecoder(jwtSigningKey, issuer, "refresh", users, null);
+		return createDecoder(jwtSigningKey, issuer, "refresh", users);
 	}
 
-	private JwtDecoder createDecoder(SecretKey jwtSigningKey, String issuer, String tokenType, com.hirelink.domain.member.repository.UserAccountRepository users, RefreshTokenRepository sessions) {
+	private JwtDecoder createDecoder(SecretKey jwtSigningKey, String issuer, String tokenType, com.hirelink.domain.member.repository.UserAccountRepository users) {
 		NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(jwtSigningKey)
 				.macAlgorithm(MacAlgorithm.HS256).build();
 		MappedJwtClaimSetConverter claimConverter = MappedJwtClaimSetConverter.withDefaults(Map.of());
@@ -72,8 +69,7 @@ public class JwtConfig {
 				new JwtTimestampValidator(Duration.ZERO),
 				new JwtIssuerValidator(issuer),
 				jwt -> validateTokenClaims(jwt, tokenType),
-                jwt -> validateAccountVersion(jwt, users),
-				jwt -> sessions == null ? OAuth2TokenValidatorResult.success() : validateSession(jwt, sessions)));
+                jwt -> validateAccountVersion(jwt, users)));
 		return decoder;
 	}
 
@@ -86,25 +82,8 @@ public class JwtConfig {
         return OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token","다시 로그인해주세요.",null));
     }
 
-    private OAuth2TokenValidatorResult validateSession(Jwt jwt, RefreshTokenRepository sessions) {
-        try {
-            UUID sessionId = UUID.fromString(jwt.getClaimAsString("sid"));
-            if (sessions.existsBySessionIdAndUserAccountIdAndExpiresAtAfter(sessionId,
-                    Long.valueOf(jwt.getSubject()), Instant.now())) {
-                return OAuth2TokenValidatorResult.success();
-            }
-        } catch (IllegalArgumentException | NullPointerException | ClassCastException exception) {
-            // 로그인을 특정할 수 없는 토큰은 허용하지 않는다.
-        }
-        return OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "다시 로그인해주세요.", null));
-    }
-
     private OAuth2TokenValidatorResult validateTokenClaims(Jwt jwt, String tokenType) {
 		try {
-			Object sid = jwt.getClaim("sid");
-			if (!(sid instanceof String sessionId) || !UUID.fromString(sessionId).toString().equals(sessionId)) {
-				throw new IllegalArgumentException("로그인 식별값이 필요합니다.");
-			}
 			boolean valid = tokenType.equals(jwt.getClaimAsString("token_type"))
 					&& jwt.getIssuedAt() != null && jwt.getExpiresAt() != null
 					&& Long.parseLong(jwt.getSubject()) > 0;

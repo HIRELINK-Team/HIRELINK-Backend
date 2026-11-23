@@ -54,11 +54,10 @@ public class TokenService {
 	public AuthResult issueTokens(UserAccount userAccount) {
 		Instant issuedAt = Instant.now().truncatedTo(ChronoUnit.SECONDS);
 		Instant refreshExpiresAt = issuedAt.plus(REFRESH_TOKEN_TTL);
-		UUID sessionId = UUID.randomUUID();
-		String accessToken = createToken(userAccount, sessionId, "access", issuedAt, issuedAt.plus(ACCESS_TOKEN_TTL));
-		String refreshToken = createToken(userAccount, sessionId, "refresh", issuedAt, refreshExpiresAt);
+		String accessToken = createToken(userAccount, "access", issuedAt, issuedAt.plus(ACCESS_TOKEN_TTL));
+		String refreshToken = createToken(userAccount, "refresh", issuedAt, refreshExpiresAt);
 		refreshTokenRepository.saveAndFlush(new RefreshToken(
-				userAccount, sessionId, hashToken(refreshToken), refreshExpiresAt, issuedAt));
+				userAccount, hashToken(refreshToken), refreshExpiresAt, issuedAt));
 		return new AuthResult(userAccount.getId(), userAccount.getEmail(), userAccount.getRole(),
 				accessToken, refreshToken);
 	}
@@ -79,8 +78,7 @@ public class TokenService {
 				.orElseThrow(InvalidRefreshTokenException::new);
 		UserAccount userAccount = refreshToken.getUserAccount();
 		if (!refreshToken.getExpiresAt().isAfter(Instant.now())
-				|| !userAccount.getId().toString().equals(jwt.getSubject())
-				|| !refreshToken.getSessionId().toString().equals(jwt.getClaimAsString("sid"))) {
+				|| !userAccount.getId().toString().equals(jwt.getSubject())) {
 			throw new InvalidRefreshTokenException();
 		}
 		if (userAccount.isWithdrawn()) {
@@ -88,12 +86,8 @@ public class TokenService {
 		}
 
 		Instant issuedAt = Instant.now().truncatedTo(ChronoUnit.SECONDS);
-		Instant accessExpiresAt = issuedAt.plus(ACCESS_TOKEN_TTL);
-		if (refreshToken.getExpiresAt().isBefore(accessExpiresAt)) {
-			accessExpiresAt = refreshToken.getExpiresAt();
-		}
-		String accessToken = createToken(userAccount, refreshToken.getSessionId(), "access", issuedAt, accessExpiresAt);
-		return new RefreshResponse(accessToken, "Bearer", Duration.between(issuedAt, accessExpiresAt).toSeconds());
+		String accessToken = createToken(userAccount, "access", issuedAt, issuedAt.plus(ACCESS_TOKEN_TTL));
+		return new RefreshResponse(accessToken, "Bearer", ACCESS_TOKEN_TTL.toSeconds());
 	}
 
 	@Transactional
@@ -103,13 +97,12 @@ public class TokenService {
 		}
 	}
 
-	private String createToken(UserAccount userAccount, UUID sessionId, String tokenType, Instant issuedAt, Instant expiresAt) {
+	private String createToken(UserAccount userAccount, String tokenType, Instant issuedAt, Instant expiresAt) {
 		JwtClaimsSet claims = JwtClaimsSet.builder()
 				.issuer(issuer)
 				.subject(userAccount.getId().toString())
 				.claim("role", userAccount.getRole().name())
 				.claim("token_type", tokenType)
-				.claim("sid", sessionId.toString())
                 .claim("account_version", userAccount.getAccountVersion())
 				.id(UUID.randomUUID().toString())
 				.issuedAt(issuedAt)

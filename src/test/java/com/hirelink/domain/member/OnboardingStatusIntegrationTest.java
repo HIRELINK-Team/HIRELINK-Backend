@@ -1,7 +1,5 @@
 package com.hirelink.domain.member;
 
-import com.hirelink.domain.auth.support.LoginSessionFixtures;
-
 import com.hirelink.support.PostgreSQLIntegrationTest;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -326,7 +324,7 @@ class OnboardingStatusIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private String token(long user, String role) {
 		Instant now = Instant.now();
-		JwtClaimsSet claims = JwtClaimsSet.builder().claim("sid", LoginSessionFixtures.create(jdbc, user)).issuer("hirelink").subject(Long.toString(user))
+		JwtClaimsSet claims = JwtClaimsSet.builder().issuer("hirelink").subject(Long.toString(user))
 				.issuedAt(now).notBefore(now).expiresAt(now.plusSeconds(3600)).id(UUID.randomUUID().toString())
 				.claim("role", role).claim("token_type", "access").build();
 		return jwtEncoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();

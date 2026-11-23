@@ -1,7 +1,5 @@
 package com.hirelink.domain.student;
 
-import com.hirelink.domain.auth.support.LoginSessionFixtures;
-
 import java.net.URI;
 import java.net.http.*;
 import java.nio.charset.StandardCharsets;
@@ -252,7 +250,7 @@ class StudentDocumentCompletionIntegrationTest extends PostgreSQLIntegrationTest
     }
     private String token(long id) {
         Instant now=Instant.now();
-        return encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(),JwtClaimsSet.builder().claim("sid", LoginSessionFixtures.create(jdbc, id))
+        return encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(),JwtClaimsSet.builder()
             .issuer("hirelink").subject(Long.toString(id)).issuedAt(now).notBefore(now).expiresAt(now.plusSeconds(3600))
             .id(UUID.randomUUID().toString()).claim("role","STUDENT").claim("token_type","access").build())).getTokenValue();
     }
