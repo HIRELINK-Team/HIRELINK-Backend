@@ -11,13 +11,12 @@
 | 소셜 인증 | `GET /api/auth/social/{provider}?role=STUDENT`로 전체 페이지 이동 → 콜백 후 `POST /api/auth/social/result` | `SIGNUP_REQUIRED`는 약관으로, `LOGIN`은 액세스 토큰으로 온보딩 상태 조회 |
 | 약관 동의 | `GET` / `PUT /api/auth/social/terms` | 응답의 약관 ID 사용. 별도 고유식별정보 동의를 포함한 필수 약관 동의 후 등록증 제출 |
 | 등록증 앞면 촬영 · 앨범 선택 | `POST /api/auth/social/registration/front` | `registrationNumber` 전체를 확인. 잘못 읽으면 이미지 재제출, OCR 값 직접 수정 API 없음 |
-| 등록증 뒷면 촬영 · 앨범 선택 | `POST /api/auth/social/registration/back` | `serialNumber`와 `stayExpiresOn` 확인. `requiresStayDocument=false`는 생년월일로, `true`는 PDF 제출로 |
+| 등록증 뒷면 촬영 · 앨범 선택 | `POST /api/auth/social/registration/back` | `serialNumber`와 `stayExpiresOn` 확인. `requiresStayDocument=false`는 전화번호 인증으로, `true`는 PDF 제출로 |
 | 체류기간 PDF 선택 | `POST /api/auth/social/registration/stay-document` | 카드 앞면·뒷면 확인이 선행되어야 함. 성공 시 같은 응답 모델의 카드 일련번호와 PDF 만료일을 사용. PDF 인식·번호·기간 오류는 PDF 재선택, `REGISTRATION_FRONT_REQUIRED`는 앞면부터 재시작 |
-| 생년월일 직접 입력 | `PUT /api/auth/social/birth-date` | 한국 날짜 기준 만 18세 검사 성공 후 전화번호 인증. 등록번호에서 생년월일을 추출하지 않음 |
-| 전화번호 인증 · 계정 생성 | `POST /api/auth/social/phone-verifications` → `POST /api/auth/social/phone-verifications/verify` | 성공 `201`에서 계정·토큰 생성. 약관·등록증·체류기간·생년월일을 재검사하며 아직 온보딩 완료는 아님 |
-| 계정 생성 후 · 재로그인 | `GET /api/users/me/onboarding` | 아래 상태표의 `status`와 `nextStep`으로 이동. 미완료 신규 회원은 거주지역부터 다시 입력 |
+| 전화번호 인증 · 계정 생성 | `POST /api/auth/social/phone-verifications` → `POST /api/auth/social/phone-verifications/verify` | 성공 `201`에서 계정·토큰 생성. 약관·등록증·체류기간을 재검사하며 아직 온보딩 완료는 아님 |
+| 계정 생성 후 · 재로그인 | `GET /api/users/me/onboarding` | 아래 상태표의 `status`와 `nextStep`으로 이동. 미완료 회원은 항상 생년월일부터 다시 입력 |
 | 거주지역 · 희망 근무지에서 현재 위치 찾기 | 최초 GPS 사용 전 `GET /api/users/me/term-agreements/location`, 미동의면 `PUT /api/users/me/term-agreements` | 동의 저장 성공 후 프론트에서 기기 위치 권한·GPS 처리. 주소 직접 검색·선택은 위치 동의 없이 가능 |
-| 거주지역 → 학업과정 → 한국어 수준 → 경력 → 희망 업종·시간·위치·반경 → 우선순위 | 화면 입력을 프론트에서 모음. 화면별 서버 저장 없음 | 반경은 100~1,000m의 100m 간격. 경력 없음은 `[]`. TOPIK은 서류 최종 등록으로만 반영. 중도 이탈 후 세부 화면 복구 없음 |
+| 생년월일 → 학업과정 → 거주지역 → 한국어 수준 → 경력 → 희망 업종·시간·위치·반경 → 우선순위 | 화면 입력을 프론트에서 모음. 화면별 서버 저장 없음 | 반경은 100~1,000m의 100m 간격. 경력 없음은 `[]`. TOPIK은 서류 최종 등록으로만 반영. 중도 이탈 후 세부 화면 복구 없음 |
 | 마치기 | `POST /api/students/me/onboarding` | 전체 입력을 한 번에 저장. 성공 `completed=true` 후 상태 조회는 `COMPLETED/NONE`. 실패하면 이번 저장 전체 취소, 완료 후 재제출은 409 |
 
 - 계정 생성 전 변경 요청은 같은 브라우저의 `socialSignup` 쿠키와 `GET /api/auth/csrf`에서 얻은 CSRF 쿠키·헤더를 사용한다. 최초 가입 세션의 30분 만료는 연장하지 않으며 만료 시 소셜 인증부터 다시 시작한다. 계정 생성 후 API는 로그인 액세스 토큰을 사용한다.
@@ -33,16 +32,15 @@
 
 | 대상 | status | nextStep | completedAt |
 | --- | --- | --- | --- |
-| 등록증 인증 및 생년월일 보존, 완료 시각 없음 | `REQUIRED` | `CURRENT_REGION` | `null` |
-| 이전 가입에서 생년월일 미보존, 완료 시각 없음 | `REQUIRED` | `BASIC_INFORMATION` | `null` |
+| 등록증 인증을 거친 유학생, 완료 시각 없음 | `REQUIRED` | `BASIC_INFORMATION` | `null` |
 | 등록증 인증을 거친 유학생, 완료 시각 있음 | `COMPLETED` | `NONE` | 최초 완료 시각 |
 | 등록증 인증 기록이 없는 LOCAL · 기존 가입 회원, 사업주 | `NOT_APPLICABLE` | `EXISTING_FLOW` | `null` |
 
 ```json
-{"userId":1,"role":"STUDENT","status":"REQUIRED","nextStep":"CURRENT_REGION","completedAt":null}
+{"userId":1,"role":"STUDENT","status":"REQUIRED","nextStep":"BASIC_INFORMATION","completedAt":null}
 ```
 
-- `REQUIRED/CURRENT_REGION`이면 거주지역부터 다시 입력한다. 이전 가입에서 생년월일을 보존하지 않은 회원의 `BASIC_INFORMATION`은 생년월일부터 입력한다. 등록증 · 전화번호 인증을 반복하거나 마지막 세부 입력 화면부터 이어가지 않는다.
+- `REQUIRED/BASIC_INFORMATION`이면 과거에 보존된 날짜 유무와 무관하게 항상 생년월일부터 다시 입력한다. 등록증·전화번호 인증을 반복하거나 마지막 작성 화면부터 이어가지 않는다.
 - 프로필이나 일부 입력이 있더라도 `onboarding_completed_at`이 없으면 완료로 추정하지 않는다.
 - `COMPLETED`와 `NONE`은 추가 온보딩 입력이 없다는 뜻이다. 체류기간 유효 · 추천 이용 허가는 별도로 판단한다. 만료일이 지나도 저장된 완료 상태와 시각은 유지한다.
 - `NOT_APPLICABLE`은 **새 유학생 온보딩의 적용 대상이 아니다**라는 뜻이며, 기존 가입 유형의 온보딩까지 완료했다는 뜻이 아니다. 프론트는 기존 유형별 가입 · 프로필 흐름을 사용한다. 기존 소셜 가입 응답의 `onboardingRequired=true`와도 구분한다.
@@ -52,12 +50,29 @@
 
 프론트는 신규 계정의 휴대전화 가입 성공 후 또는 기존 계정 로그인 후 이 API를 호출하고 위 분기로 이동한다. 미완료 온보딩 입력은 화면에서 모아 마지막 POST 요청으로 저장한다.
 
+## 가입 중단과 서비스 API 접근
+
+- 계정 생성 전 가입을 다시 시작하면 같은 소셜 계정의 이전 가입 세션·약관 동의·등록증/PDF 추출값·전화번호 인증정보를 삭제한다. 새 세션에서 모든 인증을 다시 진행한다.
+- 가입 세션은 생성부터 30분간 유효하며 요청으로 연장되지 않는다. 만료 즉시 사용을 차단하고 1분 간격 정리 작업이 연결된 임시정보를 삭제한다.
+- 현재 가입 등록증/PDF 처리는 파일을 읽어 OCR을 수행하고 임시 추출값만 DB에 저장한다. 가입 원본 파일을 비공개 저장소에 영구 업로드하지 않는다.
+- 등록증 인증을 거친 온보딩 미완료 회원은 아래 API에서 `403 ONBOARDING_REQUIRED`를 받는다. 프로필이 일부 존재해도 완료 시각이 없으면 동일하다.
+  - `/api/students/me/profile` 및 하위 경로
+  - `/api/students/me/careers` 및 하위 경로
+  - `/api/students/me/matching-preferences`
+  - `/api/students/me/documents/**`
+  - `/api/students/me/badge`, `/api/students/me/working-conditions`
+  - `/api/students/me/registration-renewals/**`
+- 로그인·토큰 처리, 온보딩 상태 조회·최종 저장, 위치 약관 동의, 탈퇴 API는 이 차단 목록에 포함하지 않는다. 각 API의 기존 인증·검증은 유지한다.
+- 최종 저장이 성공하면 같은 액세스 토큰으로 위 API를 사용할 수 있다. 실패하면 계정·가입 인증은 유지되며 서비스 접근은 계속 차단한다.
+- 프론트는 홈·매칭·지원내역·마이페이지 진입을 막고 생년월일 화면으로 안내한다. 추천·지원 등 위 목록 밖 API에는 이번 차단 규칙을 적용하지 않는다.
+
 ## 입력 및 저장
 
-화면마다 서버에 저장하지 않고 프론트에서 입력을 모아 한 번에 보낸다. 중도 이탈하면 계정은 유지하고 재로그인 후 거주지역 입력 화면부터 다시 시작한다. 가입 시 저장한 생년월일은 회원 연결 정보에 보존된다. 세부 입력 화면의 복구는 제공하지 않는다.
+화면마다 서버에 저장하지 않고 프론트에서 입력을 모아 한 번에 보낸다. 중도 이탈하면 임시값을 버리고 재로그인 후 생년월일부터 다시 시작한다. 이미 생성된 계정과 가입·인증정보는 유지한다.
 
 ```json
 {
+  "birthDate": "2000-05-14",
   "currentRegion": "서울특별시 마포구",
   "koreanLevel": "INTERMEDIATE",
   "studyProgram": "BACHELOR",
@@ -66,8 +81,7 @@
     "businessTypeFlexible": false,
     "preferredJobs": [{"businessTypeId": 1}],
     "preferredWorkTimes": [
-      {"dayOfWeek": "MON", "startTime": "22:00", "endTime": "00:00"},
-      {"dayOfWeek": "TUE", "startTime": "00:00", "endTime": "02:00"}
+      {"dayOfWeek": "MON", "startTime": "22:00", "endTime": "02:00"}
     ],
     "preferredLocation": {
       "locationName": "서울특별시 마포구",
@@ -85,7 +99,7 @@
 }
 ```
 
-- 생년월일은 전화번호 인증 전에 `PUT /api/auth/social/birth-date`로 직접 입력·검사하고 계정 생성 시 보존한다. 마지막 요청에서는 `birthDate`를 생략한다. 보내면 보존된 값과 같아야 하며 다른 값은 400이다. 이전 버전에서 가입하여 날짜가 보존되지 않은 인증 회원만 마지막 요청에 `birthDate`가 필수다. 최종 저장도 한국 날짜 기준 만 18세를 재검사한다. 명시적인 `null`은 허용하지 않는다.
+- 생년월일은 계정 생성 후 직접 입력하며 최종 요청의 `birthDate`는 필수다. `YYYY-MM-DD` 형식으로 보내며 한국 날짜 기준 만 18세가 되는 생일부터 허용한다. 누락·null·미래 날짜·만 18세 미만이면 400으로 전체 저장을 취소한다. 과거 가입 인증 정보의 날짜를 재사용하지 않고 이번 제출값으로 검사한다. 가입 전 생년월일 저장 API는 종료되어 400으로 최종 저장 경로를 안내한다.
 - 이름은 가입 시 저장된 회원 이름을 유지한다. 국적 · 체류 만료일은 `student_registration_verification`에서 가져오며 요청으로 덮어쓸 수 없다. 체류자격은 등록증 원문 코드와 필수 `studyProgram`을 조합한다. 외국인등록번호는 받거나 저장하지 않는다.
 - `careers`는 필수이며 경력 없음은 `[]`로 보낸다. 경력이 있으면 기존 경력 DTO와 동일한 `careerName`, `startMonth`, `endMonth`, `description`이 모두 필요하다. 기간은 `YYYY-MM`, 종료월은 시작월 이상이며 미래 근무기간은 허용하지 않는다.
 - `topikLevel`은 온보딩에서 입력받지 않는다. `null`을 포함해 전달하면 400이다. TOPIK 성적증명서를 OCR 추출한 뒤 최종 확인해야 급수가 저장된다. 기존 확인된 급수는 온보딩으로 변경하지 않는다.
@@ -123,11 +137,11 @@
 
 가입 이후 체류기간이 만료되어도 이 API의 입력 · 완료는 허용한다. 확인된 만료일을 그대로 프로필에 옮기며 카드 · PDF 인증 시각을 바꾸지 않는다. `completed=true`는 입력 완료이고 체류기간 유효 · 추천 이용 허가가 아니다.
 
-체류기간 만료 시 추천 제한은 별도 담당자 작업이다. 가입 후 체류 증빙 갱신은 후속이며, 공통 온보딩 접근 제한과 사업주 흐름은 이 API에서 변경하지 않는다. 상태 조회 응답을 전역 서비스 접근 허가로 사용하지 않는다.
+체류기간 만료에 따른 추천 제한과 추천·지원·채용 제안·매칭 API의 온보딩 접근 제한은 별도 연결 사항이다. 등록증 갱신은 온보딩 완료 후 기존 갱신 API를 사용한다. 상태 조회 응답을 전역 서비스 접근 허가로 사용하지 않는다.
 
 V25는 완료 시각 컬럼만 추가한다. 기존 회원의 완료 여부를 임의로 추정해 일괄 변경하지 않는다.
 
-V26은 가입 세션과 회원 연결 인증 정보에 `birth_date`를 추가한다. 기존 행을 임의 날짜로 채우지 않으며 기존 미완료 회원은 `BASIC_INFORMATION` 흐름으로 계속 입력할 수 있다.
+V26의 가입 세션·회원 연결 인증 정보 `birth_date` 컬럼과 기존 값은 유지한다. 새 가입에서 날짜를 저장·이전하지 않고 온보딩에서도 재사용하지 않는다. 기존 nullable 컬럼과 V25 완료 시각을 사용하므로 이번 변경에 새 Flyway 마이그레이션은 필요하지 않다.
 
 ## 학업과정과 서비스 지원 대상 (요구사항 2번)
 

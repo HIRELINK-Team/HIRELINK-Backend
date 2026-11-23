@@ -42,9 +42,8 @@ public class OnboardingStatusService {
 			return new OnboardingStatusResponse(userId, user.getRole(), Status.NOT_APPLICABLE, NextStep.EXISTING_FLOW, null);
 		}
 		Instant completedAt = profiles.findById(userId).map(StudentProfile::getOnboardingCompletedAt).orElse(null);
-		NextStep nextStep = verification.getBirthDate() == null ? NextStep.BASIC_INFORMATION : NextStep.CURRENT_REGION;
 		return completedAt == null
-				? new OnboardingStatusResponse(userId, user.getRole(), Status.REQUIRED, nextStep, null)
+				? new OnboardingStatusResponse(userId, user.getRole(), Status.REQUIRED, NextStep.BASIC_INFORMATION, null)
 				: new OnboardingStatusResponse(userId, user.getRole(), Status.COMPLETED, NextStep.NONE, completedAt);
 	}
 }

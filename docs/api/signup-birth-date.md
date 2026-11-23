@@ -1,44 +1,27 @@
-# 가입 생년월일 검사 및 보존
+# 생년월일 입력 시점과 가입 전 API 종료
 
-새 유학생 소셜 가입 순서는 **약관 → 등록증 앞면·뒷면 및 필요한 PDF → 생년월일 → 전화번호 인증 → 계정 생성 → 거주지역부터 온보딩 → 마치기**다.
+신규 유학생 흐름은 **약관 → 등록증 앞면·뒷면 및 필요한 PDF → 전화번호 인증·계정 생성 → 생년월일 → 학업과정 → 거주지역 → 나머지 온보딩 → 마치기**다.
 
-## 생년월일 저장
+생년월일은 프론트에서 임시 보관하고 `POST /api/students/me/onboarding`의 필수 `birthDate`로 제출한다. 한국 날짜 기준 만 18세가 되는 생일부터 최종 저장할 수 있다. 등록번호에서 생년월일을 추출하거나 등록번호와 대조하지 않는다. 최종 저장 전에는 프로필에 반영하지 않는다.
 
-`PUT /api/auth/social/birth-date`
+## 종료된 API
 
-가입 진행 `socialSignup` 쿠키와 기존 CSRF 쿠키·헤더를 사용한다. 계정 생성 전 API이며 로그인 토큰만으로 호출할 수 없다. 소셜 로그인과 등록증 기능이 활성화된 유학생에게 제공한다. 필수 약관 동의와 유효한 등록증/PDF 확인이 먼저 필요하다.
-
-```json
-{"birthDate":"2000-05-14"}
-```
-
-날짜는 직접 입력한다. `YYYY-MM-DD` 문자열만 받으며 다른 필드는 거절한다. 한국 날짜 기준 만 18세 생일 당일부터 허용하고, 미성년자·미래 날짜는 거절한다. 등록번호에서 날짜를 추출하거나 등록번호와 대조하지 않는다.
-
-성공은 `200`, `Cache-Control: no-store`다.
+`PUT /api/auth/social/birth-date`는 Swagger에서 deprecated로 표시한다. 유효한 가입 세션·CSRF와 날짜를 보내도 저장하지 않고 다음 오류를 반환한다.
 
 ```json
-{"ageVerified":true,"signupExpiresAt":"2026-11-20T10:30:00Z"}
+{"code":"INVALID_INPUT","message":"생년월일은 계정 생성 후 온보딩의 마치기에서 제출해주세요."}
 ```
 
-- 생년월일은 기존 가입 세션에 저장하며 같은 세션에서 유효한 날짜로 수정할 수 있다. 유효하지 않은 요청은 기존 저장값을 변경하지 않는다.
-- 기존 30분 만료 시각은 연장하지 않는다. 만료되면 즉시 사용 불가하며 기존 정리 절차에서 세션과 함께 삭제된다.
-- 아직 회원·JWT·프로필은 만들지 않는다. 전화번호 인증 성공 시 생년월일을 회원 연결 인증 정보에 함께 보존하고 임시 세션을 소모한다. 계정 생성 후 보존된 날짜에는 가입 세션의 30분 만료가 적용되지 않는다.
-- `POST /api/auth/social/phone-verifications`와 `/verify`는 날짜가 없으면 `409 BIRTH_DATE_REQUIRED`, 만 18세 미만이면 `422 AGE_REQUIREMENT_NOT_MET`으로 SMS 발송·계정 생성을 차단한다. 등록증·약관·세션의 기존 검사도 유지한다.
-- 사업주와 등록증 기능 비활성 상태는 기존 가입 흐름을 유지한다. LOCAL 테스트 계정은 기존 개별 API를 사용한다.
+- `400 INVALID_INPUT`: 최종 온보딩 저장 경로 안내 또는 잘못된 요청 형식.
+- 기존 가입 세션 검증·CSRF·회원 유형 검증은 유지한다. 만료된 가입 세션은 `401 INVALID_SOCIAL_SESSION`, 잘못된 CSRF는 `403 INVALID_CSRF_TOKEN`이다.
+- 등록증 기능 비활성 상태는 `503 REGISTRATION_VERIFICATION_UNAVAILABLE`를 유지한다.
+- 전화번호 인증 요청·확인은 생년월일을 요구하거나 나이를 검사하지 않는다. 약관·등록증·체류기간·번호 인증과 중복 검사는 유지한다.
+- 이전 세션에 저장된 날짜도 새 계정 생성 시 회원 인증 정보로 이전하지 않는다.
 
-| 상태 | 오류 |
-| --- | --- |
-| 400 | `INVALID_INPUT`, `REQUIRED_TERMS_NOT_AGREED` |
-| 401 | `INVALID_SOCIAL_SESSION` |
-| 403 | `INVALID_CSRF_TOKEN`, `FORBIDDEN`, `SOCIAL_ROLE_MISMATCH`, `WITHDRAWN_ACCOUNT` |
-| 409 | `SOCIAL_ACCOUNT_ALREADY_REGISTERED`, `REGISTRATION_VERIFICATION_REQUIRED`, `STAY_DOCUMENT_REQUIRED` |
-| 422 | `AGE_REQUIREMENT_NOT_MET`, `STAY_DOCUMENT_EXPIRED` |
-| 503 | `SOCIAL_LOGIN_UNAVAILABLE`, `REGISTRATION_VERIFICATION_UNAVAILABLE` |
+## 재로그인과 최종 저장
 
-## 재로그인과 마지막 저장
+온보딩 미완료 회원은 저장된 과거 날짜 유무와 무관하게 `REQUIRED/BASIC_INFORMATION`으로 안내한다. 항상 생년월일부터 새로 입력하며 마지막 작성 화면이나 값을 복구하지 않는다.
 
-생년월일을 보존한 미완료 회원의 `GET /api/users/me/onboarding`은 `REQUIRED/CURRENT_REGION`을 반환한다. 등록증·생년월일·전화 인증을 반복하지 않고 거주지역부터 다시 입력한다. 이후 입력은 여전히 프론트에서 모아서 마지막에 한 번 저장한다.
+`birthDate`가 없거나 만 18세 미만이면 온보딩 저장 전체를 취소한다. 이미 생성된 계정과 가입 인증정보는 유지한다. 기존 V26의 nullable 날짜 컬럼·과거 데이터는 변경하지 않는다.
 
-`POST /api/students/me/onboarding`은 보존된 생년월일을 사용한다. 요청의 `birthDate`는 생략하고, 보내더라도 저장된 날짜와 같아야 한다. 다른 날짜로 덮어쓸 수 없다. 이전 버전에서 생년월일을 보존하지 않은 기존 인증 회원은 `BASIC_INFORMATION`으로 안내하고 기존처럼 마지막 요청에 날짜를 포함한다. V26은 기존 행에 날짜를 임의로 채우지 않는다.
-
-전체 요청 및 오류 처리는 [온보딩 일괄 저장](student-onboarding.md)을 따른다.
+전체 요청과 접근 제한은 [온보딩 일괄 저장](student-onboarding.md)을 따른다.

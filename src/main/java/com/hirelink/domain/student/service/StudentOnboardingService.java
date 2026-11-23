@@ -72,18 +72,13 @@ public class StudentOnboardingService {
 			throw new SocialAuthException(HttpStatus.CONFLICT, "ONBOARDING_ALREADY_COMPLETED",
 					"이미 온보딩을 완료했습니다. 내 정보 최종 저장 API를 이용해주세요.");
 		}
-		LocalDate birthDate = verification.getBirthDate();
+		LocalDate birthDate = request.getBirthDate();
 		StudyProgramType selectedProgram = StudyProgramType.valueOf(request.getStudyProgram());
 		if (!StudyProgramType.supportsRegistration(verification.getVisaCode())) {
 			throw new InvalidStudentProfileException("등록증에서 확인한 체류자격이 D-2여야 합니다.");
 		}
 		var program = studyPrograms.findByProgramName(selectedProgram.getProgramName())
 				.orElseThrow(() -> new IllegalStateException("지원 학업과정 기준 데이터가 없습니다."));
-		if (birthDate != null && request.getBirthDate() != null && !birthDate.equals(request.getBirthDate())) {
-			throw new InvalidStudentProfileException("가입 시 확인한 생년월일은 온보딩에서 변경할 수 없습니다.");
-		}
-		if (birthDate == null) { birthDate = request.getBirthDate(); }
-		if (birthDate == null) { throw new InvalidStudentProfileException("생년월일을 입력해주세요."); }
 		if (profile == null) {
 			profileService.createProfile(userId, new StudentProfileCreateRequest(user.getName(), birthDate,
 					verification.getNationality(), request.getCurrentRegion(), request.getKoreanLevel()));
