@@ -10,6 +10,6 @@ public record RefreshResponse(
 		String accessToken,
 		@Schema(description = "인증 토큰 유형", allowableValues = {"Bearer"}, example = "Bearer", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 		String tokenType,
-		@Schema(description = "유효시간 (초)", example = "3600", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
+		@Schema(description = "유효시간 (초). 최대 3600초이며 해당 로그인 기록의 만료 시각을 넘지 않는다", example = "3600", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 		long expiresIn) {
 }
