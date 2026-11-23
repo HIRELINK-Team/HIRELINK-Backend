@@ -41,10 +41,10 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 			new OperationSpec("/api/users/me/term-agreements", "put", "200", "400", "401", "403", "404", "500"),
 			new OperationSpec("/api/students/me/profile", "post", "201", "400", "401", "403", "409", "500"),
 			new OperationSpec("/api/students/me/profile", "get", "200", "401", "403", "404", "500"),
-			new OperationSpec("/api/students/me/profile", "patch", "200", "400", "401", "403", "404", "500"),
-			new OperationSpec("/api/students/me/careers", "post", "201", "400", "401", "403", "404", "500"),
-			new OperationSpec("/api/students/me/careers/{careerId}", "patch", "200", "400", "401", "403", "404", "500"),
-			new OperationSpec("/api/students/me/careers/{careerId}", "delete", "204", "400", "401", "403", "404", "500"),
+			new OperationSpec("/api/students/me/profile", "patch", "200", "400", "401", "403", "404", "409", "500"),
+			new OperationSpec("/api/students/me/careers", "post", "400", "401", "403", "500"),
+			new OperationSpec("/api/students/me/careers/{careerId}", "patch", "400", "401", "403", "500"),
+			new OperationSpec("/api/students/me/careers/{careerId}", "delete", "400", "401", "403", "500"),
 			new OperationSpec("/api/students/me/matching-preferences", "get", "200", "401", "403", "404", "500"),
 			new OperationSpec("/api/students/me/matching-preferences", "patch", "200", "400", "401", "403", "404", "500"),
 			new OperationSpec("/api/employers/me/profile", "post", "201", "400", "401", "403", "409", "500"),
@@ -206,14 +206,13 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 	@Test
 	void patchSchemasPreserveOmittedFieldsAndDocumentOnlySupportedFields() throws Exception {
 		JsonNode document = openApiDocument();
-		JsonNode student = schema(document, "StudentProfileUpdateRequest");
+		JsonNode student = schema(document, "StudentInformationUpdateRequest");
 		assertThat(student.path("required").isEmpty()).isTrue();
 		assertThat(student.path("properties").propertyNames()).containsExactlyInAnyOrder(
-				"name", "birthDate", "nationality", "currentRegion", "koreanLevel", "visaCode",
-				"stayExpirationDate");
+				"birthDate", "phoneNumber", "currentRegion", "koreanLevel", "preferredLocation", "careers");
 		assertThat(student.path("properties").has("topikLevel")).isFalse();
-		assertThat(nullable(student.path("properties").path("name"))).isFalse();
-		assertType(student.path("properties").path("name"), "string");
+		assertThat(nullable(student.path("properties").path("currentRegion"))).isFalse();
+		assertType(student.path("properties").path("currentRegion"), "string");
 		assertThat(student.path("properties").path("birthDate").path("format").asString()).isEqualTo("date");
 		assertThat(schema(document, "StudentProfileResponse").path("properties").propertyNames())
 				.contains("studyProgramId", "studyProgram", "gradeLevel", "profileImageUrl", "careers");
@@ -222,7 +221,6 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 		JsonNode employer = schema(document, "EmployerProfileUpdateRequest");
 		assertThat(employer.path("properties").propertyNames()).containsExactlyInAnyOrder("name", "position");
 		assertThat(nullable(employer.path("properties").path("position"))).isTrue();
-		assertThat(nullable(schema(document, "StudentCareerUpdateRequest").path("properties").path("description"))).isFalse();
 		assertThat(schema(document, "WorkplaceUpdateRequest").path("properties").propertyNames())
 				.containsExactlyInAnyOrder("workplaceName", "businessTypeId", "workplaceAddress", "latitude", "longitude");
 	}
@@ -233,50 +231,26 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 		JsonNode create = schema(document, "StudentCareerCreateRequest");
 		assertThat(contains(create.path("required"), "description")).isTrue();
 		assertThat(nullable(create.path("properties").path("description"))).isFalse();
-		JsonNode update = schema(document, "StudentCareerUpdateRequest");
-		assertThat(contains(update.path("required"), "description")).isFalse();
-		assertThat(nullable(update.path("properties").path("description"))).isFalse();
-		assertThat(update.path("properties").path("description").path("description").asString())
-				.contains("생략하면 기존 값 유지", "기존 내용이 비어 있으면");
-		assertThat(nullable(schema(document, "StudentCareerResponse").path("properties").path("description"))).isFalse();
 		JsonNode career = resolve(document, schema(document, "StudentProfileResponse").path("properties")
 				.path("careers").path("items"));
 		assertThat(nullable(career.path("properties").path("description"))).isTrue();
 		for (String path : List.of("/api/students/me/careers", "/api/students/me/careers/{careerId}")) {
 			JsonNode operation = operation(document, path, path.endsWith("{careerId}") ? "patch" : "post");
-			assertThat(operation.path("description").asString()).contains("즉시 DB에 저장", "온보딩 전체 일괄 저장 API가 아니다");
-			JsonNode example = operation.path("responses").path("400").path("content").path("application/json")
-					.path("examples").path("REQUIRED_DESCRIPTION").path("value");
-			JsonNode value = example.isString() ? objectMapper.readTree(example.asString()) : example;
-			assertThat(value.path("code").asString()).isEqualTo("INVALID_INPUT");
-			assertThat(value.path("message").asString()).isEqualTo("근무 내용을 입력해주세요.");
+			assertThat(operation.path("deprecated").asBoolean()).isTrue();
+			assertThat(operation.path("description").asString()).contains("DB를 변경하지", "일괄 저장");
+			assertThat(operation.has("requestBody")).isFalse();
 		}
 	}
 
 	@Test
-	void studentProfileDocumentsSupportedVisaCodesAndImmediatePersistence() throws Exception {
+	void studentProfileDocumentsFinalBatchSaveAndImmutableDocumentFields() throws Exception {
 		JsonNode document = openApiDocument();
-		List<String> codes = List.of("D-2-1", "D-2-2", "D-2-3", "D-2-4", "D-2-6");
-		JsonNode request = schema(document, "StudentProfileUpdateRequest");
-		JsonNode visa = request.path("properties").path("visaCode");
-		assertThat(visa.path("enum").size()).isEqualTo(codes.size());
-		for (String code : codes) {
-			assertThat(contains(visa.path("enum"), code)).as(code).isTrue();
-		}
-		assertThat(nullable(visa)).isFalse();
-		assertThat(contains(request.path("required"), "academicState")).isFalse();
-		for (String name : List.of("StudentProfileResponse", "StudentProfileUpdateResponse")) {
-			JsonNode outputVisa = schema(document, name).path("properties").path("visaCode");
-			assertThat(nullable(outputVisa)).isTrue();
-			for (String code : codes) {
-				assertThat(code.matches(outputVisa.path("pattern").asString())).as(name + code).isTrue();
-			}
-			assertThat("D-2-5".matches(outputVisa.path("pattern").asString())).isFalse();
-		}
-		for (String method : List.of("post", "patch")) {
-			String description = operation(document, "/api/students/me/profile", method).path("description").asString();
-			assertThat(description).contains("즉시 저장", "온보딩 전체 일괄 저장 API가 아니", "온보딩 전체 완료를 의미하지 않는다");
-		}
+		JsonNode request = schema(document, "StudentInformationUpdateRequest");
+		assertThat(request.path("properties").propertyNames()).doesNotContain("visaCode", "stayExpirationDate", "topikLevel", "academicState");
+		String description = operation(document, "/api/students/me/profile", "patch").path("description").asString();
+		assertThat(description).contains("수정 반영하기", "전체 롤백", "5분", "만 18세", "임시 변경");
+		assertThat(operation(document, "/api/auth/phone-verifications/verify", "post").path("description").asString())
+				.contains("5분", "변경하지 않는다");
 	}
 
 	@Test

@@ -18,6 +18,9 @@ import com.hirelink.domain.auth.entity.PhoneVerificationSendAttempt;
 import com.hirelink.domain.auth.repository.PhoneVerificationRepository;
 import com.hirelink.domain.auth.repository.PhoneVerificationSendAttemptRepository;
 import com.hirelink.domain.member.entity.UserAccount;
+import com.hirelink.domain.member.entity.MemberRole;
+import com.hirelink.domain.student.repository.StudentProfileRepository;
+import com.hirelink.global.exception.PhoneNotVerifiedException;
 import com.hirelink.domain.member.repository.UserAccountRepository;
 import com.hirelink.global.exception.PhoneVerificationRateLimitException;
 import com.hirelink.global.exception.SmsDeliveryException;
@@ -37,16 +40,18 @@ public class PhoneVerificationService {
 	private final PhoneVerificationSendAttemptRepository sendAttemptRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final SmsSender smsSender;
+	private final StudentProfileRepository profiles;
 
 	public PhoneVerificationService(UserAccountRepository userAccountRepository,
 			PhoneVerificationRepository verificationRepository,
 			PhoneVerificationSendAttemptRepository sendAttemptRepository,
-			PasswordEncoder passwordEncoder, SmsSender smsSender) {
+			PasswordEncoder passwordEncoder, SmsSender smsSender, StudentProfileRepository profiles) {
 		this.userAccountRepository = userAccountRepository;
 		this.verificationRepository = verificationRepository;
 		this.sendAttemptRepository = sendAttemptRepository;
 		this.passwordEncoder = passwordEncoder;
 		this.smsSender = smsSender;
+		this.profiles = profiles;
 	}
 
 	@Transactional(noRollbackFor = SmsDeliveryException.class)
@@ -114,6 +119,18 @@ public class PhoneVerificationService {
 
 		// 가입 완료와 기존 회원 인증이 같은 번호를 동시에 저장하지 않도록 직렬화한다.
 		sendAttemptRepository.lockPhoneNumber(phoneNumber);
+		now = Instant.now();
+		if (!verification.isActive(now)) {
+			throw new InvalidPhoneVerificationCodeException();
+		}
+		if (userAccountRepository.existsByPhoneNumberAndIdNot(phoneNumber, userId)) {
+			throw new DuplicatePhoneNumberException();
+		}
+		if (user.getRole() == MemberRole.STUDENT && profiles.existsById(userId)) {
+			verification.confirmChange(now);
+			return new PhoneVerificationConfirmResponse(formatNumber(phoneNumber), now,
+					"번호 인증이 완료되었습니다. 5분 이내 수정 반영하기를 눌러주세요.");
+		}
 		user.verifyPhoneNumber(phoneNumber, now);
 		try {
 			userAccountRepository.saveAndFlush(user);
@@ -127,6 +144,34 @@ public class PhoneVerificationService {
 		String formattedPhoneNumber = phoneNumber.substring(0, 3) + "-" + phoneNumber.substring(3, 7)
 				+ "-" + phoneNumber.substring(7);
 		return new PhoneVerificationConfirmResponse(formattedPhoneNumber, now, "휴대전화 인증이 완료되었습니다.");
+	}
+
+	// 호출자는 회원 행을 먼저 잠그고 최종 저장 트랜잭션에서 실행한다.
+	@Transactional
+	public Instant applyVerifiedChange(UserAccount user, String phoneNumber) {
+		sendAttemptRepository.lockPhoneNumber(phoneNumber);
+		var verification = verificationRepository.findByUserId(user.getId()).orElseThrow(PhoneNotVerifiedException::new);
+		if (!verification.permitsChange(phoneNumber, Instant.now())) {
+			throw new PhoneNotVerifiedException();
+		}
+		if (userAccountRepository.existsByPhoneNumberAndIdNot(phoneNumber, user.getId())) {
+			throw new DuplicatePhoneNumberException();
+		}
+		user.verifyPhoneNumber(phoneNumber, verification.getVerifiedAt());
+		try {
+			userAccountRepository.saveAndFlush(user);
+		} catch (DataIntegrityViolationException exception) {
+			if (isDuplicatePhoneNumber(exception)) {
+				throw new DuplicatePhoneNumberException();
+			}
+			throw exception;
+		}
+		verificationRepository.delete(verification);
+		return verification.getChangeExpiresAt();
+	}
+
+	private String formatNumber(String phoneNumber) {
+		return phoneNumber.substring(0, 3) + "-" + phoneNumber.substring(3, 7) + "-" + phoneNumber.substring(7);
 	}
 
 	private UserAccount findActiveUserForUpdate(Long userId) {

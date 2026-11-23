@@ -96,6 +96,12 @@ public class StudentCareerService {
 		studentCareerRepository.delete(career);
 	}
 
+	@Transactional
+	public void rejectStandaloneWrite(Long userId) {
+		validateStudent(userId);
+		throw new InvalidStudentCareerException("경력은 내 정보의 수정 반영하기에서 전체 목록으로 저장해주세요.");
+	}
+
 	private void validateStudent(Long userId) {
 		UserAccount user = userAccountRepository.findByIdForUpdate(userId)
 				.orElseThrow(() -> new AuthenticationCredentialsNotFoundException("로그인이 필요합니다."));

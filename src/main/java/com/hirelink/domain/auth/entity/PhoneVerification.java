@@ -35,6 +35,24 @@ public class PhoneVerification {
 	@Column(name = "failed_attempts", nullable = false)
 	private int failedAttempts;
 
+	@Column(name = "verified_at")
+	private Instant verifiedAt;
+
+	@Column(name = "change_expires_at")
+	private Instant changeExpiresAt;
+
+	public Instant getVerifiedAt() { return verifiedAt; }
+	public Instant getChangeExpiresAt() { return changeExpiresAt; }
+
+	public boolean permitsChange(String number, Instant now) {
+		return verifiedAt != null && changeExpiresAt != null && changeExpiresAt.isAfter(now) && phoneNumber.equals(number);
+	}
+
+	public void confirmChange(Instant now) {
+		verifiedAt = now;
+		changeExpiresAt = now.plusSeconds(300);
+	}
+
 	protected PhoneVerification() {
 	}
 
@@ -43,10 +61,12 @@ public class PhoneVerification {
 		this.phoneNumber = phoneNumber;
 		this.codeHash = codeHash;
 		this.expiresAt = expiresAt;
+		this.verifiedAt = null;
+		this.changeExpiresAt = null;
 	}
 
 	public boolean isActive(Instant now) {
-		return expiresAt.isAfter(now);
+		return verifiedAt == null && expiresAt.isAfter(now);
 	}
 
 	public static PhoneVerification forSignup(String tokenHash, String phoneNumber, String codeHash, Instant expiresAt) {
@@ -79,5 +99,7 @@ public class PhoneVerification {
 		this.phoneNumber = phoneNumber;
 		this.codeHash = codeHash;
 		this.expiresAt = expiresAt;
+		this.verifiedAt = null;
+		this.changeExpiresAt = null;
 	}
 }

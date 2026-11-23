@@ -82,7 +82,7 @@ public class PhoneVerificationController {
 	}
 
 	@Operation(summary = "휴대전화 인증번호 확인",
-			description = "로그인 회원이 요청한 번호와 인증번호를 확인한다. 성공하면 회원의 전화번호와 인증 시각을 저장하고 인증번호를 삭제한다. 틀린 번호·만료·미요청은 400, 코드 5회 오입력 시 남은 유효시간 동안 429다. 다른 계정이 이미 사용하는 번호는 이 확인 단계에서 409로 처리한다.")
+			description = "로그인 회원이 요청한 번호와 인증번호를 확인한다. 유학생 프로필이 있는 회원은 인증 성공 결과만 보관하고 실제 번호는 변경하지 않는다. 인증 성공 후 5분 이내 프로필 PATCH 일괄 저장에서 번호를 변경한다. 재발송 시 이전 확인 결과는 폐기한다. 프로필이 없는 가입 단계와 사업주는 기존처럼 번호와 인증 시각을 저장한다. 틀린 번호·만료·미요청은 400, 코드 5회 오입력 시 남은 유효시간 동안 429다. 다른 계정이 이미 사용하는 번호는 이 확인 단계에서 409로 처리한다.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = PhoneVerificationConfirmResponse.class),
