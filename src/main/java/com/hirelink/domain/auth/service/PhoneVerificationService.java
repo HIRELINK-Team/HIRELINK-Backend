@@ -123,7 +123,7 @@ public class PhoneVerificationService {
 		if (!verification.isActive(now)) {
 			throw new InvalidPhoneVerificationCodeException();
 		}
-		if (userAccountRepository.existsByPhoneNumberAndIdNot(phoneNumber, userId)) {
+		if (userAccountRepository.existsByPhoneNumberAndIdNotAndWithdrawalFinalizedAtIsNull(phoneNumber, userId)) {
 			throw new DuplicatePhoneNumberException();
 		}
 		if (user.getRole() == MemberRole.STUDENT && profiles.existsById(userId)) {
@@ -154,7 +154,7 @@ public class PhoneVerificationService {
 		if (!verification.permitsChange(phoneNumber, Instant.now())) {
 			throw new PhoneNotVerifiedException();
 		}
-		if (userAccountRepository.existsByPhoneNumberAndIdNot(phoneNumber, user.getId())) {
+		if (userAccountRepository.existsByPhoneNumberAndIdNotAndWithdrawalFinalizedAtIsNull(phoneNumber, user.getId())) {
 			throw new DuplicatePhoneNumberException();
 		}
 		user.verifyPhoneNumber(phoneNumber, verification.getVerifiedAt());

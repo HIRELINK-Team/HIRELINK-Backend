@@ -11,6 +11,7 @@ import com.hirelink.domain.student.dto.EnrollmentExtraction;
 @jakarta.persistence.IdClass(StudentDocumentId.class)
 @Entity
 @Table(name = "student_enrollment_document")
+@org.hibernate.annotations.SQLRestriction("deleted_at IS NULL")
 public class StudentEnrollmentDocument {
 	@Id private Long userId;
     @Id @Column(length=20) private String documentType="ENROLLMENT";
@@ -50,6 +51,14 @@ public class StudentEnrollmentDocument {
 	@Column(length = 150) private String campusName;
 	private Short gradeLevel;
 	private Instant registeredAt;
+	private Instant deletedAt;
+
+	public void softDelete(Instant now) {
+		deletedAt = now; objectKey = null;
+		draftId = null; draftObjectKey = null; draftUniversityName = null; draftCampusName = null;
+		draftGradeLevel = null; draftSemesterCount = null; draftAverageGpa = null;
+		draftTopikLevel = null; draftAcademicYear = null; draftSemester = null;
+	}
 
 	protected StudentEnrollmentDocument() { }
 	public StudentEnrollmentDocument(Long userId) { this.userId = userId; }

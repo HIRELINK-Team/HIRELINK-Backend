@@ -32,18 +32,18 @@ public class StudentProfile {
 	@JoinColumn(name = "id", nullable = false)
 	private UserAccount userAccount;
 
-	@Column(name = "birth_date", nullable = false)
+	@Column(name = "birth_date")
 	private LocalDate birthDate;
 
 	@JdbcTypeCode(SqlTypes.CHAR)
-	@Column(nullable = false, length = 2)
+	@Column(length = 2)
 	private String nationality;
 
-	@Column(name = "current_region", nullable = false, length = 150)
+	@Column(name = "current_region", length = 150)
 	private String currentRegion;
 
 	@Enumerated(EnumType.STRING)
-	@Column(name = "korean_level", nullable = false, length = 30)
+	@Column(name = "korean_level", length = 30)
 	private KoreanLevel koreanLevel;
 
 	@Column(name = "visa_code", length = 20)
@@ -88,6 +88,17 @@ public class StudentProfile {
 
 	@Column(name = "onboarding_completed_at")
 	private Instant onboardingCompletedAt;
+
+	private Instant retainedDataPurgedAt;
+
+	public void purgeRetainedInformation(Instant now) {
+		birthDate = null; nationality = null; currentRegion = null; koreanLevel = null;
+		visaCode = null; universityName = null; enrollmentStartDate = null; studyProgramId = null;
+		gradeLevel = null; academicState = null; topikLevel = null; stayStartDate = null;
+		stayExpirationDate = null; profileImageKey = null; certificationPromptDismissedAt = null;
+		hirelinkBadgeIssuedAt = null; workingConditions = null; onboardingCompletedAt = null;
+		previousSemesterGpa = null; retainedDataPurgedAt = now;
+	}
 
 	protected StudentProfile() {
 	}

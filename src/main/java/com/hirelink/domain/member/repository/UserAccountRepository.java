@@ -19,6 +19,7 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
 	Optional<UserAccount> findByIdForUpdate(@Param("id") Long id);
 	java.util.List<UserAccount> findTop20ByWithdrawalRequestedAtBeforeAndWithdrawalFinalizedAtIsNullOrderByWithdrawalRequestedAt(java.time.Instant deadline);
 	boolean existsByEmail(String email);
-	boolean existsByPhoneNumber(String phoneNumber);
-	boolean existsByPhoneNumberAndIdNot(String phoneNumber, Long id);
+	boolean existsByPhoneNumberAndWithdrawalFinalizedAtIsNull(String phoneNumber);
+	boolean existsByPhoneNumberAndIdNotAndWithdrawalFinalizedAtIsNull(String phoneNumber, Long id);
+	java.util.List<UserAccount> findTop20ByWithdrawalRetainUntilLessThanEqualAndRetainedDataPurgedAtIsNullOrderByWithdrawalRetainUntil(java.time.Instant now);
 }
