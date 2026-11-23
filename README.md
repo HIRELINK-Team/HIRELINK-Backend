@@ -54,7 +54,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 | Method | Endpoint | 설명 | 인증 |
 | --- | --- | --- | --- |
 | `POST` | `/api/auth/signup` | 개발용 LOCAL 이메일 회원가입 (`LOCAL_LOGIN_ENABLED=true` 필요) | 불필요 |
-| `POST` | `/api/auth/login` | 개발용 LOCAL 이메일 로그인 (`LOCAL_LOGIN_ENABLED=true` 필요) | 불필요 |
+| `POST` | `/api/auth/login` | 개발용 LOCAL 또는 지정 QA 계정 이메일 로그인 | 불필요 |
 | `GET` | `/api/auth/csrf` | 쿠키 인증 요청용 CSRF 보안 확인값 조회 | 불필요 |
 | `POST` | `/api/auth/refresh` | Access Token 재발급 | Refresh Token 쿠키 및 CSRF 확인값 |
 | `POST` | `/api/auth/logout` | 현재 로그인 종료 | CSRF 확인값 필수, Refresh Token 쿠키 선택 |
@@ -65,8 +65,9 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 | `POST` | `/api/auth/phone-verifications` | 휴대전화 인증번호 요청 | Access Token |
 | `POST` | `/api/auth/phone-verifications/verify` | 휴대전화 인증번호 확인 | Access Token |
 
-- 실제 서비스는 Google/Kakao 소셜 로그인을 사용합니다. LOCAL 가입·로그인은 기본 비활성화이며 개발 환경에서만 `LOCAL_LOGIN_ENABLED=true`로 활성화합니다. 비활성화 상태의 유효한 요청은 기존 계정 유무·비밀번호와 관계없이 `403 FORBIDDEN` (`접근 권한이 없습니다.`)을 반환하며 계정·Refresh Token을 생성하지 않습니다. 요청 형식 검증 오류는 기존처럼 `400`입니다.
-- 배포용 `compose.deploy.yaml`은 `LOCAL_LOGIN_ENABLED=false`를 명시해 개발용 환경 파일의 값을 덮어씁니다. 다른 배포 방식에서도 LOCAL 인증을 활성화하지 않습니다. 소셜 로그인 설정(`SOCIAL_LOGIN_ENABLED`와 제공자 인증 정보)은 별도로 필요합니다.
+- 일반 회원은 Google/Kakao 소셜 로그인을 사용합니다. LOCAL 가입·로그인은 기본 비활성화이며 개발 환경에서만 `LOCAL_LOGIN_ENABLED=true`로 활성화합니다. 비활성화 상태의 회원가입과 QA 허용 목록에 없는 이메일 로그인은 기존 계정 유무·비밀번호와 관계없이 `403 FORBIDDEN` (`접근 권한이 없습니다.`)을 반환합니다. 요청 형식 검증 오류는 기존처럼 `400`입니다.
+- QA에 사용할 기존 LOCAL 계정만 `QA_LOGIN_ALLOWED_EMAILS`에 쉼표로 구분해 설정하면 비활성화 상태에서도 `/api/auth/login`을 사용할 수 있습니다. 기본값은 빈 목록이며 이메일은 앞뒤 공백 제거·소문자 변환 후 정확히 비교합니다. 와일드카드나 도메인 단위 허용은 지원하지 않습니다. 기존 비밀번호·탈퇴 여부 검증, 회원 유형별 권한, 로그인 세션·재발급·로그아웃은 그대로 적용합니다. 계정 생성·비밀번호 재설정·관리자 권한 부여는 수행하지 않습니다.
+- 배포용 `compose.deploy.yaml`은 `LOCAL_LOGIN_ENABLED=false`를 명시해 개발용 환경 파일의 값을 덮어씁니다. QA 허용 목록은 서버의 비공개 `backend.env`에 설정하고 백엔드 컨테이너를 재생성하여 적용합니다. 소셜 로그인 설정(`SOCIAL_LOGIN_ENABLED`와 제공자 인증 정보)은 별도로 필요합니다. 상세 절차는 [QA 계정 로그인](docs/api/qa-login.md)을 참고하세요.
 - 공통 CSRF·토큰 재발급·로그아웃은 LOCAL 활성화 설정의 영향을 받지 않습니다. 기존 계정·이미 발급된 토큰의 삭제나 일괄 무효화는 수행하지 않습니다. DB 구조 변경이 없어 이 제한을 위한 새 Flyway 마이그레이션은 없습니다.
 - 이메일은 앞뒤 공백 제거 후 소문자로 정규화합니다.
 - 가입 역할은 `STUDENT`, `EMPLOYER`만 허용합니다.
@@ -100,7 +101,7 @@ Authorization: Bearer <Access Token>
 
 ### 소셜 가입 휴대전화 인증 및 계정 생성 API
 
-LOCAL 이메일 가입·로그인은 개발용 활성화 설정을 따르며, 기존 로그인 회원용 휴대전화 인증 API는 유지합니다.
+LOCAL 이메일 가입·로그인은 개발용 활성화 설정을 따르며, 지정 QA 계정은 로그인만 예외 허용합니다. 기존 로그인 회원용 휴대전화 인증 API는 유지합니다.
 
 1. 소셜 인증 결과가 `SIGNUP_REQUIRED`이면 약관 조회·동의 후 `POST /api/auth/social/phone-verifications`에 `{"phoneNumber":"010-0000-0000"}`을 보냅니다. 성공 응답은 `200`, `{"expiresIn":300,"message":"인증번호가 전송되었습니다."}`입니다.
 2. `POST /api/auth/social/phone-verifications/verify`에 `{"phoneNumber":"010-0000-0000","code":"012345"}`를 보냅니다. 가입 정보·필수 동의·인증번호를 다시 확인한 후 전체 회원의 전화번호 중복을 검사합니다.
@@ -820,6 +821,7 @@ Gradle은 저장소의 Wrapper를 사용하므로 별도 설치가 필요하지 
 | `JWT_SECRET` | 필수 | JWT HS256 서명 키. 32바이트 이상 난수를 Base64로 인코딩해 사용 |
 | `AUTH_COOKIE_SECURE` | 선택 | 기본값 `true`. 로컬 HTTP 테스트에서만 `false` 사용 |
 | `LOCAL_LOGIN_ENABLED` | 선택 | 기본값 `false`. 개발 환경에서 LOCAL 회원가입·로그인이 필요할 때만 `true`. 배포용 Compose에서는 `false`로 고정 |
+| `QA_LOGIN_ALLOWED_EMAILS` | 선택 | 기본값 빈 목록. LOCAL 인증 비활성화 시에도 로그인할 기존 QA 계정 이메일을 쉼표로 구분. 비밀번호 검증 필수, 회원가입에는 적용하지 않음 |
 | `SUPABASE_URL` | 사진 조회 시 필수 | Supabase 프로젝트의 HTTPS 기본 URL |
 | `SUPABASE_SECRET_KEY` | 사진 조회 시 필수 | 서버 전용 Secret key. 프론트엔드·소스 코드에 포함 금지 |
 | `SUPABASE_STORAGE_BUCKET` | 선택 | 기본값 `profile-images`. 실제 비공개 버킷 이름 |
