@@ -88,11 +88,11 @@ Authorization: Bearer <Access Token>
 ### 소셜 가입 약관 API
 
 - 소셜 인증 결과가 `SIGNUP_REQUIRED`인 신규 회원은 `GET /api/auth/social/terms`로 약관을 조회합니다. `socialSignup` HttpOnly 쿠키가 필요하며 응답은 `terms` 목록입니다.
-- 각 항목은 `termTypeId`, `termTypeName`, `isRequired`, `isAgreed`, `agreedAt`을 반환합니다. 아직 동의하지 않았다면 `isAgreed=false`, `agreedAt=null`입니다. 약관 ID를 고정하지 않고 조회 응답의 ID를 사용합니다.
+- 각 항목은 `termTypeId`, `termTypeName`, `isRequired`, `isAgreed`, `agreedAt`, `currentVersion`, `agreedVersion`을 반환합니다. 아직 동의하지 않았다면 `isAgreed=false`, `agreedAt=null`입니다. 약관 ID를 고정하지 않고 조회 응답의 ID를 사용합니다.
 - 서비스 이용약관, 개인정보 수집·이용, 개인정보 제3자 제공은 필수이며 마케팅 정보 수신은 선택입니다. 긴 약관 본문과 번역은 프론트에서 표시합니다.
-- `PUT /api/auth/social/terms`는 `{"agreements":[{"termTypeId":4,"isAgreed":true}, ...]}` 형식으로 전체 동의 상태를 전달합니다. 필수 약관은 모두 `true`여야 하며 생략한 선택 약관은 `false`로 저장합니다. 예시의 ID는 실제 조회 응답으로 대체합니다.
+- `PUT /api/auth/social/terms`는 `{"agreements":[{"termTypeId":4,"version":"v1","isAgreed":true}, ...]}` 형식으로 전체 동의 상태를 전달합니다. 필수 약관은 모두 `true`여야 하며 생략한 선택 약관은 `false`로 저장합니다. 약관 ID는 실제 조회 응답을 사용하고, 현재 본문 버전은 모두 `v1`입니다.
 - PUT 요청 전 `GET /api/auth/csrf`에서 받은 `token`을 `X-XSRF-TOKEN` 헤더에 넣고, 브라우저 쿠키도 함께 전송합니다. Access Token은 사용하지 않습니다.
-- 성공하면 `200`과 조회와 같은 응답을 반환합니다. 같은 동의를 다시 저장하면 기존 동의 시각을 유지하며, 미동의로 변경하면 시각을 지웁니다.
+- 성공하면 `200`과 조회와 같은 응답을 반환합니다. 같은 버전의 동의를 다시 저장하면 기존 동의 시각을 유지하며, 미동의로 변경하면 시각을 지웁니다.
 - 동의 내역은 가입 진행 정보에 임시 보관합니다. 약관 API만으로 회원 계정이나 `user_term_agreement` 기록을 생성하지 않습니다. 가입용 휴대전화 인증 완료 API에서 계정과 정식 동의 기록을 함께 저장합니다.
 - 조회·저장은 소셜 인증에서 정한 30분 만료 시각을 연장하지 않습니다. 만료 즉시 요청을 거절하고, 만료된 가입 진행 정보와 동의 내역은 주기적으로 삭제합니다.
 - 오류는 잘못된 입력·필수 동의 누락 `400`, 가입 진행 정보 누락·만료 `401`, CSRF 또는 회원 유형·상태 오류 `403`, 가입용이 아닌 약관·없는 약관 `404`, 이미 가입된 소셜 계정 `409`, 소셜 로그인 비활성화 `503`입니다.
@@ -243,25 +243,19 @@ smsSender.send(new SmsSendRequest(
 `PUT /api/users/me/term-agreements`는 Access Token으로 식별한 회원의 동의 상태를 저장합니다.
 `userId`는 요청 본문으로 받지 않으며, `STUDENT`와 `EMPLOYER`가 같은 API를 사용합니다.
 
-현재 등록된 약관 종류는 다음과 같습니다.
-
-| termTypeId | 약관 이름 |
-| --- | --- |
-| 1 | 이용약관 |
-| 2 | 개인정보처리방침 |
-| 3 | 광고성 정보 수신 |
+`GET /api/users/me/term-agreements`에서 약관 종류·필수 여부·현재 본문 버전과 본인의 동의 기록을 조회합니다. 약관 ID는 조회 응답을 사용하고, 현재 본문 버전은 모두 `v1`입니다. V38이 미설정 현재 버전을 초기화하며 과거 동의 기록은 변경하지 않습니다.
 
 ```json
 {
   "agreements": [
-    { "termTypeId": 1, "isAgreed": true },
-    { "termTypeId": 2, "isAgreed": true },
-    { "termTypeId": 3, "isAgreed": false }
+    { "termTypeId": 1, "version": "v1", "isAgreed": true },
+    { "termTypeId": 2, "version": "v1", "isAgreed": true },
+    { "termTypeId": 3, "version": "v1", "isAgreed": false }
   ]
 }
 ```
 
-성공 시 `200 OK`와 `agreements` 배열을 반환합니다. 각 항목에는 `termTypeId`, `isAgreed`, `agreedAt`이 포함됩니다.
+성공 시 `200 OK`와 `agreements` 배열을 반환합니다. 각 항목에는 `termTypeId`, `isAgreed`, `agreedAt`, `agreedVersion`이 포함됩니다.
 
 - 새로 동의하거나 미동의에서 동의로 바꾸면 현재 시각을 저장합니다. 같은 동의를 반복하면 기존 시각을 유지합니다.
 - 미동의(`false`)는 `agreedAt: null`로 저장합니다.
@@ -269,7 +263,7 @@ smsSender.send(new SmsSendRequest(
 - 한 요청의 모든 항목을 하나의 트랜잭션으로 저장합니다. 오류가 발생하면 전체 변경을 취소합니다.
 - 필수값 누락·잘못된 형식·중복된 약관 ID는 `400 INVALID_INPUT`, 없는 약관 ID는 `404 TERM_TYPE_NOT_FOUND`입니다.
 - 로그인 필요 `401`, 탈퇴 계정 `403`, 예상하지 못한 서버 오류 `500`은 기존 공통 오류 형식을 사용합니다.
-- 이번 범위는 동의 상태 저장입니다. 필수 동의 검사, 역할별 약관 제한, 약관 내용·버전 관리는 포함하지 않습니다. 화면의 전체 동의 선택 여부는 별도로 저장하지 않습니다.
+- 본문·번역은 프론트에서 관리하고, 백엔드는 실제 표시한 본문의 버전을 저장합니다. 버전 미설정은 503, 불일치 및 기존 동의의 다른 버전 덮어쓰기는 409입니다. 개정 약관 재동의는 제공하지 않습니다. [약관 v1 연동 계약](docs/api/term-agreement-versions.md)을 참고합니다.
 - 약관 종류가 추가되면 기존 ID를 유지하고 새 Flyway 파일로 데이터를 추가합니다.
 
 ### 사업주 프로필 등록 API

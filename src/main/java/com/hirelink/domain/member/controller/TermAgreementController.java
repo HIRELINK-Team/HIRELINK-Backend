@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.hirelink.domain.member.dto.TermAgreementOverviewResponse;
 import com.hirelink.domain.member.dto.TermAgreementRequest;
 import com.hirelink.domain.member.dto.LocationConsentResponse;
 import com.hirelink.domain.member.dto.TermAgreementResponse;
@@ -38,11 +39,24 @@ public class TermAgreementController {
 		this.termAgreementService = termAgreementService;
 	}
 
-	@Operation(summary = "내 위치 약관 동의 상태 조회", description = "계정 생성 후 온보딩과 마이페이지에서 같은 로그인 회원의 동의를 조회한다. GPS를 사용하려 할 때 isAgreed=false이면 프론트가 위치 약관 동의를 받고, 반환된 termTypeId와 isAgreed=true를 기존 PUT /api/users/me/term-agreements에 보낸다. true이면 약관 동의창을 반복 표시하지 않는다. 주소 직접 입력은 동의 없이 진행하며 위치 약관은 계정 생성 전 필수 가입 약관 목록에 포함되지 않는다. 미저장은 false/agreedAt=null이며 조회로 동의 기록을 생성하거나 시각을 변경하지 않는다. 약관 본문·번역·기기 위치 권한·GPS 실행은 프론트에서 처리하며 이 API는 좌표를 받거나 저장하지 않는다. 유학생·사업주·LOCAL 회원이 본인의 동의만 조회하며 온보딩 완료나 등록증 인증을 요구하지 않는다. 가입 진행 쿠키만으로는 호출할 수 없다.")
+	@GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+	@Operation(summary = "내 약관 동의 기록과 현재 버전 조회", description = "약관 종류·필수 여부·현재 본문 버전과 본인의 동의 여부·시각·버전을 구분하여 반환한다. 본문은 프론트에서 제공한다. 개정된 본문을 읽어도 기존 동의 기록은 변경하지 않는다. 기존 버전 미기록은 agreedVersion=null이며 미동의라는 뜻이 아니다. 본문 버전 미설정은 currentVersion=null이다.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "현재 메타데이터와 기존 동의 기록", content = @Content(mediaType = "application/json", schema = @Schema(implementation = TermAgreementOverviewResponse.class), examples = @ExampleObject(name = "success", value = "{\"terms\":[{\"termTypeId\":4,\"termTypeName\":\"서비스 이용약관\",\"isRequired\":true,\"currentVersion\":\"v1\",\"isAgreed\":true,\"agreedAt\":\"2026-11-01T01:00:00Z\",\"agreedVersion\":\"v1\"}]}"))),
+		@ApiResponse(responseCode = "401", description = "로그인 필요", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "UNAUTHORIZED", value = "{\"code\":\"UNAUTHORIZED\",\"message\":\"유효한 인증 정보가 필요합니다.\"}"))),
+		@ApiResponse(responseCode = "403", description = "탈퇴한 계정", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "WITHDRAWN_ACCOUNT", value = "{\"code\":\"WITHDRAWN_ACCOUNT\",\"message\":\"탈퇴한 계정입니다.\"}"))),
+		@ApiResponse(responseCode = "500", description = "서버 오류", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "INTERNAL_SERVER_ERROR", value = "{\"code\":\"INTERNAL_SERVER_ERROR\",\"message\":\"서버 오류가 발생했습니다.\"}")))
+	})
+	public ResponseEntity<TermAgreementOverviewResponse> getAgreements(@AuthenticationPrincipal Jwt jwt) {
+		return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store")
+				.body(termAgreementService.getAgreements(Long.valueOf(jwt.getSubject())));
+	}
+
+	@Operation(summary = "내 위치 약관 동의 상태 조회", description = "계정 생성 후 온보딩과 마이페이지에서 같은 로그인 회원의 동의를 조회한다. GPS를 사용하려 할 때 isAgreed=false이면 프론트가 위치 약관 동의를 받고, 반환된 termTypeId와 실제 표시한 본문 version 및 isAgreed=true를 기존 PUT /api/users/me/term-agreements에 보낸다. true이면 약관 동의창을 반복 표시하지 않는다. 주소 직접 입력은 동의 없이 진행하며 위치 약관은 계정 생성 전 필수 가입 약관 목록에 포함되지 않는다. 미저장은 false/agreedAt=null이며 조회로 동의 기록을 생성하거나 시각을 변경하지 않는다. 약관 본문·번역·기기 위치 권한·GPS 실행은 프론트에서 처리하며 이 API는 좌표를 받거나 저장하지 않는다. 유학생·사업주·LOCAL 회원이 본인의 동의만 조회하며 온보딩 완료나 등록증 인증을 요구하지 않는다. 가입 진행 쿠키만으로는 호출할 수 없다.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "본인의 위치 약관 동의 상태", content = @Content(mediaType = "application/json", schema = @Schema(implementation = LocationConsentResponse.class), examples = {
-			@ExampleObject(name = "notAgreed", value = "{\"termTypeId\":9,\"termTypeName\":\"위치기반 서비스 이용약관\",\"isAgreed\":false,\"agreedAt\":null}"),
-			@ExampleObject(name = "agreed", value = "{\"termTypeId\":9,\"termTypeName\":\"위치기반 서비스 이용약관\",\"isAgreed\":true,\"agreedAt\":\"2026-11-20T05:00:00Z\"}") })),
+			@ExampleObject(name = "notAgreed", value = "{\"termTypeId\":9,\"termTypeName\":\"위치기반 서비스 이용약관\",\"isAgreed\":false,\"agreedAt\":null,\"agreedVersion\":null,\"currentVersion\":\"v1\"}"),
+			@ExampleObject(name = "agreed", value = "{\"termTypeId\":9,\"termTypeName\":\"위치기반 서비스 이용약관\",\"isAgreed\":true,\"agreedAt\":\"2026-11-20T05:00:00Z\",\"agreedVersion\":\"v1\",\"currentVersion\":\"v1\"}") })),
 		@ApiResponse(responseCode = "401", description = "유효한 로그인 없음 또는 회원 없음", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(value = "{\"code\":\"UNAUTHORIZED\",\"message\":\"유효한 인증 정보가 필요합니다.\"}"))),
 		@ApiResponse(responseCode = "403", description = "탈퇴한 회원", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(value = "{\"code\":\"WITHDRAWN_ACCOUNT\",\"message\":\"탈퇴한 계정입니다.\"}"))),
 		@ApiResponse(responseCode = "404", description = "위치 약관 항목 없음", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(value = "{\"code\":\"TERM_TYPE_NOT_FOUND\",\"message\":\"존재하지 않는 약관 유형입니다.\"}"))),
@@ -55,11 +69,11 @@ public class TermAgreementController {
 	}
 
 	@Operation(summary = "약관 동의 저장",
-			description = "로그인 회원의 요청에 포함된 약관만 저장·갱신하고 해당 목록을 요청 순서로 반환한다. 미전송 약관은 유지한다. true를 다시 보내면 기존 동의 시각을 유지하고 false이면 agreedAt=null, false에서 true이면 현재 시각을 기록한다. 빈 목록은 허용한다. 중복 ID는 400, 없는 약관 ID는 404이며 요청 전체가 함께 반영된다. 필수 동의·역할별 제한은 검사하지 않는다. 위치 약관은 GET /api/users/me/term-agreements/location에서 받은 termTypeId로 저장한다. 온보딩·마이페이지가 같은 기록을 사용하며 GPS 이용 전 동의창 표시와 기기 권한 처리는 프론트가 담당한다.")
+			description = "로그인 회원의 요청에 포함된 약관만 저장·갱신하고 해당 목록을 요청 순서로 반환한다. 미전송 약관은 유지한다. true를 다시 보내면 기존 동의 시각을 유지하고 false이면 agreedAt=null, false에서 true이면 현재 시각을 기록한다. 빈 목록은 허용한다. 중복 ID는 400, 없는 약관 ID는 404이며 요청 전체가 함께 반영된다. 필수 동의·역할별 제한은 검사하지 않는다. version은 실제 표시한 본문 버전으로 필수이며 현재 버전과 다르면 409 TERM_VERSION_MISMATCH, 현재 버전 미설정은 503 TERM_VERSION_UNAVAILABLE이다. 이미 동의한 기록을 다른 버전으로 덮어쓰거나 기존 미기록 버전에 이름을 붙이면 409 TERM_RECONSENT_NOT_SUPPORTED이다. 위치 약관은 GET /api/users/me/term-agreements/location에서 받은 termTypeId로 저장한다. 온보딩·마이페이지가 같은 기록을 사용하며 GPS 이용 전 동의창 표시와 기기 권한 처리는 프론트가 담당한다.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = TermAgreementResponse.class),
-						examples = @ExampleObject(name = "success", value = "{\"agreements\":[{\"termTypeId\":1,\"isAgreed\":true,\"agreedAt\":\"2026-11-01T01:00:00Z\"},{\"termTypeId\":3,\"isAgreed\":false,\"agreedAt\":null}]}"))),
+						examples = @ExampleObject(name = "success", value = "{\"agreements\":[{\"termTypeId\":1,\"isAgreed\":true,\"agreedAt\":\"2026-11-01T01:00:00Z\",\"agreedVersion\":\"v1\"},{\"termTypeId\":3,\"isAgreed\":false,\"agreedAt\":null,\"agreedVersion\":\"v1\"}]}"))),
 		@ApiResponse(responseCode = "400", description = "입력 형식 또는 값 오류",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {
@@ -81,6 +95,8 @@ public class TermAgreementController {
 						examples = {
 							@ExampleObject(name = "TERM_TYPE_NOT_FOUND", value = "{\"code\":\"TERM_TYPE_NOT_FOUND\",\"message\":\"존재하지 않는 약관 유형입니다.\"}")
 						})),
+		@ApiResponse(responseCode = "409", description = "TERM_VERSION_MISMATCH / TERM_RECONSENT_NOT_SUPPORTED", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "TERM_VERSION_MISMATCH", value = "{\"code\":\"TERM_VERSION_MISMATCH\",\"message\":\"현재 약관 본문을 확인한 후 다시 동의해주세요.\"}"))),
+		@ApiResponse(responseCode = "503", description = "TERM_VERSION_UNAVAILABLE", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "TERM_VERSION_UNAVAILABLE", value = "{\"code\":\"TERM_VERSION_UNAVAILABLE\",\"message\":\"약관 버전이 아직 준비되지 않았습니다.\"}"))),
 		@ApiResponse(responseCode = "500", description = "예상하지 못한 서버 오류",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {

@@ -1,6 +1,7 @@
 package com.hirelink.domain.auth.entity;
 
 import java.time.Instant;
+import java.util.Objects;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
@@ -14,6 +15,9 @@ public class SocialSignupAgreement {
 	@Column(name = "is_agreed", nullable = false)
 	private boolean agreed;
 
+	@Column(name = "term_version", length = 64)
+	private String termVersion;
+
 	@Column(name = "agreed_at")
 	private Instant agreedAt;
 
@@ -24,15 +28,17 @@ public class SocialSignupAgreement {
 		this.termTypeId = termTypeId;
 	}
 
-	public void update(boolean agreed, Instant now) {
-		if (agreed && !this.agreed) {
+	public void update(boolean agreed, Instant now, String version) {
+		if (agreed && (!this.agreed || !Objects.equals(termVersion, version))) {
 			this.agreedAt = now;
 		} else if (!agreed) {
 			this.agreedAt = null;
 		}
 		this.agreed = agreed;
+		this.termVersion = version;
 	}
 
+	public String getTermVersion() { return termVersion; }
 	public Long getTermTypeId() { return termTypeId; }
 	public boolean isAgreed() { return agreed; }
 	public Instant getAgreedAt() { return agreedAt; }

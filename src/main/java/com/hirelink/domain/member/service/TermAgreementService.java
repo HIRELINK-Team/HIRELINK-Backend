@@ -7,6 +7,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.springframework.data.domain.Sort;
+import org.springframework.transaction.annotation.Isolation;
+import com.hirelink.domain.member.dto.TermAgreementOverviewResponse;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +42,20 @@ public class TermAgreementService {
 		this.agreementRepository = agreementRepository;
 	}
 
+	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+	public TermAgreementOverviewResponse getAgreements(Long userId) {
+		var user = userAccountRepository.findById(userId)
+				.orElseThrow(() -> new AuthenticationCredentialsNotFoundException("로그인이 필요합니다."));
+		if (user.isWithdrawn()) { throw new WithdrawnAccountException(); }
+		var terms = termTypeRepository.findAll(Sort.by("id")).stream().map(term -> {
+			var agreement = agreementRepository.findById(new UserTermAgreementId(userId, term.getId())).orElse(null);
+			return new TermAgreementOverviewResponse.Term(term.getId(), term.getTermTypeName(),
+					term.isRequired(), term.getCurrentVersion(), agreement != null && agreement.isAgreed(),
+					agreement == null ? null : agreement.getAgreedAt(), agreement == null ? null : agreement.getTermVersion());
+		}).toList();
+		return new TermAgreementOverviewResponse(terms);
+	}
+
 	@Transactional(readOnly = true)
 	public LocationConsentResponse getLocationConsent(Long userId) {
 		UserAccount user = userAccountRepository.findById(userId)
@@ -48,7 +65,7 @@ public class TermAgreementService {
 				.orElseThrow(TermTypeNotFoundException::new);
 		UserTermAgreement agreement = agreementRepository.findById(new UserTermAgreementId(userId, term.getId())).orElse(null);
 		return new LocationConsentResponse(term.getId(), term.getTermTypeName(),
-				agreement != null && agreement.isAgreed(), agreement == null ? null : agreement.getAgreedAt());
+				agreement != null && agreement.isAgreed(), agreement == null ? null : agreement.getAgreedAt(), term.getCurrentVersion(), agreement == null ? null : agreement.getTermVersion());
 	}
 
 	@Transactional
@@ -77,10 +94,13 @@ public class TermAgreementService {
 			UserTermAgreementId id = new UserTermAgreementId(userId, item.termTypeId());
 			UserTermAgreement agreement = agreementRepository.findById(id)
 					.orElseGet(() -> new UserTermAgreement(id));
-			agreement.updateAgreement(item.isAgreed(), now);
+			var term = termTypeRepository.findById(item.termTypeId()).orElseThrow(TermTypeNotFoundException::new);
+			TermVersionPolicy.requireCurrent(term, item.version());
+			TermVersionPolicy.preserveExistingConsent(agreement, item.version());
+			agreement.updateAgreement(item.isAgreed(), now, item.version());
 			agreementRepository.save(agreement);
 			savedAgreements.add(new TermAgreementResponse.Agreement(
-					item.termTypeId(), agreement.isAgreed(), agreement.getAgreedAt()));
+					item.termTypeId(), agreement.isAgreed(), agreement.getAgreedAt(), agreement.getTermVersion()));
 		}
 		return new TermAgreementResponse(savedAgreements);
 	}

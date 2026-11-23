@@ -80,7 +80,7 @@ public class SocialAuthSession {
 	public void saveBirthDate(LocalDate birthDate) { this.birthDate = birthDate; }
 	public List<SocialSignupAgreement> getAgreements() { return List.copyOf(agreements); }
 
-	public void saveAgreement(Long termTypeId, boolean agreed, Instant now) {
+	public void saveAgreement(Long termTypeId, boolean agreed, Instant now, String version) {
 		SocialSignupAgreement agreement = agreements.stream()
 				.filter(item -> item.getTermTypeId().equals(termTypeId))
 				.findFirst().orElseGet(() -> {
@@ -88,6 +88,6 @@ public class SocialAuthSession {
 					agreements.add(item);
 					return item;
 				});
-		agreement.update(agreed, now);
+		agreement.update(agreed, now, version);
 	}
 }

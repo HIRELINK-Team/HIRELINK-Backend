@@ -18,6 +18,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -102,8 +103,12 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		}
 	}
 
+	@AfterEach
+	void resetTermVersions() { jdbc.update("update term_type set current_version='v1'"); }
+
 	@BeforeEach
 	void setup() throws Exception {
+		jdbc.update("update term_type set current_version='v1'");
 		jdbc.execute("TRUNCATE TABLE user_account, social_auth_session RESTART IDENTITY CASCADE");
 		cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
 		browser = HttpClient.newBuilder().cookieHandler(cookies).build();
@@ -266,7 +271,7 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		assertThat(terms.get(4).path("termTypeName").asString()).isEqualTo("고유식별정보 수집·이용");
 		assertThat(terms.get(4).path("isRequired").asBoolean()).isTrue();
 		List<Map<String, Object>> incomplete = jdbc.queryForList("select id from term_type where is_social_signup and is_required and not is_student_registration", Long.class)
-				.stream().map(id -> Map.<String, Object>of("termTypeId", id, "isAgreed", true)).toList();
+				.stream().map(id -> Map.<String, Object>of("termTypeId", id, "version", "v1", "isAgreed", true)).toList();
 		assertError(saveTerms(incomplete), 400, "REQUIRED_TERMS_NOT_AGREED");
 		assertThat(jdbc.queryForObject("select count(*) from social_auth_session_term_agreement", Long.class)).isZero();
 	}
@@ -931,7 +936,7 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 	void employerDoesNotRequireRegistrationWhenFeatureIsEnabled() throws Exception {
 		setSession(MemberRole.EMPLOYER);
 		List<Map<String, Object>> values = jdbc.queryForList("select id from term_type where is_social_signup and is_required and not is_student_registration", Long.class)
-				.stream().map(id -> Map.<String, Object>of("termTypeId", id, "isAgreed", true)).toList();
+				.stream().map(id -> Map.<String, Object>of("termTypeId", id, "version", "v1", "isAgreed", true)).toList();
 		assertThat(saveTerms(values).statusCode()).isEqualTo(200);
 		assertThat(phoneConfirm(sendPhoneCode()).statusCode()).isEqualTo(201);
 		assertThat(jdbc.queryForObject("select role from user_account", String.class)).isEqualTo("EMPLOYER");
@@ -1077,7 +1082,7 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 	}
 	private void agree() throws Exception {
 		List<Map<String, Object>> values = jdbc.queryForList("select id from term_type where is_social_signup and is_required", Long.class)
-				.stream().map(id -> Map.<String, Object>of("termTypeId", id, "isAgreed", true)).toList();
+				.stream().map(id -> Map.<String, Object>of("termTypeId", id, "version", "v1", "isAgreed", true)).toList();
 		HttpResponse<String> response = saveTerms(values);
 		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
 	}
