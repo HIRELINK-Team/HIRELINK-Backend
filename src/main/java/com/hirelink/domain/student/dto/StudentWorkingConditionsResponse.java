@@ -7,7 +7,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 public record StudentWorkingConditionsResponse(
     BasicInformation basicInformation,
-    @Schema(description = "한국 날짜 기준 조회일") LocalDate calculatedOn,
+    @Schema(description = "저장된 근무 가능 조건을 계산한 한국 날짜") LocalDate calculatedOn,
     @Schema(description = "이번 판정에 적용한 인증대학 목록의 시작일") LocalDate accreditationEffectiveFrom,
     WorkingTimeEstimate estimate,
     @Schema(description = "예상 기준과 실제 허가를 구분하는 안내") String notice) {
