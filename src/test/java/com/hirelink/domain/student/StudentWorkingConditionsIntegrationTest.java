@@ -62,6 +62,7 @@ class StudentWorkingConditionsIntegrationTest extends PostgreSQLIntegrationTest 
 
     @BeforeEach void setup() {
         jdbc.execute("TRUNCATE TABLE user_account, student_document_cleanup RESTART IDENTITY CASCADE");
+        jdbc.execute("INSERT INTO study_program(program_name) VALUES ('전문학사'),('학사'),('석사'),('박사'),('교환학생') ON CONFLICT (program_name) DO NOTHING");
         reset(academicOcr,enrollmentOcr,registrationOcr,apick,storage);
         today=LocalDate.now(ZoneId.of("Asia/Seoul")); user=student("STUDENT");
         ready(user);
