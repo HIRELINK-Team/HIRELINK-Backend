@@ -12,7 +12,7 @@ def extract_transcript(pages):
     text = normalized(pages)
     if not re.search(r"성\s*적\s*증\s*명\s*서|academic\s+transcript|transcript\s+of", text, re.I):
         raise UnreadableDocument()
-    headers = list(re.finditer(r"(?<!\d)(20\d{2}|19\d{2})\s*(?:학년도|년도|년)?\s*[-./:]?\s*(1|2|여름|겨울|하계|동계)\s*(?:계절\s*)?학기", text))
+    headers = list(re.finditer(r"(?<!\d)(20\d{2}|19\d{2})\s*(?:학년도|년도|년)?\s*[-./:]?\s*(?:제\s*)?(1|2|여름|겨울|하계|동계)\s*(?:계절\s*)?학기", text))
     if not headers:
         raise UnreadableDocument()
     terms = {}
