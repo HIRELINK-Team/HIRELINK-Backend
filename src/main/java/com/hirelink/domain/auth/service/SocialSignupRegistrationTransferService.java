@@ -59,14 +59,14 @@ public class SocialSignupRegistrationTransferService {
 			}
 		}
 		return new VerifiedRegistration(field(front, "name"), field(front, "nationalityCode"), field(front, "visaCode"),
-				expiry, registration.getCardVerifiedAt(), documentVerifiedAt, session.getBirthDate());
+				expiry, registration.getCardVerifiedAt(), documentVerifiedAt);
 	}
 
 	void save(UserAccount user, VerifiedRegistration registration, Instant registeredAt) {
 		if (registration == null) { return; }
 		user.updateName(registration.name());
 		verifiedRegistrations.saveAndFlush(new StudentRegistrationVerification(user, registration.nationality(),
-				registration.visaCode(), registration.expiry(), registration.cardVerifiedAt(), registration.documentVerifiedAt(), registeredAt, registration.birthDate()));
+				registration.visaCode(), registration.expiry(), registration.cardVerifiedAt(), registration.documentVerifiedAt(), registeredAt, null));
 	}
 
 	private String field(JsonNode front, String name) {
@@ -79,7 +79,7 @@ public class SocialSignupRegistrationTransferService {
 	}
 
 	record VerifiedRegistration(String name, String nationality, String visaCode, LocalDate expiry,
-			Instant cardVerifiedAt, Instant documentVerifiedAt, LocalDate birthDate) {
+			Instant cardVerifiedAt, Instant documentVerifiedAt) {
 		@Override public String toString() { return "VerifiedRegistration[redacted]"; }
 	}
 }

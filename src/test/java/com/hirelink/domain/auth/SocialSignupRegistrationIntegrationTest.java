@@ -670,97 +670,58 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 	}
 
 	@Test
-	void birthDateBlocksPhoneBeforeAgeCheckAndAcceptsEighteenthBirthdayWithoutExtendingSession() throws Exception {
+	void phoneSignupDoesNotRequireOrTransferBirthDate() throws Exception {
 		agree();
 		assertThat(upload("front").statusCode()).isEqualTo(200);
 		assertThat(upload("back").statusCode()).isEqualTo(200);
 		Object expires = jdbc.queryForObject("select expires_at from social_auth_session", Object.class);
-		assertError(phoneRequest(), 409, "BIRTH_DATE_REQUIRED");
-		assertError(phoneConfirm("123456"), 409, "BIRTH_DATE_REQUIRED");
-		assertError(saveBirthDate(today.minusYears(18).plusDays(1)), 422, "AGE_REQUIREMENT_NOT_MET");
-		assertError(saveBirthDate(today.plusDays(1)), 422, "AGE_REQUIREMENT_NOT_MET");
+		String code = sendPhoneCode();
 		assertThat(jdbc.queryForObject("select birth_date from social_auth_session", LocalDate.class)).isNull();
-		assertThat(users.count()).isZero();
-		assertThat(count("phone_verification_send_attempt")).isZero();
-		verifyNoInteractions(smsSender);
-		HttpResponse<String> saved = saveBirthDate(today.minusYears(18));
-		assertThat(saved.statusCode()).as(saved.body()).isEqualTo(200);
-		assertThat(saved.headers().firstValue("Cache-Control")).contains("no-store");
-		assertThat(JSON.readTree(saved.body()).path("ageVerified").asBoolean()).isTrue();
 		assertThat(jdbc.queryForObject("select expires_at from social_auth_session", Object.class)).isEqualTo(expires);
-		assertThat(phoneConfirm(sendPhoneCode()).statusCode()).isEqualTo(201);
-		assertThat(jdbc.queryForObject("select birth_date from student_registration_verification", LocalDate.class)).isEqualTo(today.minusYears(18));
+		assertThat(users.count()).isZero();
+		assertThat(phoneConfirm(code).statusCode()).isEqualTo(201);
+		assertThat(jdbc.queryForObject("select birth_date from student_registration_verification", LocalDate.class)).isNull();
+		assertThat(count("student_profile")).isZero();
 		assertThat(count("social_auth_session")).isZero();
 	}
 
 	@Test
-	void birthDateRequiresConsentRegistrationPdfSessionAndCsrf() throws Exception {
-		assertError(saveBirthDate(today.minusYears(20)), 400, "REQUIRED_TERMS_NOT_AGREED");
-		agree();
-		assertError(saveBirthDate(today.minusYears(20)), 409, "REGISTRATION_VERIFICATION_REQUIRED");
-		preparePdf();
-		assertError(saveBirthDate(today.minusYears(20)), 409, "STAY_DOCUMENT_REQUIRED");
-		when(ocr.recognizeStayDocument(any())).thenReturn(pdfResult(NUMBER, today));
-		assertThat(uploadPdf().statusCode()).isEqualTo(200);
-		String body = "{\"birthDate\":\"2000-05-14\"}";
+	void retiredBirthDateEndpointKeepsSessionAndCsrfChecksWithoutSaving() throws Exception {
+		Object expires = jdbc.queryForObject("select expires_at from social_auth_session", Object.class);
+		assertError(saveBirthDate(today.minusYears(20)), 400, "INVALID_INPUT");
+		assertThat(jdbc.queryForObject("select birth_date from social_auth_session", LocalDate.class)).isNull();
+		assertThat(jdbc.queryForObject("select expires_at from social_auth_session", Object.class)).isEqualTo(expires);
 		HttpRequest noCsrf = HttpRequest.newBuilder(uri("/api/auth/social/birth-date"))
 				.header("Content-Type", "application/json").header("Authorization", "Bearer ignored")
-				.PUT(HttpRequest.BodyPublishers.ofString(body)).build();
+				.PUT(HttpRequest.BodyPublishers.ofString("{\"birthDate\":\"2000-05-14\"}")).build();
 		assertError(send(noCsrf), 403, "INVALID_CSRF_TOKEN");
-		assertThat(saveBirthDate(today.minusYears(20)).statusCode()).isEqualTo(200);
 		jdbc.update("update social_auth_session set expires_at = now() - interval '1 second'");
 		assertError(saveBirthDate(today.minusYears(20)), 401, "INVALID_SOCIAL_SESSION");
 		setSession(MemberRole.EMPLOYER);
 		assertError(saveBirthDate(today.minusYears(20)), 403, "FORBIDDEN");
-		cookies.getCookieStore().getCookies().stream().filter(c -> c.getName().equals("socialSignup"))
-				.toList().forEach(c -> cookies.getCookieStore().remove(uri("/"), c));
-		assertError(saveBirthDate(today.minusYears(20)), 401, "INVALID_SOCIAL_SESSION");
 		assertThat(users.count()).isZero();
 		verifyNoInteractions(smsSender);
 	}
 
 	@Test
-	void birthDateRejectsMalformedInputAndDoesNotOverwriteAcceptedDate() throws Exception {
+	void ignoresLegacySessionBirthDateDuringPhoneSignup() throws Exception {
 		agree();
 		assertThat(upload("front").statusCode()).isEqualTo(200);
 		assertThat(upload("back").statusCode()).isEqualTo(200);
-		assertThat(saveBirthDate(LocalDate.of(2000, 5, 14)).statusCode()).isEqualTo(200);
-		for (String body : List.of("{}", "{\"birthDate\":null}", "{\"birthDate\":20000514}",
-				"{\"birthDate\":\"2000-02-30\"}", "{\"birthDate\":\"2000-5-14\"}",
-				"{\"birthDate\":\"2000-05-14\",\"userId\":1}")) {
-			assertError(send(birthDateRequest(body)), 400, "INVALID_INPUT");
-		}
-		assertError(saveBirthDate(today.minusYears(10)), 422, "AGE_REQUIREMENT_NOT_MET");
-		assertThat(jdbc.queryForObject("select birth_date from social_auth_session", LocalDate.class)).isEqualTo(LocalDate.of(2000, 5, 14));
-		assertThat(saveBirthDate(LocalDate.of(1999, 2, 3)).statusCode()).isEqualTo(200);
-		assertThat(jdbc.queryForObject("select birth_date from social_auth_session", LocalDate.class)).isEqualTo(LocalDate.of(1999, 2, 3));
-		assertThat(users.count()).isZero();
-	}
-
-	@Test
-	void phoneConfirmationRechecksStoredBirthDateBeforeCreatingAccount() throws Exception {
-		agree();
-		assertThat(upload("front").statusCode()).isEqualTo(200);
-		assertThat(upload("back").statusCode()).isEqualTo(200);
-		String code = sendPhoneCode();
-		jdbc.update("update social_auth_session set birth_date = null");
-		assertError(phoneConfirm(code), 409, "BIRTH_DATE_REQUIRED");
 		jdbc.update("update social_auth_session set birth_date = ?", today.minusYears(10));
-		assertError(phoneRequest(), 422, "AGE_REQUIREMENT_NOT_MET");
-		assertError(phoneConfirm(code), 422, "AGE_REQUIREMENT_NOT_MET");
-		assertThat(users.count()).isZero();
-		assertThat(count("student_registration_verification")).isZero();
-		assertThat(saveBirthDate(LocalDate.of(2000, 5, 14)).statusCode()).isEqualTo(200);
-		assertThat(phoneConfirm(code).statusCode()).isEqualTo(201);
+		assertThat(phoneConfirm(sendPhoneCode()).statusCode()).isEqualTo(201);
+		assertThat(jdbc.queryForObject("select birth_date from student_registration_verification", LocalDate.class)).isNull();
+		assertThat(count("student_profile")).isZero();
 	}
 
 	@Test
-	void birthDateOpenApiDocumentsCookieSecurityAndAgeErrors() throws Exception {
+	void birthDateOpenApiDocumentsRetiredEndpointWithoutSuccessResponse() throws Exception {
 		JsonNode document = JSON.readTree(get("/v3/api-docs").body());
 		JsonNode operation = document.path("paths").path("/api/auth/social/birth-date").path("put");
+		assertThat(operation.path("deprecated").asBoolean()).isTrue();
 		assertThat(operation.path("parameters").toString()).contains("socialSignup", "X-XSRF-TOKEN", "XSRF-TOKEN");
-		assertThat(operation.path("responses").path("422").toString()).contains("AGE_REQUIREMENT_NOT_MET");
-		assertThat(document.path("components").path("schemas").path("SocialSignupBirthDateRequest").path("required").toString()).contains("birthDate");
+		assertThat(operation.path("responses").has("200")).isFalse();
+		assertThat(operation.path("responses").has("400")).isTrue();
 	}
 
 	@Test
@@ -779,12 +740,12 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		assertThat(jdbc.queryForObject("select name from user_account", String.class)).isEqualTo("TEST STUDENT");
 		assertThat(jdbc.queryForObject("select nationality from student_registration_verification", String.class)).isEqualTo("VN");
 		assertThat(jdbc.queryForObject("select visa_code from student_registration_verification", String.class)).isEqualTo("D-2");
-		assertThat(jdbc.queryForObject("select birth_date from student_registration_verification", LocalDate.class)).isEqualTo(LocalDate.of(2000, 5, 14));
+		assertThat(jdbc.queryForObject("select birth_date from student_registration_verification", LocalDate.class)).isNull();
 		String accessToken = JSON.readTree(response.body()).path("accessToken").asString();
 		HttpResponse<String> status = send(HttpRequest.newBuilder(uri("/api/users/me/onboarding"))
 				.header("Authorization", "Bearer " + accessToken).GET().build());
 		assertThat(status.statusCode()).isEqualTo(200);
-		assertThat(JSON.readTree(status.body()).path("nextStep").asString()).isEqualTo("CURRENT_REGION");
+		assertThat(JSON.readTree(status.body()).path("nextStep").asString()).isEqualTo("BASIC_INFORMATION");
 		assertThat(jdbc.queryForObject("select stay_expires_on from student_registration_verification", LocalDate.class)).isEqualTo(today);
 		assertThat(jdbc.queryForObject("select card_verified_at from student_registration_verification", Object.class)).isEqualTo(cardAt);
 		assertThat(jdbc.queryForObject("select document_verified_at from student_registration_verification", Object.class)).isNull();
@@ -938,7 +899,6 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		agree();
 		assertThat(upload("front").statusCode()).isEqualTo(200);
 		assertThat(upload("back").statusCode()).isEqualTo(200);
-		assertThat(saveBirthDate(LocalDate.of(2000, 5, 14)).statusCode()).isEqualTo(200);
 		Instant expires = Instant.now().plusSeconds(2);
 		jdbc.update("update social_auth_session set expires_at = ?", java.sql.Timestamp.from(expires));
 		delayPhoneLockUntil(expires);
@@ -1014,10 +974,6 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 		return send(phoneHttpRequest("/verify", Map.of("phoneNumber", "01000000000", "code", code)));
 	}
 	private String sendPhoneCode() throws Exception {
-		if ("STUDENT".equals(jdbc.queryForObject("select role from social_auth_session", String.class))
-				&& jdbc.queryForObject("select birth_date from social_auth_session", LocalDate.class) == null) {
-			assertThat(saveBirthDate(LocalDate.of(2000, 5, 14)).statusCode()).isEqualTo(200);
-		}
 		HttpResponse<String> response = phoneRequest();
 		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
 		ArgumentCaptor<SmsSendRequest> sent = ArgumentCaptor.forClass(SmsSendRequest.class);

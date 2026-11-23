@@ -425,7 +425,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 	@Test
 	void retiredCareerWritesWaitForTheMemberLockAndReject() throws Exception {
 		long user = verifiedStudent();
-		seedIncomplete(user);
+		assertThat(post(user, FULL_REQUEST).statusCode()).isEqualTo(200);
 		CompletableFuture<HttpResponse<String>> pending;
 		try (Connection connection = dataSource.getConnection()) {
 			connection.setAutoCommit(false);
@@ -446,29 +446,34 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
-	void usesPreservedBirthDateWithoutRequiringItInFinalRequest() throws Exception {
+	void requiresResubmittedBirthDateEvenWithLegacyStoredValue() throws Exception {
 		long user = verifiedStudent();
 		jdbc.update("update student_registration_verification set birth_date = '2000-05-14' where user_id = ?", user);
+		Map<String, Object> before = verification(user);
 		ObjectNode request = body();
 		request.remove("birthDate");
+		assertError(post(user, request.toString()), 400, "INVALID_INPUT");
+		assertNoOnboarding(user);
+		assertThat(verification(user)).isEqualTo(before);
+		request.put("birthDate", "1990-01-01");
 		HttpResponse<String> response = post(user, request.toString());
 		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
-		assertThat(jdbc.queryForObject("select birth_date from student_profile where id = ?", LocalDate.class, user)).isEqualTo(LocalDate.of(2000, 5, 14));
+		assertThat(jdbc.queryForObject("select birth_date from student_profile where id = ?", LocalDate.class, user)).isEqualTo(LocalDate.of(1990, 1, 1));
+		assertThat(verification(user)).isEqualTo(before);
 	}
 
 	@Test
-	void rejectsChangingPreservedBirthDateAndRechecksStoredAge() throws Exception {
+	void validatesNewBirthDateAndPreservesAccountWhenCompletionFails() throws Exception {
 		long user = verifiedStudent();
 		jdbc.update("update student_registration_verification set birth_date = '2000-05-14' where user_id = ?", user);
-		ObjectNode different = body();
-		different.put("birthDate", "1990-01-01");
-		assertError(post(user, different.toString()), 400, "INVALID_INPUT");
-		assertNoOnboarding(user);
-		jdbc.update("update student_registration_verification set birth_date = ? where user_id = ?", LocalDate.now(ZoneId.of("Asia/Seoul")).minusYears(10), user);
-		ObjectNode omitted = body();
-		omitted.remove("birthDate");
-		assertError(post(user, omitted.toString()), 400, "INVALID_INPUT");
-		assertNoOnboarding(user);
+		List<List<Map<String, Object>>> before = snapshot(user);
+		ObjectNode request = body();
+		LocalDate eighteenthBirthday = LocalDate.now(ZoneId.of("Asia/Seoul")).minusYears(18);
+		request.put("birthDate", eighteenthBirthday.plusDays(1).toString());
+		assertError(post(user, request.toString()), 400, "INVALID_INPUT");
+		assertThat(snapshot(user)).isEqualTo(before);
+		request.put("birthDate", eighteenthBirthday.toString());
+		assertThat(post(user, request.toString()).statusCode()).isEqualTo(200);
 	}
 
 	@Test
@@ -480,7 +485,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(operation.path("responses").has("200")).isTrue();
 		assertThat(operation.path("responses").has("409")).isTrue();
 		JsonNode schema = document.path("components").path("schemas").path("StudentOnboardingRequest");
-		assertThat(schema.path("required").toString()).contains("currentRegion", "koreanLevel", "studyProgram", "careers", "matchingPreferences").doesNotContain("birthDate");
+		assertThat(schema.path("required").toString()).contains("birthDate", "currentRegion", "koreanLevel", "studyProgram", "careers", "matchingPreferences");
 		assertThat(schema.path("properties").has("topikLevelProvided")).isFalse();
 		assertThat(schema.path("properties").path("studyProgram").path("enum").toString())
 				.contains("ASSOCIATE", "BACHELOR", "MASTER", "DOCTORATE", "EXCHANGE");

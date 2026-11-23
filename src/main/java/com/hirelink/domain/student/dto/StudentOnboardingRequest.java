@@ -19,7 +19,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
 @Schema(description = "온보딩 마지막 마치기에서 전체 정보를 한 번에 제출한다. 경력 없음은 careers=[], TOPIK은 입력받지 않고 OCR 최종 등록으로만 반영한다. 학업과정 studyProgram은 필수다. 체류자격은 서버의 등록증 코드와 선택한 학업과정으로 결정한다. 이름 · 국적 · 체류 만료일은 가입 인증 결과를 사용한다. 학교·학년·학적 상태는 입력받지 않는다.")
 public class StudentOnboardingRequest {
 
-	@Schema(description = "가입 때 생년월일을 보존한 회원은 생략한다. 보내면 저장된 값과 같아야 한다. 이전 버전에서 가입하여 날짜가 보존되지 않은 회원만 필수 입력. 한국 날짜 기준 만 18세 이상", type = "string", format = "date", example = "2000-05-14", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+	@NotNull
+	@Schema(description = "계정 생성 후 온보딩에서 입력한 생년월일. 마치기에서 필수 제출하며 한국 날짜 기준 만 18세 이상이어야 한다. 이전 입력값을 복원하지 않는다", type = "string", format = "date", example = "2000-05-14", requiredMode = Schema.RequiredMode.REQUIRED)
 	private LocalDate birthDate;
 	@NotBlank
 	@Size(max = 150)
