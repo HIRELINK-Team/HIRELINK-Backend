@@ -188,11 +188,9 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 		ObjectNode missing = body();
 		missing.remove(field);
 		assertError(post(user, missing.toString()), 400, "INVALID_INPUT");
-		if (!field.equals("topikLevel")) {
-			ObjectNode explicitNull = body();
-			explicitNull.putNull(field);
-			assertError(post(user, explicitNull.toString()), 400, "INVALID_INPUT");
-		}
+		ObjectNode explicitNull = body();
+		explicitNull.putNull(field);
+		assertError(post(user, explicitNull.toString()), 400, "INVALID_INPUT");
 		assertNoOnboarding(user);
 	}
 

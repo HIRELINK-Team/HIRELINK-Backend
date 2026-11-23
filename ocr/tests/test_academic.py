@@ -17,7 +17,7 @@ class AcademicExtractionTest(unittest.TestCase):
             self.assertEqual(result, {"academicYear": 2025, "semester": "SECOND", "averageGpa": "4.24", "topikLevel": None})
 
     def test_term_order_across_year_and_season_and_zero_gpa(self):
-        self.assertEqual(self.transcript("2025년 겨울학기 평균학점 4.0", "2026학년도 1학기", "평균 학점:", "0.00")["averageGpa"], "0.00")
+        self.assertEqual(self.transcript("2025년 겨울학기 평균학점 4.0", "2026학년도 제 1학기", "평균 학점:", "0.00")["averageGpa"], "0.00")
         self.assertEqual(self.transcript("2026 하계학기 GPA: 4.2", "2026 1학기 GPA: 3.2")["semester"], "SUMMER")
 
     def test_never_falls_back_to_older_term_or_total(self):
