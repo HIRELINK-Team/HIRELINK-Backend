@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -71,8 +72,12 @@ class SocialSignupTermsIntegrationTest extends PostgreSQLIntegrationTest {
 	private List<Long> requiredIds;
 	private long optionalId;
 
+	@AfterEach
+	void resetTermVersions() { jdbc.update("update term_type set current_version=null"); }
+
 	@BeforeEach
 	void setUp() {
+		jdbc.update("update term_type set current_version='test-v1'");
 		jdbc.execute("TRUNCATE TABLE user_account, social_auth_session RESTART IDENTITY CASCADE");
 		cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
 		browser = HttpClient.newBuilder().cookieHandler(cookies).connectTimeout(Duration.ofSeconds(10)).build();
@@ -137,8 +142,9 @@ class SocialSignupTermsIntegrationTest extends PostgreSQLIntegrationTest {
 	void missingOrRejectedRequiredTermDoesNotChangeSavedConsent() throws Exception {
 		String csrf = csrf();
 		String before = putTerms(validBody(true), csrf).body();
+		assertError(putTerms("{\"agreements\":[{\"termTypeId\":" + requiredIds.get(0) + ",\"isAgreed\":true}]}", csrf), 400, "INVALID_INPUT");
 		for (String body : List.of(
-				"{\"agreements\":[{\"termTypeId\":" + optionalId + ",\"isAgreed\":true}]}",
+				"{\"agreements\":[{\"termTypeId\":" + optionalId + ",\"version\":\"test-v1\",\"isAgreed\":true}]}",
 				validBody(true).replace("true", "false"))) {
 			assertError(putTerms(body, csrf), 400, "REQUIRED_TERMS_NOT_AGREED");
 			assertThat(JSON.readTree(getTerms().body())).isEqualTo(JSON.readTree(before));
@@ -148,18 +154,18 @@ class SocialSignupTermsIntegrationTest extends PostgreSQLIntegrationTest {
 	@Test
 	void duplicateOrInactiveOrUnknownTermIsRejected() throws Exception {
 		String csrf = csrf();
-		String agreement = "{\"termTypeId\":" + requiredIds.get(0) + ",\"isAgreed\":true}";
+		String agreement = "{\"termTypeId\":" + requiredIds.get(0) + ",\"version\":\"test-v1\",\"isAgreed\":true}";
 		assertError(putTerms("{\"agreements\":[" + agreement + "," + agreement + "]}", csrf), 400, "INVALID_INPUT");
 		long oldId = jdbc.queryForObject("select min(id) from term_type where not is_social_signup", Long.class);
 		for (long id : new long[]{oldId, Long.MAX_VALUE}) {
-			assertError(putTerms("{\"agreements\":[{\"termTypeId\":" + id + ",\"isAgreed\":true}]}", csrf),
+			assertError(putTerms("{\"agreements\":[{\"termTypeId\":" + id + ",\"version\":\"test-v1\",\"isAgreed\":true}]}", csrf),
 					404, "TERM_TYPE_NOT_FOUND");
 		}
 	}
 
 	@ParameterizedTest
 	@ValueSource(strings = {"{}", "{\"agreements\":[]}", "{\"agreements\":[null]}",
-			"{\"agreements\":[{\"termTypeId\":4}]}", "{\"agreements\":[{\"termTypeId\":-1,\"isAgreed\":true}]}"})
+			"{\"agreements\":[{\"termTypeId\":4}]}", "{\"agreements\":[{\"termTypeId\":-1,\"version\":\"test-v1\",\"isAgreed\":true}]}"})
 	void rejectsInvalidRequest(String body) throws Exception {
 		assertError(putTerms(body, csrf()), 400, "INVALID_INPUT");
 	}
@@ -204,13 +210,28 @@ class SocialSignupTermsIntegrationTest extends PostgreSQLIntegrationTest {
 		assertError(putTerms(validBody(false), csrf()), 409, "SOCIAL_ACCOUNT_ALREADY_REGISTERED");
 	}
 
+	@Test
+	void versionedSignupReadsDoNotRelabelExistingConsentAndMismatchPreservesSnapshot() throws Exception {
+		assertThat(putTerms(validBody(true),csrf()).statusCode()).isEqualTo(200);
+		var before = jdbc.queryForList("select * from social_auth_session_term_agreement order by term_type_id");
+		jdbc.update("update term_type set current_version='test-v2' where is_social_signup");
+		var terms = JSON.readTree(getTerms().body()).path("terms");
+		assertThat(terms.get(0).path("currentVersion").asString()).isEqualTo("test-v2");
+		assertThat(terms.get(0).path("agreedVersion").asString()).isEqualTo("test-v1");
+		assertError(putTerms(validBody(true),csrf()),409,"TERM_VERSION_MISMATCH");
+		assertThat(jdbc.queryForList("select * from social_auth_session_term_agreement order by term_type_id")).isEqualTo(before);
+		jdbc.update("update term_type set current_version=null where is_social_signup");
+		assertError(putTerms(validBody(true),csrf()),503,"TERM_VERSION_UNAVAILABLE");
+		assertThat(jdbc.queryForList("select * from social_auth_session_term_agreement order by term_type_id")).isEqualTo(before);
+	}
+
 	private String validBody(boolean includeOptional) {
 		var agreements = new java.util.ArrayList<Map<String, Object>>();
 		for (Long id : requiredIds) {
-			agreements.add(Map.of("termTypeId", id, "isAgreed", true));
+			agreements.add(Map.of("termTypeId", id, "version", "test-v1", "isAgreed", true));
 		}
 		if (includeOptional) {
-			agreements.add(Map.of("termTypeId", optionalId, "isAgreed", true));
+			agreements.add(Map.of("termTypeId", optionalId, "version", "test-v1", "isAgreed", true));
 		}
 		return JSON.writeValueAsString(Map.of("agreements", agreements));
 	}

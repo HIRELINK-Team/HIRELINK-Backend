@@ -38,7 +38,8 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 			new OperationSpec("/api/auth/social/phone-verifications/verify", "post", "201", "400", "401", "403", "409", "429", "500", "503"),
 			new OperationSpec("/api/auth/phone-verifications", "post", "200", "400", "401", "403", "429", "500"),
 			new OperationSpec("/api/auth/phone-verifications/verify", "post", "200", "400", "401", "403", "409", "429", "500"),
-			new OperationSpec("/api/users/me/term-agreements", "put", "200", "400", "401", "403", "404", "500"),
+			new OperationSpec("/api/users/me/term-agreements", "get", "200", "401", "403", "500"),
+			new OperationSpec("/api/users/me/term-agreements", "put", "200", "400", "401", "403", "404", "409", "500", "503"),
 			new OperationSpec("/api/students/me/profile", "post", "201", "400", "401", "403", "409", "500"),
 			new OperationSpec("/api/students/me/profile", "get", "200", "401", "403", "404", "500"),
 			new OperationSpec("/api/students/me/profile", "patch", "200", "400", "401", "403", "404", "409", "500"),
@@ -175,10 +176,12 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 		JsonNode agreement = schema(document, "SocialSignupTermsRequestAgreement");
 		assertThat(contains(agreement.path("required"), "termTypeId")).isTrue();
 		assertThat(contains(agreement.path("required"), "isAgreed")).isTrue();
+		assertThat(contains(agreement.path("required"), "version")).isTrue();
 		JsonNode fields = schema(document, "SocialSignupTerm").path("properties");
 		assertThat(fields.propertyNames()).containsExactlyInAnyOrder(
-				"termTypeId", "termTypeName", "isRequired", "isAgreed", "agreedAt");
+				"termTypeId", "termTypeName", "isRequired", "isAgreed", "agreedAt", "currentVersion", "agreedVersion");
 		assertThat(nullable(fields.path("agreedAt"))).isTrue();
+		assertThat(nullable(fields.path("agreedVersion"))).isTrue();
 	}
 
 	@Test

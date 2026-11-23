@@ -16,6 +16,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -87,8 +88,12 @@ class SocialSignupPhoneIntegrationTest extends PostgreSQLIntegrationTest {
 	@MockitoBean private SmsSender smsSender;
 	@MockitoSpyBean private UserTermAgreementRepository agreements;
 
+	@AfterEach
+	void resetTermVersions() { jdbc.update("update term_type set current_version=null"); }
+
 	@BeforeEach
 	void prepare() {
+		jdbc.update("update term_type set current_version='test-v1'");
 		jdbc.execute("truncate table user_account, social_auth_session restart identity cascade");
 		doNothing().when(smsSender).sendAndWait(any(SmsSendRequest.class));
 	}
@@ -97,8 +102,9 @@ class SocialSignupPhoneIntegrationTest extends PostgreSQLIntegrationTest {
 	@CsvSource({"GOOGLE,STUDENT", "KAKAO,EMPLOYER"})
 	void createsAccountAtomicallyAndPreservesRoleAndConsentTime(String provider, String role) throws Exception {
 		Browser browser = signup(AuthProvider.valueOf(provider), "new-user", MemberRole.valueOf(role), true);
+		jdbc.update("update term_type set current_version='test-v2' where is_social_signup");
 		Object expiry = jdbc.queryForObject("select expires_at from social_auth_session", Object.class);
-		List<Map<String, Object>> consent = jdbc.queryForList("select term_type_id, is_agreed, agreed_at from social_auth_session_term_agreement order by term_type_id");
+		List<Map<String, Object>> consent = jdbc.queryForList("select term_type_id, is_agreed, agreed_at, term_version from social_auth_session_term_agreement order by term_type_id");
 		String code = sendCode(browser, "010-0000-0000");
 		assertThat(users.count()).isZero();
 		assertThat(accounts.count()).isZero();
@@ -116,7 +122,7 @@ class SocialSignupPhoneIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(jdbc.queryForObject("select phone_number from user_account", String.class)).isEqualTo(PHONE);
 		assertThat(jdbc.queryForObject("select phone_verified_at from user_account", Object.class)).isNotNull();
 		assertThat(jdbc.queryForObject("select email from user_account", String.class)).isNull();
-		assertThat(jdbc.queryForList("select term_type_id, is_agreed, agreed_at from user_term_agreement order by term_type_id")).isEqualTo(consent);
+		assertThat(jdbc.queryForList("select term_type_id, is_agreed, agreed_at, term_version from user_term_agreement order by term_type_id")).isEqualTo(consent);
 		assertThat(jdbc.queryForObject("select provider from auth_account", String.class)).isEqualTo(provider);
 		assertThat(jdbc.queryForObject("select password_hash from auth_account", String.class)).isNull();
 		assertThat(count("social_auth_session")).isZero();
@@ -245,6 +251,17 @@ class SocialSignupPhoneIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(count("social_auth_session_term_agreement")).isZero();
 		assertThat(count("phone_verification_send_attempt")).isEqualTo(1);
 		assertThat(users.count()).isZero();
+	}
+
+	@Test
+	void legacySignupConsentMustBeRecordedWithAnExplicitVersionBeforeAccountCreation() throws Exception {
+		Browser browser = signup(AuthProvider.GOOGLE, "legacy-consent", MemberRole.STUDENT, true);
+		jdbc.update("update social_auth_session_term_agreement set term_version=null");
+		var before = jdbc.queryForList("select * from social_auth_session_term_agreement order by term_type_id");
+		assertError(requestCode(browser, PHONE), 400, "REQUIRED_TERMS_NOT_AGREED");
+		assertThat(users.count()).isZero();
+		assertThat(count("phone_verification")).isZero();
+		assertThat(jdbc.queryForList("select * from social_auth_session_term_agreement order by term_type_id")).isEqualTo(before);
 	}
 
 	@Test
@@ -385,7 +402,7 @@ class SocialSignupPhoneIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private void agree(Browser browser) throws Exception {
 		List<Map<String, Object>> values = jdbc.queryForList("select id from term_type where is_social_signup and is_required and not is_student_registration", Long.class)
-				.stream().map(id -> Map.<String, Object>of("termTypeId", id, "isAgreed", true)).toList();
+				.stream().map(id -> Map.<String, Object>of("termTypeId", id, "version", "test-v1", "isAgreed", true)).toList();
 		HttpRequest request = HttpRequest.newBuilder(uri("/api/auth/social/terms")).header("Content-Type", "application/json")
 				.header("X-XSRF-TOKEN", browser.csrf()).PUT(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(Map.of("agreements", values)))).build();
 		assertThat(browser.client().send(request, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(200);
