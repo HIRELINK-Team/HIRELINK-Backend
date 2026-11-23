@@ -6,6 +6,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -16,10 +17,12 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.UriComponentsBuilder;
 import com.hirelink.global.exception.StudentDocumentException;
+import com.hirelink.domain.student.dto.StudentDocumentContent;
 import tools.jackson.databind.JsonNode;
 
 @Component
 public class StudentDocumentStorageClient {
+	private static final int MAX_FILE_SIZE = 5 * 1024 * 1024;
 	private final String url;
 	private final String secret;
 	private final String bucket;
@@ -38,8 +41,7 @@ public class StudentDocumentStorageClient {
 	public void upload(String key, byte[] bytes, String contentType) {
 		try {
 			validate(key);
-			JsonNode info = client.get().uri(uri("bucket", bucket)).header("apikey", secret).retrieve().body(JsonNode.class);
-			if (info == null || !info.path("public").isBoolean() || info.path("public").booleanValue()) { throw failed(); }
+			verifyPrivateBucket();
 			client.post().uri(uri("object", bucket, key)).header("apikey", secret).header("x-upsert", "false")
 					.contentType(MediaType.parseMediaType(contentType)).body(bytes).retrieve().toBodilessEntity();
 		} catch (RestClientException | IllegalArgumentException exception) { throw failed(); }
@@ -51,6 +53,30 @@ public class StudentDocumentStorageClient {
 			client.method(HttpMethod.DELETE).uri(uri("object", bucket)).header("apikey", secret).contentType(MediaType.APPLICATION_JSON)
 					.body(Map.of("prefixes", List.of(key))).retrieve().toBodilessEntity();
 		} catch (RestClientException | IllegalArgumentException exception) { throw failed(); }
+	}
+
+	public StudentDocumentContent download(String key) {
+		try {
+			validate(key);
+			verifyPrivateBucket();
+			return client.get().uri(uri("object", "authenticated", bucket, key)).header("apikey", secret)
+					.exchange((request, response) -> {
+						if (response.getStatusCode().value() != 200) { throw failed(); }
+						MediaType receivedType = response.getHeaders().getContentType();
+						if (receivedType == null) { throw failed(); }
+						MediaType type = new MediaType(receivedType.getType(), receivedType.getSubtype());
+						if (!Set.of(MediaType.APPLICATION_PDF, MediaType.IMAGE_JPEG, MediaType.IMAGE_PNG).contains(type)
+								|| response.getHeaders().getContentLength() > MAX_FILE_SIZE) { throw failed(); }
+						byte[] bytes = response.getBody().readNBytes(MAX_FILE_SIZE + 1);
+						if (bytes.length == 0 || bytes.length > MAX_FILE_SIZE) { throw failed(); }
+						return new StudentDocumentContent(bytes, type);
+					});
+		} catch (RestClientException | IllegalArgumentException exception) { throw failed(); }
+	}
+
+	private void verifyPrivateBucket() {
+		JsonNode info = client.get().uri(uri("bucket", bucket)).header("apikey", secret).retrieve().body(JsonNode.class);
+		if (info == null || !info.path("public").isBoolean() || info.path("public").booleanValue()) { throw failed(); }
 	}
 
 	private URI uri(String... segments) {

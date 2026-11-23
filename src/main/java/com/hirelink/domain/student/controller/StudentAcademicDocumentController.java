@@ -19,7 +19,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 @RestController
 @RequestMapping("/api/students/me/documents/{kind:transcript|topik}")
-@Tag(name="Student Academic Documents",description="성적·TOPIK OCR 최종 등록. 직접 수정·개별 삭제·사업주 열람 API 없음.")
+@Tag(name="Student Academic Documents",description="성적·TOPIK OCR 최종 등록. 직접 수정·개별 삭제 없음. 사업주 원본 열람은 Employer Student Documents API를 사용한다.")
 @ApiResponses({
  @ApiResponse(responseCode="400",description="파일 누락·잘못된 요청",content=@Content(schema=@Schema(implementation=ErrorResponse.class))),
  @ApiResponse(responseCode="401",description="로그인 필요",content=@Content(schema=@Schema(implementation=ErrorResponse.class))),
