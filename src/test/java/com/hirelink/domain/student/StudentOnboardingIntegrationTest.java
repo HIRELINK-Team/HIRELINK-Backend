@@ -51,7 +51,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 			{
 			  "birthDate":"2000-03-14", "currentRegion":"서울 마포구", "koreanLevel":"INTERMEDIATE",
 			  "careers":[{"careerName":"카페", "startMonth":"2025-01", "endMonth":"2025-06", "description":"음료 제조"}],
-			  "topikLevel":4, "studyProgram":"BACHELOR",
+			  "studyProgram":"BACHELOR",
 			  "matchingPreferences":{
 			    "businessTypeFlexible":false,
 			    "preferredJobs":[{"businessTypeId":1},{"businessTypeId":8,"otherJobName":"영화관"}],
@@ -98,7 +98,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(profile).containsEntry("nationality", "VN").containsEntry("visa_code", "D-2-2")
 				.containsEntry("current_region", "서울 마포구").containsEntry("korean_level", "INTERMEDIATE")
 				.containsEntry("stay_expiration_date", verification.get("stay_expires_on"));
-		assertThat(((Number) profile.get("topik_level")).intValue()).isEqualTo(4);
+		assertThat(profile.get("topik_level")).isNull();
 		assertThat(profile.get("birth_date").toString()).isEqualTo("2000-03-14");
 		assertThat(verification(user)).isEqualTo(verification);
 		assertThat(jdbc.queryForObject("select name from user_account where id = ?", String.class, user)).isEqualTo("인증 이름");
@@ -159,7 +159,6 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 		long user = verifiedStudent();
 		ObjectNode body = body();
 		body.putArray("careers");
-		body.putNull("topikLevel");
 		preferences(body).put("businessTypeFlexible", true);
 		preferences(body).putArray("preferredJobs");
 		assertThat(post(user, body.toString()).statusCode()).isEqualTo(200);
@@ -183,7 +182,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = {"birthDate", "currentRegion", "koreanLevel", "studyProgram", "careers", "topikLevel", "matchingPreferences"})
+	@ValueSource(strings = {"birthDate", "currentRegion", "koreanLevel", "studyProgram", "careers", "matchingPreferences"})
 	void requiresEveryOnboardingSection(String field) throws Exception {
 		long user = verifiedStudent();
 		ObjectNode missing = body();
@@ -258,7 +257,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 		bypass.remove("topikLevel");
 		bypass.put("topikLevelProvided", true);
 		assertError(post(user, bypass.toString()), 400, "INVALID_INPUT");
-		for (String value : List.of("0", "7", "1.5", "\"4\"", "true")) {
+		for (String value : List.of("null", "1", "4", "6", "0", "7", "1.5", "\"4\"", "true")) {
 			ObjectNode request = body();
 			request.set("topikLevel", mapper.readTree(value));
 			assertError(post(user, request.toString()), 400, "INVALID_INPUT");
@@ -310,12 +309,11 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 		seedIncomplete(user);
 		ObjectNode request = body();
 		request.putArray("careers");
-		request.putNull("topikLevel");
 		assertThat(post(user, request.toString()).statusCode()).isEqualTo(200);
 		assertThat(count("student_career", user)).isZero();
 		Map<String, Object> profile = jdbc.queryForMap("select * from student_profile where id = ?", user);
 		assertThat(profile).containsEntry("university_name", "기존 학교").containsEntry("academic_state", "ENROLLED")
-				.containsEntry("nationality", "VN").containsEntry("topik_level", null).containsEntry("current_region", "서울 마포구");
+				.containsEntry("nationality", "VN").containsEntry("topik_level", 2).containsEntry("current_region", "서울 마포구");
 		assertThat(jdbc.queryForObject("select minimum_hourly_wage from student_job_preference where user_id = ?", Integer.class, user)).isEqualTo(12000);
 		assertThat(count("student_priority", user)).isEqualTo(4);
 	}
@@ -438,7 +436,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
-	void openApiDocumentsRequiredFieldsNullableTopikAndCompletionConflicts() throws Exception {
+	void openApiExcludesDirectTopikAndDocumentsCompletionConflicts() throws Exception {
 		HttpResponse<String> response = send("GET", "/v3/api-docs", null, null);
 		assertThat(response.statusCode()).isEqualTo(200);
 		JsonNode document = mapper.readTree(response.body());
@@ -446,7 +444,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(operation.path("responses").has("200")).isTrue();
 		assertThat(operation.path("responses").has("409")).isTrue();
 		JsonNode schema = document.path("components").path("schemas").path("StudentOnboardingRequest");
-		assertThat(schema.path("required").toString()).contains("currentRegion", "koreanLevel", "studyProgram", "careers", "topikLevel", "matchingPreferences").doesNotContain("birthDate");
+		assertThat(schema.path("required").toString()).contains("currentRegion", "koreanLevel", "studyProgram", "careers", "matchingPreferences").doesNotContain("birthDate");
 		assertThat(schema.path("properties").has("topikLevelProvided")).isFalse();
 		assertThat(schema.path("properties").path("studyProgram").path("enum").toString())
 				.contains("ASSOCIATE", "BACHELOR", "MASTER", "DOCTORATE", "EXCHANGE");
@@ -454,7 +452,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 			assertThat(schema.path("properties").has(excluded)).isFalse();
 		}
 		assertThat(schema.path("properties").has("topikAnswerPresent")).isFalse();
-		assertThat(schema.path("properties").path("topikLevel").toString()).contains("null");
+		assertThat(schema.path("properties").has("topikLevel")).isFalse();
 		JsonNode matching = document.path("components").path("schemas").path("StudentOnboardingMatchingPreferenceRequest");
 		assertThat(matching.path("required").toString()).contains("businessTypeFlexible", "preferredJobs", "preferredWorkTimes", "preferredLocation", "priorities");
 		assertThat(matching.path("properties").path("preferredWorkTimes").path("minItems").asInt()).isEqualTo(1);

@@ -62,7 +62,7 @@ import tools.jackson.databind.ObjectMapper;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@TestPropertySource(properties = "auth.local.enabled=false")
+@TestPropertySource(properties = {"auth.local.enabled=false", "auth.withdrawal.enabled=true", "auth.withdrawal.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", "auth.withdrawal.cleanup-initial-delay=3600000"})
 class SocialAuthIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private static final ObjectMapper JSON = new ObjectMapper();
@@ -355,6 +355,24 @@ class SocialAuthIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(JSON.readTree(response.body()).path("code").asString()).isEqualTo(code);
 	}
 
+
+    @Test
+    void googleOfflineConsentCapturesEncryptedCredentialButNeverReturnsItToBrowser() throws Exception {
+        var member=socialMember("google", "with-refresh", null, MemberRole.STUDENT);
+        var query=authorization("google", "STUDENT");
+        assertThat(query).containsEntry("access_type","offline").containsEntry("prompt","consent");
+        String code=issueCode(query,"with-refresh",null,"valid");
+        var callback=get("/api/auth/social/callback/google?code="+code+"&state="+query.get("state"));
+        assertThat(callback.headers().firstValue("Location")).contains(FRONTEND);
+        String encrypted=jdbc.queryForObject("select revocation_token from auth_account where user_id=?",String.class,member.getId());
+        assertThat(encrypted).isNotBlank().doesNotContain("provider-test-refresh-token");
+        var protector=new com.hirelink.domain.auth.service.ProviderTokenProtector(true,"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+        assertThat(protector.decrypt(encrypted,"GOOGLE:with-refresh")).isEqualTo("provider-test-refresh-token");
+        var result=result();
+        assertThat(result.statusCode()).as(result.body()).isEqualTo(200);
+        assertThat(result.body()).doesNotContain(encrypted,"provider-test-refresh-token","provider-test-access-token");
+    }
+
 	private static HttpServer providerServer() {
 		try {
 			HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
@@ -384,7 +402,7 @@ class SocialAuthIntegrationTest extends PostgreSQLIntegrationTest {
 					SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(SIGNING_KEY.getKeyID()).build(), claims.build());
 					jwt.sign(new RSASSASigner("wrong-signature".equals(grant.problem()) ? signingKey() : SIGNING_KEY));
 					respond(exchange, 200, JSON.writeValueAsString(Map.of("access_token", "provider-test-access-token",
-							"token_type", "Bearer", "expires_in", 300, "id_token", jwt.serialize())));
+							"token_type", "Bearer", "expires_in", 300, "id_token", jwt.serialize(), "refresh_token", "provider-test-refresh-token")));
 				} catch (Exception exception) {
 					respond(exchange, 500, "{\"error\":\"server_error\"}");
 				}

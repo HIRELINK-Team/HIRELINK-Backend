@@ -45,7 +45,7 @@ class OnboardingStatusIntegrationTest extends PostgreSQLIntegrationTest {
 	private static final String COMPLETE_REQUEST = """
 			{
 			  "birthDate":"2000-05-14","currentRegion":"서울 마포구","koreanLevel":"INTERMEDIATE",
-			  "studyProgram":"BACHELOR","careers":[],"topikLevel":null,
+			  "studyProgram":"BACHELOR","careers":[],
 			  "matchingPreferences":{
 			    "businessTypeFlexible":true,"preferredJobs":[],
 			    "preferredWorkTimes":[{"dayOfWeek":"MON","startTime":"09:00","endTime":"13:00"}],

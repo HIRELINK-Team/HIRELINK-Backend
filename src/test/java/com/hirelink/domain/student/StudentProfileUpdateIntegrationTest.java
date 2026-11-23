@@ -130,14 +130,14 @@ class StudentProfileUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 		long id = createStudent();
 		String request = """
 				{"name":"새 이름","birthDate":"2000-05-10","nationality":"US","currentRegion":"서울 용산구",
-				"koreanLevel":"ADVANCED","visaCode":"D-2-2","stayExpirationDate":"2020-03-01","topikLevel":6}
+				"koreanLevel":"ADVANCED","visaCode":"D-2-2","stayExpirationDate":"2020-03-01"}
 				""";
 		HttpResponse<String> response = patch(token(id, "STUDENT"), request);
 		assertThat(response.statusCode()).isEqualTo(200);
 		JsonNode body = mapper.readTree(response.body());
 		JsonNode sent = mapper.readTree(request);
 		for (String field : List.of("name", "birthDate", "nationality", "currentRegion", "koreanLevel", "visaCode",
-				"stayExpirationDate", "topikLevel")) {
+				"stayExpirationDate")) {
 			assertThat(body.path(field)).as(field).isEqualTo(sent.path(field));
 		}
 		assertThat(profile(id)).containsEntry("study_program_id", null).containsEntry("grade_level", null);
@@ -145,16 +145,15 @@ class StudentProfileUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
-	void distinguishesMissingTopikFromExplicitNullAndAcceptsLowestLevel() throws Exception {
+	void preservesVerifiedTopikAndRejectsDirectChangesIncludingNull() throws Exception {
 		long id = createStudent();
 		jdbc.update("update student_profile set topik_level = 4 where id = ?", id);
 		String token = token(id, "STUDENT");
 		assertThat(patch(token, "{\"name\":\"이름 수정\"}").statusCode()).isEqualTo(200);
-		assertThat(profile(id).get("topik_level")).isEqualTo(4);
-		assertThat(patch(token, "{\"topikLevel\":null}").statusCode()).isEqualTo(200);
-		assertThat(profile(id).get("topik_level")).isNull();
-		assertThat(patch(token, "{\"topikLevel\":1}").statusCode()).isEqualTo(200);
-		assertThat(profile(id).get("topik_level")).isEqualTo(1);
+		for (String value : List.of("null", "1", "6")) {
+			assertError(patch(token, "{\"topikLevel\":" + value + "}"), 400, "INVALID_INPUT");
+			assertThat(profile(id).get("topik_level")).isEqualTo(4);
+		}
 	}
 
 	@ParameterizedTest
@@ -284,11 +283,11 @@ class StudentProfileUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 		String token = token(id, "STUDENT");
 		CompletableFuture<HttpResponse<String>> region = client.sendAsync(request(token, "{\"currentRegion\":\"서울 용산구\"}"),
 				HttpResponse.BodyHandlers.ofString());
-		CompletableFuture<HttpResponse<String>> topik = client.sendAsync(request(token, "{\"topikLevel\":5}"),
+		CompletableFuture<HttpResponse<String>> korean = client.sendAsync(request(token, "{\"koreanLevel\":\"ADVANCED\"}"),
 				HttpResponse.BodyHandlers.ofString());
 		assertThat(region.get(20, TimeUnit.SECONDS).statusCode()).isEqualTo(200);
-		assertThat(topik.get(20, TimeUnit.SECONDS).statusCode()).isEqualTo(200);
-		assertThat(profile(id)).containsEntry("current_region", "서울 용산구").containsEntry("topik_level", 5);
+		assertThat(korean.get(20, TimeUnit.SECONDS).statusCode()).isEqualTo(200);
+		assertThat(profile(id)).containsEntry("current_region", "서울 용산구").containsEntry("korean_level", "ADVANCED");
 	}
 
 	private long createStudent() {

@@ -210,10 +210,9 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(student.path("required").isEmpty()).isTrue();
 		assertThat(student.path("properties").propertyNames()).containsExactlyInAnyOrder(
 				"name", "birthDate", "nationality", "currentRegion", "koreanLevel", "visaCode",
-				"stayExpirationDate", "topikLevel");
-		assertThat(nullable(student.path("properties").path("topikLevel"))).isTrue();
+				"stayExpirationDate");
+		assertThat(student.path("properties").has("topikLevel")).isFalse();
 		assertThat(nullable(student.path("properties").path("name"))).isFalse();
-		assertType(student.path("properties").path("topikLevel"), "integer");
 		assertType(student.path("properties").path("name"), "string");
 		assertThat(student.path("properties").path("birthDate").path("format").asString()).isEqualTo("date");
 		assertThat(schema(document, "StudentProfileResponse").path("properties").propertyNames())
