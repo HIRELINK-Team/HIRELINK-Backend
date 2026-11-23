@@ -1,8 +1,10 @@
 package com.hirelink.domain.employmentmatch.service;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -12,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.hirelink.domain.application.entity.Application;
+import com.hirelink.domain.employmentmatch.dto.EmploymentMatchDeleteRequest;
 import com.hirelink.domain.employmentmatch.dto.EmploymentMatchDetailResponse;
 import com.hirelink.domain.employmentmatch.dto.EmploymentMatchListResponse;
 import com.hirelink.domain.employmentmatch.entity.EmploymentMatch;
@@ -49,7 +52,7 @@ public class EmploymentMatchService {
 	@Transactional(readOnly = true)
 	public EmploymentMatchDetailResponse getMatch(Long userId, Long matchId) {
 		UserAccount viewer = getActiveUser(userId);
-		EmploymentMatch match = employmentMatchRepository.findById(matchId)
+		EmploymentMatch match = employmentMatchRepository.findActiveById(matchId)
 				.orElseThrow(EmploymentMatchNotFoundException::new);
 		EmploymentOffer offer = match.getEmploymentOffer();
 		Application application = offer.getApplication();
@@ -92,12 +95,13 @@ public class EmploymentMatchService {
 				throw new InvalidApplicationException("유학생은 채용공고 필터를 사용할 수 없습니다.");
 			}
 			matches = employmentMatchRepository
-					.findAllByEmploymentOfferApplicationStudentProfileIdOrderByCompletedAtDescIdDesc(userId);
+					.findAllByEmploymentOfferApplicationStudentProfileIdAndDeletedAtIsNullOrderByCompletedAtDescIdDesc(
+							userId);
 		}
 		else if (employerViewer) {
 			if (jobPostingId == null) {
 				matches = employmentMatchRepository
-						.findAllByEmploymentOfferApplicationJobPostingWorkplaceEmployerUserIdOrderByCompletedAtDescIdDesc(
+						.findAllByEmploymentOfferApplicationJobPostingWorkplaceEmployerUserIdAndDeletedAtIsNullOrderByCompletedAtDescIdDesc(
 								userId);
 			}
 			else {
@@ -110,7 +114,8 @@ public class EmploymentMatchService {
 					throw new AccessDeniedException("본인 소유의 채용공고만 필터로 사용할 수 있습니다.");
 				}
 				matches = employmentMatchRepository
-						.findAllByEmploymentOfferApplicationJobPostingIdOrderByCompletedAtDescIdDesc(jobPostingId);
+						.findAllByEmploymentOfferApplicationJobPostingIdAndDeletedAtIsNullOrderByCompletedAtDescIdDesc(
+								jobPostingId);
 			}
 		}
 		else {
@@ -118,6 +123,48 @@ public class EmploymentMatchService {
 		}
 		return new EmploymentMatchListResponse(matches.stream()
 				.map(match -> matchListItem(match, employerViewer)).toList());
+	}
+
+	@Transactional
+	public void deleteSelected(Long userId, Long jobPostingId, EmploymentMatchDeleteRequest request) {
+		validateOwnedJobPostingForDelete(userId, jobPostingId);
+		List<Long> matchIds = List.copyOf(new LinkedHashSet<>(request.matchIds()));
+		List<EmploymentMatch> matches = employmentMatchRepository.findAllByIdInForUpdate(matchIds);
+		if (matches.size() != matchIds.size()) {
+			throw new EmploymentMatchNotFoundException();
+		}
+		validateMatchesBelongToPosting(matches, jobPostingId);
+		Instant deletedAt = Instant.now();
+		matches.forEach(match -> match.delete(deletedAt));
+	}
+
+	@Transactional
+	public void deleteAll(Long userId, Long jobPostingId) {
+		validateOwnedJobPostingForDelete(userId, jobPostingId);
+		Instant deletedAt = Instant.now();
+		employmentMatchRepository.findAllActiveByJobPostingIdForUpdate(jobPostingId)
+				.forEach(match -> match.delete(deletedAt));
+	}
+
+	private void validateOwnedJobPostingForDelete(Long userId, Long jobPostingId) {
+		UserAccount user = getActiveUser(userId);
+		if (user.getRole() != MemberRole.EMPLOYER) {
+			throw new AccessDeniedException("사업주 계정만 채용완료를 삭제할 수 있습니다.");
+		}
+		JobPosting posting = jobPostingRepository.findByIdForUpdate(jobPostingId)
+				.orElseThrow(JobPostingNotFoundException::new);
+		if (!posting.getWorkplace().getEmployerUser().getId().equals(userId)) {
+			throw new AccessDeniedException("본인 소유의 채용공고에서만 채용완료를 삭제할 수 있습니다.");
+		}
+	}
+
+	private void validateMatchesBelongToPosting(List<EmploymentMatch> matches, Long jobPostingId) {
+		boolean containsOtherPosting = matches.stream()
+				.anyMatch(match -> !match.getEmploymentOffer().getApplication().getJobPosting().getId()
+						.equals(jobPostingId));
+		if (containsOtherPosting) {
+			throw new AccessDeniedException("현재 선택한 채용공고의 채용완료만 삭제할 수 있습니다.");
+		}
 	}
 
 	private EmploymentMatchListResponse.Item matchListItem(EmploymentMatch match, boolean employerViewer) {
