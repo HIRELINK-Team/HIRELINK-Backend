@@ -39,7 +39,7 @@ public class StudentOnboardingRequest {
 	private List<@NotNull StudentCareerCreateRequest> careers;
 	@NotNull
 	@Valid
-	@Schema(description = "구직조건 전체. 업종 상관없음 여부 · 업종 목록 · 최소 1개 근무시간 · 위치와 반경 · 4개 우선순위가 모두 필수. minimumHourlyWage는 선택 입력", requiredMode = Schema.RequiredMode.REQUIRED)
+	@Schema(description = "구직조건 전체. 업종 상관없음 여부 · 업종 목록 · 연속 1시간 이상을 포함한 근무시간 · 위치와 반경 · 4개 우선순위가 모두 필수. 최소 희망 시급은 입력받지 않는다.", requiredMode = Schema.RequiredMode.REQUIRED)
 	private StudentOnboardingMatchingPreferenceRequest matchingPreferences;
 
 	@JsonSetter(nulls = Nulls.FAIL)

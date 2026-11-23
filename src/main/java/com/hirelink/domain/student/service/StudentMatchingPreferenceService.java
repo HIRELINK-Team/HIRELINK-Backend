@@ -1,10 +1,8 @@
 package com.hirelink.domain.student.service;
 
 import java.math.BigDecimal;
-import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -98,15 +96,10 @@ public class StudentMatchingPreferenceService {
 		validateWorkTimes(request.getPreferredWorkTimes());
 		Map<Long, PriorityCriterion> criteria = validatePriorities(request.getPriorities());
 
-		if (request.getBusinessTypeFlexible() != null || request.hasMinimumHourlyWage()) {
+		if (request.getBusinessTypeFlexible() != null) {
 			StudentJobPreference preference = jobPreferenceRepository.findById(userId)
 					.orElseGet(() -> new StudentJobPreference(userId));
-			if (request.getBusinessTypeFlexible() != null) {
-				preference.updateBusinessTypeFlexible(request.getBusinessTypeFlexible());
-			}
-			if (request.hasMinimumHourlyWage()) {
-				preference.updateMinimumHourlyWage(request.getMinimumHourlyWage());
-			}
+			preference.updateBusinessTypeFlexible(request.getBusinessTypeFlexible());
 			jobPreferenceRepository.save(preference);
 		}
 		if (request.getPreferredJobs() != null) {
@@ -149,7 +142,6 @@ public class StudentMatchingPreferenceService {
 	private StudentMatchingPreferenceResponse readPreferences(Long userId) {
 		StudentJobPreference preference = jobPreferenceRepository.findById(userId).orElse(null);
 		boolean flexible = preference != null && preference.isBusinessTypeFlexible();
-		Integer minimumHourlyWage = preference == null ? null : preference.getMinimumHourlyWage();
 		List<PreferredJob> jobs = flexible ? List.of() : preferredJobRepository.findAllByUserId(userId).stream()
 				.map(job -> new PreferredJob(job.getBusinessType().getId(), job.getBusinessType().getName(),
 						"OTHER".equals(job.getBusinessType().getName()) ? job.getOtherJobName() : null))
@@ -167,7 +159,7 @@ public class StudentMatchingPreferenceService {
 		List<Priority> priorities = priorityRepository.findAllByIdUserIdOrderByPriorityOrderAsc(userId).stream()
 				.map(value -> new Priority(value.getCriterion().getId(), value.getCriterion().getCriterionName(), value.getPriorityOrder()))
 				.toList();
-		return new StudentMatchingPreferenceResponse(flexible, jobs, workTimes, location, minimumHourlyWage, priorities);
+		return new StudentMatchingPreferenceResponse(flexible, jobs, workTimes, location, priorities);
 	}
 
 	private Map<Long, BusinessType> validateJobs(StudentMatchingPreferenceUpdateRequest request) {
@@ -209,23 +201,32 @@ public class StudentMatchingPreferenceService {
 		if (workTimes == null) {
 			return;
 		}
-		List<StudentMatchingPreferenceUpdateRequest.PreferredWorkTime> sorted = workTimes.stream()
-				.sorted(Comparator.comparing(StudentMatchingPreferenceUpdateRequest.PreferredWorkTime::dayOfWeek)
-						.thenComparing(StudentMatchingPreferenceUpdateRequest.PreferredWorkTime::startTime))
-				.toList();
-		Map<String, Integer> previousEnds = new HashMap<>();
-		for (StudentMatchingPreferenceUpdateRequest.PreferredWorkTime time : sorted) {
+		// 30분 단위의 주간 시간표로 다음 요일 및 일요일→월요일 겹침도 검사한다.
+		boolean[] selected = new boolean[7 * 48];
+		for (var time : workTimes) {
+			int day = WEEK_DAYS.indexOf(time.dayOfWeek());
 			int start = time.startTime().toSecondOfDay() / 60;
-			// 종료의 00:00은 해당 요일이 끝나는 자정이다.
-			int end = time.endTime().equals(LocalTime.MIDNIGHT) ? 24 * 60 : time.endTime().toSecondOfDay() / 60;
-			if (time.startTime().equals(time.endTime()) || end <= start) {
-				throw new InvalidMatchingPreferenceException("종료시간은 시작시간보다 이후여야 합니다. 자정을 넘으면 요일별로 나눠주세요.");
+			int end = time.endTime().toSecondOfDay() / 60;
+			if (day < 0 || start == end) {
+				throw new InvalidMatchingPreferenceException("올바른 요일과 서로 다른 시작·종료 시간을 입력해주세요.");
 			}
-			if (start < previousEnds.getOrDefault(time.dayOfWeek(), -1)) {
-				throw new InvalidMatchingPreferenceException("같은 요일의 근무시간은 겹칠 수 없습니다.");
+			if (end < start) {
+				end += 24 * 60;
 			}
-			previousEnds.put(time.dayOfWeek(), end);
+			for (int minute = start; minute < end; minute += 30) {
+				int slot = (day * 48 + minute / 30) % selected.length;
+				if (selected[slot]) {
+					throw new InvalidMatchingPreferenceException("희망 근무시간은 겹칠 수 없습니다.");
+				}
+				selected[slot] = true;
+			}
 		}
+		for (int slot = 0; slot < selected.length; slot++) {
+			if (selected[slot] && selected[(slot + 1) % selected.length]) {
+				return;
+			}
+		}
+		throw new InvalidMatchingPreferenceException("연속 1시간 이상인 근무시간을 최소 하나 선택해주세요.");
 	}
 
 	private Map<Long, PriorityCriterion> validatePriorities(List<StudentMatchingPreferenceUpdateRequest.Priority> priorities) {

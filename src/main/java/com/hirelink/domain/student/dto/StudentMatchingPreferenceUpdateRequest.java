@@ -24,7 +24,7 @@ import tools.jackson.databind.JsonNode;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "보낸 항목만 수정한다. 목록은 전체 교체. businessTypeFlexible과 preferredJobs는 함께 전송한다. minimumHourlyWage 외 null은 허용하지 않는다.",
+@Schema(description = "보낸 항목만 수정한다. 목록은 전체 교체. businessTypeFlexible과 preferredJobs는 함께 전송한다. null은 허용하지 않는다. 최소 희망 시급은 입력받지 않는다.",
 		example = """
 				{
 				  "businessTypeFlexible": false,
@@ -34,7 +34,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
 				    "locationName": "서울특별시 성동구", "latitude": 37.5636,
 				    "longitude": 127.0365, "radiusM": 500
 				  },
-				  "minimumHourlyWage": 12000,
 				  "priorities": [
 				    {"criterionId": 1, "priorityOrder": 1},
 				    {"criterionId": 2, "priorityOrder": 2},
@@ -53,19 +52,12 @@ public class StudentMatchingPreferenceUpdateRequest {
 	@Schema(description = "희망 업종 목록. 전체 교체. businessTypeFlexible=true이면 [], false이면 1개 이상. 생략하면 기존 값 유지, null 불가", requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private List<PreferredJob> preferredJobs;
 	@Valid
-	@Schema(description = "희망 근무시간 목록. 요청 시 전체 교체, []는 모두 삭제. 생략하면 기존 값 유지, null 불가", requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
+	@Schema(description = "희망 근무시간 전체 목록. 빈 목록은 불가하며 연속 1시간 이상인 구간이 최소 하나 필요하다. 인접 구간은 연속으로 판단한다. 생략하면 기존 값 유지, null 불가", requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private List<PreferredWorkTime> preferredWorkTimes;
 	@Valid
 	@Schema(description = "희망 근무지역. 전송하면 지역명·위도·경도·반경 모두 필수. 생략하면 기존 값 유지, null 불가",
 			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private PreferredLocation preferredLocation;
-	@Positive(message = "최소 희망 시급은 1 이상의 정수여야 합니다.")
-	@Schema(description = "희망 최소 시급 (원). 1 이상의 정수, null은 미설정. 생략하면 기존 값 유지, null이면 값 삭제", minimum = "1",
-			example = "12000",
-			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = true)
-	private Integer minimumHourlyWage;
-	@Schema(hidden = true)
-	private boolean minimumHourlyWageProvided;
 	@Valid
 	@Size(min = 4, max = 4, message = "우선순위는 네 기준을 모두 전달해주세요.")
 	@Schema(description = "우선순위 목록. 네 기준 모두를 중복 없이 전송하여 전체 교체. 생략하면 기존 값 유지, null 불가",
@@ -116,12 +108,6 @@ public class StudentMatchingPreferenceUpdateRequest {
 				requireDecimal(value.get("latitude")), requireDecimal(value.get("longitude")), radiusM);
 	}
 
-	@JsonSetter
-	public void setMinimumHourlyWage(JsonNode value) {
-		minimumHourlyWageProvided = true;
-		minimumHourlyWage = value == null || value.isNull() ? null : requireInt(value);
-	}
-
 	@JsonSetter(nulls = Nulls.FAIL)
 	public void setPriorities(JsonNode value) {
 		requireArray(value);
@@ -140,11 +126,7 @@ public class StudentMatchingPreferenceUpdateRequest {
 
 	public boolean hasChanges() {
 		return businessTypeFlexible != null || preferredJobs != null || preferredWorkTimes != null
-				|| preferredLocation != null || minimumHourlyWageProvided || priorities != null;
-	}
-
-	public boolean hasMinimumHourlyWage() {
-		return minimumHourlyWageProvided;
+				|| preferredLocation != null || priorities != null;
 	}
 
 	public Boolean getBusinessTypeFlexible() {
@@ -161,10 +143,6 @@ public class StudentMatchingPreferenceUpdateRequest {
 
 	public PreferredLocation getPreferredLocation() {
 		return preferredLocation;
-	}
-
-	public Integer getMinimumHourlyWage() {
-		return minimumHourlyWage;
 	}
 
 	public List<Priority> getPriorities() {
@@ -242,7 +220,7 @@ public class StudentMatchingPreferenceUpdateRequest {
 					example = "09:00", type = "string", format = "HH:mm",
 					requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 			LocalTime startTime,
-			@Schema(description = "종료 시간 (HH:mm), 30분 단위. 00:00은 해당 요일의 끝인 자정. 시작과 같을 수 없음",
+			@Schema(description = "종료 시간 (HH:mm), 30분 단위. 시작보다 이르면 다음 날 종료이며 시작 요일로 저장한다. 시작과 같을 수 없음",
 					pattern = "([01][0-9]|2[0-3]):(00|30)",
 					example = "13:00", type = "string", format = "HH:mm",
 					requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)

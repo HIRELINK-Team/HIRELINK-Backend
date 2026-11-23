@@ -19,10 +19,6 @@ public record StudentMatchingPreferenceResponse(
 		@Schema(description = "희망 근무지역. 미설정이면 null", requiredMode = Schema.RequiredMode.REQUIRED,
 				types = {"object", "null"}, schemaResolution = Schema.SchemaResolution.INLINE)
 		PreferredLocation preferredLocation,
-		@Schema(description = "희망 최소 시급 (원). 1 이상의 정수, null은 미설정", minimum = "1",
-				example = "12000",
-				requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
-		Integer minimumHourlyWage,
 		@Schema(description = "우선순위 목록. 1순위부터 반환, 미설정이면 []", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 		List<Priority> priorities) {
 
@@ -54,7 +50,7 @@ public record StudentMatchingPreferenceResponse(
 					requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 			LocalTime startTime,
 			@JsonFormat(pattern = "HH:mm")
-			@Schema(description = "종료 시간 (HH:mm), 30분 단위. 00:00은 해당 요일의 끝인 자정. 시작과 같을 수 없음",
+			@Schema(description = "종료 시간 (HH:mm), 30분 단위. 시작보다 이르면 다음 날 종료이며 시작 요일로 표시한다. 시작과 같을 수 없음",
 					pattern = "([01][0-9]|2[0-3]):(00|30)",
 					example = "13:00", type = "string", format = "HH:mm",
 					requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
