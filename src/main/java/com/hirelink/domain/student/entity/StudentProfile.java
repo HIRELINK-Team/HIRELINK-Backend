@@ -2,6 +2,7 @@ package com.hirelink.domain.student.entity;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Map;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -80,6 +81,10 @@ public class StudentProfile {
 
 	@Column(name = "hirelink_badge_issued_at")
 	private Instant hirelinkBadgeIssuedAt;
+
+	@JdbcTypeCode(SqlTypes.JSON)
+	@Column(name = "working_conditions", columnDefinition = "jsonb")
+	private Map<String, Object> workingConditions;
 
 	@Column(name = "onboarding_completed_at")
 	private Instant onboardingCompletedAt;
@@ -204,6 +209,12 @@ public class StudentProfile {
 
 	public Instant getHirelinkBadgeIssuedAt() {
 		return hirelinkBadgeIssuedAt;
+	}
+
+	public Map<String, Object> getWorkingConditions() { return workingConditions; }
+
+	public void updateWorkingConditions(Map<String, Object> workingConditions) {
+		this.workingConditions = workingConditions;
 	}
 
 	public Instant getOnboardingCompletedAt() { return onboardingCompletedAt; }

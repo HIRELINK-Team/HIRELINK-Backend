@@ -27,10 +27,13 @@ public class StudentBadgeService {
     private final StudentProfileRepository profiles;
     private final StudentRegistrationVerificationRepository registrations;
     private final StudentEnrollmentDocumentRepository documents;
+    private final StudentWorkingConditionsSnapshotService snapshots;
 
     public StudentBadgeService(UserAccountRepository users, StudentProfileRepository profiles,
-            StudentRegistrationVerificationRepository registrations, StudentEnrollmentDocumentRepository documents) {
+            StudentRegistrationVerificationRepository registrations, StudentEnrollmentDocumentRepository documents,
+            StudentWorkingConditionsSnapshotService snapshots) {
         this.users = users; this.profiles = profiles; this.registrations = registrations; this.documents = documents;
+        this.snapshots = snapshots;
     }
 
     @Transactional(readOnly = true)
@@ -50,7 +53,10 @@ public class StudentBadgeService {
 
     // 호출자는 회원 행을 잠그고 서류 확정/갱신과 같은 트랜잭션에서 실행한다.
     public void issueIfEligible(StudentProfile profile, boolean reissue) {
-        if (eligible(profile)) { profile.issueHirelinkBadge(Instant.now(), reissue); }
+        if (eligible(profile)) {
+            snapshots.refresh(profile);
+            profile.issueHirelinkBadge(Instant.now(), reissue);
+        }
     }
 
     private boolean eligible(StudentProfile profile) {

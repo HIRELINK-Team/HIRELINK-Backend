@@ -41,7 +41,8 @@ import static org.mockito.ArgumentMatchers.*;
     "registration-verification.enabled=true",
     "registration-verification.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
     "registration-verification.renewal-cleanup-initial-delay=3600000",
-    "student-document.cleanup-initial-delay=3600000"})
+    "student-document.cleanup-initial-delay=3600000",
+    "student-working-conditions.refresh-enabled=false"})
 class StudentDocumentCompletionIntegrationTest extends PostgreSQLIntegrationTest {
     private static final String PATH = "/api/students/me/documents/completion";
     @Autowired JdbcTemplate jdbc;
@@ -62,6 +63,7 @@ class StudentDocumentCompletionIntegrationTest extends PostgreSQLIntegrationTest
 
     @BeforeEach void setup() {
         jdbc.execute("TRUNCATE TABLE user_account, student_document_cleanup RESTART IDENTITY CASCADE");
+        jdbc.update("insert into study_program(program_name) values ('학사')");
         reset(academicOcr, enrollmentOcr, registrationOcr, apick, storage);
         today = LocalDate.now(ZoneId.of("Asia/Seoul"));
         user = student("STUDENT");
@@ -241,7 +243,7 @@ class StudentDocumentCompletionIntegrationTest extends PostgreSQLIntegrationTest
     }
     private long student(String role) {
         long id=jdbc.queryForObject("insert into user_account(email,role,name) values (?,?,'학생') returning id",Long.class,UUID.randomUUID()+"@example.com",role);
-        jdbc.update("insert into student_profile(id,birth_date,nationality,current_region,korean_level,onboarding_completed_at) values (?,'2000-01-01','VN','서울','BEGINNER',now())",id);
+        jdbc.update("insert into student_profile(id,birth_date,nationality,current_region,korean_level,onboarding_completed_at,visa_code,study_program_id) values (?,'2000-01-01','VN','서울','BEGINNER',now(),'D-2-2',(select id from study_program where program_name='학사'))",id);
         return id;
     }
     private void verification(long id,LocalDate expiry) { jdbc.update("insert into student_registration_verification(user_id,nationality,visa_code,stay_expires_on,card_verified_at,registered_at) values (?,'VN','D-2',?,now(),now())",id,expiry); }
