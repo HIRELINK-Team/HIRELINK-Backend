@@ -32,6 +32,9 @@ public class EmploymentMatch {
 	@Column(name = "completed_at", nullable = false, updatable = false)
 	private Instant completedAt;
 
+	@Column(name = "deleted_at")
+	private Instant deletedAt;
+
 	protected EmploymentMatch() {
 	}
 
@@ -50,5 +53,15 @@ public class EmploymentMatch {
 
 	public Instant getCompletedAt() {
 		return completedAt;
+	}
+
+	public Instant getDeletedAt() {
+		return deletedAt;
+	}
+
+	public void delete(Instant deletedAt) {
+		if (this.deletedAt == null) {
+			this.deletedAt = deletedAt;
+		}
 	}
 }
