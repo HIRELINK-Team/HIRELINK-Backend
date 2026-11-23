@@ -12,6 +12,7 @@ import com.hirelink.domain.student.service.StudentAcademicDocumentService;
 import com.hirelink.global.exception.ErrorResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.*;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -27,7 +28,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
  @ApiResponse(responseCode="409",description="DOCUMENT_DRAFT_NOT_FOUND",content=@Content(schema=@Schema(implementation=ErrorResponse.class))),
  @ApiResponse(responseCode="413",description="FILE_TOO_LARGE",content=@Content(schema=@Schema(implementation=ErrorResponse.class))),
  @ApiResponse(responseCode="415",description="UNSUPPORTED_FILE_TYPE",content=@Content(schema=@Schema(implementation=ErrorResponse.class))),
- @ApiResponse(responseCode="422",description="UNREADABLE_STUDENT_DOCUMENT",content=@Content(schema=@Schema(implementation=ErrorResponse.class))),
+ @ApiResponse(responseCode="422",description="UNREADABLE_STUDENT_DOCUMENT. 직전 학기 평균 학점 또는 TOPIK 등급 미인식을 message로 안내한다. 파일·서류 유형 자체를 읽지 못하면 일반 재업로드 안내를 반환한다",content=@Content(mediaType = "application/json", schema=@Schema(implementation=ErrorResponse.class),examples={
+  @ExampleObject(name="TRANSCRIPT_GPA_UNREADABLE",value="{\"code\":\"UNREADABLE_STUDENT_DOCUMENT\",\"message\":\"직전 학기 평균 학점을 확인하지 못했습니다. 해당 정보가 선명하게 보이도록 다시 촬영하거나 파일을 올려주세요.\"}"),
+  @ExampleObject(name="TOPIK_LEVEL_UNREADABLE",value="{\"code\":\"UNREADABLE_STUDENT_DOCUMENT\",\"message\":\"TOPIK 등급을 확인하지 못했습니다. 해당 정보가 선명하게 보이도록 다시 촬영하거나 파일을 올려주세요.\"}"),
+  @ExampleObject(name="UNREADABLE_STUDENT_DOCUMENT",value="{\"code\":\"UNREADABLE_STUDENT_DOCUMENT\",\"message\":\"서류 정보를 확인하지 못했습니다. 다시 촬영하거나 업로드해주세요.\"}")})),
  @ApiResponse(responseCode="502",description="OCR·저장소 실패",content=@Content(schema=@Schema(implementation=ErrorResponse.class)))})
 public class StudentAcademicDocumentController {
     private final StudentAcademicDocumentService service;

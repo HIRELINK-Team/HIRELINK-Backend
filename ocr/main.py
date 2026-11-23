@@ -10,6 +10,7 @@ from registration import extract_front, extract_back
 from stay_document import extract_stay_document
 from enrollment import extract_enrollment
 from academic import extract_transcript, extract_topik
+from student_document_errors import UnreadableStudentFields
 
 
 MAX_FILE_SIZE = 5 * 1024 * 1024
@@ -93,6 +94,9 @@ async def recognize_request(request: Request, recognizer, image_only=False, pdf_
             return failure(422)
         result = await run_in_threadpool(recognizer, request.app.state.engine, bytes(data), content_type)
         return JSONResponse(result, headers={"Cache-Control": "no-store"})
+    except UnreadableStudentFields as error:
+        return JSONResponse({"code": "OCR_REQUIRED_FIELDS_UNREADABLE", "fields": error.fields},
+                            status_code=422, headers={"Cache-Control": "no-store"})
     except UnreadableDocument:
         return failure(422)
     except Exception:

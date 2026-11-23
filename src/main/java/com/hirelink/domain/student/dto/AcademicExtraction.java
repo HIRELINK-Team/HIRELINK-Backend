@@ -14,7 +14,17 @@ public record AcademicExtraction(Integer academicYear,String semester,BigDecimal
               && Set.of("FIRST","SUMMER","SECOND","WINTER").contains(semester) && averageGpa!=null
               && averageGpa.signum()>=0 && averageGpa.scale()<=4 && averageGpa.compareTo(new BigDecimal("1000000"))<0 && topikLevel==null
             : "TOPIK".equals(type) && topikLevel!=null && topikLevel>=1 && topikLevel<=6 && averageGpa==null && academicYear==null && semester==null;
-        if(!valid) throw unreadable();
+        if(!valid) throw unreadable(type);
+    }
+    public static StudentDocumentException unreadable(String type) {
+        String subject = switch (type) {
+            case "TRANSCRIPT" -> "직전 학기 평균 학점을";
+            case "TOPIK" -> "TOPIK 등급을";
+            default -> null;
+        };
+        if (subject == null) return unreadable();
+        return new StudentDocumentException(HttpStatus.UNPROCESSABLE_ENTITY,"UNREADABLE_STUDENT_DOCUMENT",
+            subject + " 확인하지 못했습니다. 해당 정보가 선명하게 보이도록 다시 촬영하거나 파일을 올려주세요.");
     }
     public static StudentDocumentException unreadable() { return new StudentDocumentException(HttpStatus.UNPROCESSABLE_ENTITY,"UNREADABLE_STUDENT_DOCUMENT","서류 정보를 확인하지 못했습니다. 다시 촬영하거나 업로드해주세요."); }
 }

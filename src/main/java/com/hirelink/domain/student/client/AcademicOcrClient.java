@@ -36,14 +36,14 @@ public class AcademicOcrClient {
 					|| !(uri.getPath().isEmpty() || uri.getPath().equals("/"))) { throw failed(); }
 			JsonNode result = client.post().uri(uri.resolve("/student/" + type.toLowerCase(java.util.Locale.ROOT))).contentType(MediaType.parseMediaType(contentType))
 					.body(bytes).retrieve().onStatus(status -> status.value() != 200, (request, response) -> {
-						if (response.getStatusCode().value() == 422) { throw AcademicExtraction.unreadable(); }
+						if (response.getStatusCode().value() == 422) { throw StudentDocumentOcrErrors.unreadable(response.getBody(), type); }
 						throw failed();
 					}).body(JsonNode.class);
             if (result == null || !result.isObject() || result.size()!=4
                     || !(result.path("semester").isNull() || result.path("semester").isString())
                     || !(result.path("averageGpa").isNull() || result.path("averageGpa").isString())) { throw failed(); }
             Integer level=integer(result.path("topikLevel"));
-            if(level!=null && (level<1 || level>6)) throw AcademicExtraction.unreadable();
+            if(level!=null && (level<1 || level>6)) throw AcademicExtraction.unreadable(type);
             var value=new AcademicExtraction(integer(result.path("academicYear")), result.path("semester").isNull()?null:result.path("semester").stringValue(),
                 result.path("averageGpa").isNull()?null:new java.math.BigDecimal(result.path("averageGpa").stringValue()), level==null?null:level.shortValue());
             value.validate(type);

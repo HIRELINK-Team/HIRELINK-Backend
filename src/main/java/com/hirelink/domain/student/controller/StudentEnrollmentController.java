@@ -44,9 +44,12 @@ public class StudentEnrollmentController {
 		@ApiResponse(responseCode = "400", description = "파일 누락 또는 multipart 형식 오류", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
 		@ApiResponse(responseCode = "413", description = "FILE_TOO_LARGE", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
 		@ApiResponse(responseCode = "415", description = "UNSUPPORTED_FILE_TYPE", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-		@ApiResponse(responseCode = "422", description = "인식 불가 또는 학년 범위 초과", content = @Content(schema = @Schema(implementation = ErrorResponse.class), examples = {
+		@ApiResponse(responseCode = "422", description = "인식 불가 또는 학년 범위 초과", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
 			@ExampleObject(name = "UNSUPPORTED_GRADE_LEVEL", value = "{\"code\":\"UNSUPPORTED_GRADE_LEVEL\",\"message\":\"지원하는 학년 범위를 벗어났습니다\"}"),
-			@ExampleObject(name = "UNREADABLE_ENROLLMENT", value = "{\"code\":\"UNREADABLE_ENROLLMENT\",\"message\":\"재학증명서 정보를 확인하지 못했습니다. 다시 촬영하거나 업로드해주세요.\"}")})),
+			@ExampleObject(name = "UNREADABLE_ENROLLMENT", value = "{\"code\":\"UNREADABLE_ENROLLMENT\",\"message\":\"재학증명서 정보를 확인하지 못했습니다. 다시 촬영하거나 업로드해주세요.\"}"),
+			@ExampleObject(name = "UNIVERSITY_UNREADABLE", value = "{\"code\":\"UNREADABLE_ENROLLMENT\",\"message\":\"대학교명을 확인하지 못했습니다. 해당 정보가 선명하게 보이도록 다시 촬영하거나 파일을 올려주세요.\"}"),
+			@ExampleObject(name = "GRADE_UNREADABLE", value = "{\"code\":\"UNREADABLE_ENROLLMENT\",\"message\":\"학년 또는 학기 수를 확인하지 못했습니다. 해당 정보가 선명하게 보이도록 다시 촬영하거나 파일을 올려주세요.\"}"),
+			@ExampleObject(name = "UNIVERSITY_AND_GRADE_UNREADABLE", value = "{\"code\":\"UNREADABLE_ENROLLMENT\",\"message\":\"대학교명과 학년 또는 학기 수를 확인하지 못했습니다. 해당 정보가 선명하게 보이도록 다시 촬영하거나 파일을 올려주세요.\"}")})),
 		@ApiResponse(responseCode = "502", description = "ENROLLMENT_OCR_FAILED 또는 STUDENT_DOCUMENT_STORAGE_FAILED", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
 	})
 	public ResponseEntity<EnrollmentPreviewResponse> preview(@AuthenticationPrincipal Jwt jwt,
@@ -60,7 +63,10 @@ public class StudentEnrollmentController {
 		@ApiResponse(responseCode = "200", description = "최종 등록 완료", content = @Content(schema = @Schema(implementation = EnrollmentDocumentResponse.class))),
 		@ApiResponse(responseCode = "400", description = "draftId 형식 오류", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
 		@ApiResponse(responseCode = "409", description = "ENROLLMENT_DRAFT_NOT_FOUND: 다른 회원·이전·이미 확인한 결과", content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-		@ApiResponse(responseCode = "422", description = "UNSUPPORTED_GRADE_LEVEL 또는 UNREADABLE_ENROLLMENT", content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+		@ApiResponse(responseCode = "422", description = "UNSUPPORTED_GRADE_LEVEL 또는 UNREADABLE_ENROLLMENT. 누락된 대학교·학년/학기 수를 message로 안내하며 여러 항목이면 함께 안내한다", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = {
+			@ExampleObject(name = "UNIVERSITY_UNREADABLE", value = "{\"code\":\"UNREADABLE_ENROLLMENT\",\"message\":\"대학교명을 확인하지 못했습니다. 해당 정보가 선명하게 보이도록 다시 촬영하거나 파일을 올려주세요.\"}"),
+			@ExampleObject(name = "GRADE_UNREADABLE", value = "{\"code\":\"UNREADABLE_ENROLLMENT\",\"message\":\"학년 또는 학기 수를 확인하지 못했습니다. 해당 정보가 선명하게 보이도록 다시 촬영하거나 파일을 올려주세요.\"}"),
+			@ExampleObject(name = "UNIVERSITY_AND_GRADE_UNREADABLE", value = "{\"code\":\"UNREADABLE_ENROLLMENT\",\"message\":\"대학교명과 학년 또는 학기 수를 확인하지 못했습니다. 해당 정보가 선명하게 보이도록 다시 촬영하거나 파일을 올려주세요.\"}")}))
 	})
 	public ResponseEntity<EnrollmentDocumentResponse> confirm(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID draftId) {
 		return ResponseEntity.ok().header("Cache-Control", "no-store").body(service.confirm(Long.valueOf(jwt.getSubject()), draftId));
