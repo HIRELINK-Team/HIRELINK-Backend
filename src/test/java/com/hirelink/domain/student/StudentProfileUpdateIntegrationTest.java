@@ -10,6 +10,11 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.YearMonth;
+import javax.sql.DataSource;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import com.hirelink.global.sms.SmsSender;
+import static org.awaitility.Awaitility.await;
 import java.time.ZoneId;
 import java.util.Base64;
 import java.util.List;
@@ -38,13 +43,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-import com.hirelink.global.exception.ProfileImageAccessException;
 import com.hirelink.global.storage.SupabaseStorageClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class StudentProfileUpdateIntegrationTest extends PostgreSQLIntegrationTest {
@@ -65,6 +67,9 @@ class StudentProfileUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 	private JwtEncoder jwtEncoder;
 	@MockitoBean
 	private SupabaseStorageClient storageClient;
+	@Autowired private PasswordEncoder encoder;
+	@Autowired private DataSource dataSource;
+	@MockitoBean private SmsSender smsSender;
 	private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
 	@BeforeEach
@@ -88,206 +93,346 @@ class StudentProfileUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
-	void updatesOnlySentFieldsAndDoesNotDependOnStorage() throws Exception {
+	void savesAllEditableFieldsAndReadsTheSamePreferredLocationAndCareers() throws Exception {
 		long id = createStudent();
-		long otherId = createStudent();
-		Long programId = jdbc.queryForObject("insert into study_program(program_name) values ('테스트 학업과정') returning id", Long.class);
-		jdbc.update("""
-				update student_profile set study_program_id = ?, grade_level = 2, visa_code = 'D-2-2',
-				academic_state = 'ENROLLED', topik_level = 4, profile_image_key = 'profiles/test.png',
-				enrollment_start_date = '2024-03-01', stay_start_date = '2024-03-01',
-				certification_prompt_dismissed_at = now(), hirelink_badge_issued_at = now() where id = ?
-				""", programId, id);
-		Map<String, Object> before = profile(id);
-		Map<String, Object> otherBefore = profile(otherId);
-		when(storageClient.createSignedUrl("profiles/test.png")).thenThrow(new ProfileImageAccessException());
-		HttpResponse<String> response = patch(token(id, "STUDENT"), "{\"name\":\"수정한 이름\",\"currentRegion\":\"서울 용산구\"}");
-		assertThat(response.statusCode()).isEqualTo(200);
+		long other = createStudent();
+		seedRelated(id);
+		seedRelated(other);
+		var otherBefore = snapshot(other);
+		verifyNewPhone(id);
+		var response = patch(token(id, "STUDENT"), fullRequest("서울 용산구"));
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
 		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
-		JsonNode body = mapper.readTree(response.body());
-		assertThat(body.size()).isEqualTo(17);
-		assertThat(body.path("name").asString()).isEqualTo("수정한 이름");
-		assertThat(body.path("studentId").asLong()).isEqualTo(id);
-		assertThat(body.has("profileImageUrl")).isFalse();
-		assertThat(body.has("profileImageKey")).isFalse();
-		assertThat(body.path("studyProgramId").asLong()).isEqualTo(programId);
-		assertThat(body.path("gradeLevel").asInt()).isEqualTo(2);
+		var body = mapper.readTree(response.body());
+		assertThat(body.path("phoneNumber").asString()).isEqualTo("010-9876-5432");
+		assertThat(body.path("birthDate").asString()).isEqualTo("2001-05-14");
+		assertThat(body.path("koreanLevel").asString()).isEqualTo("ADVANCED");
+		assertThat(profile(id)).containsEntry("nationality", "VN").containsEntry("current_region", "서울 용산구");
+		assertThat(proof(id)).isEmpty();
+		var read = send("GET", "/api/students/me/profile", token(id, "STUDENT"), null);
+		assertThat(read.statusCode()).isEqualTo(200);
+		var careers = mapper.readTree(read.body()).path("careers");
+		assertThat(careers.size()).isEqualTo(1);
+		assertThat(careers.get(0).path("careerName").asString()).isEqualTo("새 경력");
+		var location = send("GET", "/api/students/me/matching-preferences", token(id, "STUDENT"), null);
+		assertThat(location.statusCode()).as(location.body()).isEqualTo(200);
+		assertThat(mapper.readTree(location.body()).path("preferredLocation").path("locationName").asString()).isEqualTo("강남역");
+		assertThat(snapshot(other)).isEqualTo(otherBefore);
+		verifyNoInteractions(storageClient);
+	}
+
+	@Test
+	void omittedFieldsAndVerifiedDocumentInformationStayUnchanged() throws Exception {
+		long id = createStudent();
+		seedRelated(id);
+		jdbc.update("update student_profile set topik_level=4, grade_level=2, university_name='학교', visa_code='D-2-2', stay_expiration_date='2020-01-01', hirelink_badge_issued_at=now() where id=?", id);
+		var before = profile(id);
+		var careers = jdbc.queryForList("select * from student_career where user_id=?", id);
+		var location = jdbc.queryForMap("select * from student_preferred_location where user_id=?", id);
+		assertThat(patch(token(id,"STUDENT"), "{\"currentRegion\":\"서울 용산구\"}").statusCode()).isEqualTo(200);
 		before.put("current_region", "서울 용산구");
 		assertThat(profile(id)).isEqualTo(before);
-		assertThat(profile(otherId)).isEqualTo(otherBefore);
-		verifyNoInteractions(storageClient);
-
-		doReturn("https://storage.example.com/test-photo").when(storageClient).createSignedUrl("profiles/test.png");
-		HttpResponse<String> read = client.send(HttpRequest.newBuilder(URI.create(baseUrl()))
-				.header("Authorization", "Bearer " + token(id, "STUDENT")).GET().build(), HttpResponse.BodyHandlers.ofString());
-		assertThat(read.statusCode()).isEqualTo(200);
-		assertThat(mapper.readTree(read.body()).path("studyProgramId").asLong()).isEqualTo(programId);
-		assertThat(mapper.readTree(read.body()).path("gradeLevel").asInt()).isEqualTo(2);
+		assertThat(jdbc.queryForList("select * from student_career where user_id=?", id)).isEqualTo(careers);
+		assertThat(jdbc.queryForMap("select * from student_preferred_location where user_id=?", id)).isEqualTo(location);
+		assertThat(patch(token(id,"STUDENT"), "{\"careers\":[]}").statusCode()).isEqualTo(200);
+		assertThat(jdbc.queryForList("select * from student_career where user_id=?", id)).isEmpty();
 	}
 
 	@Test
-	void acceptsAllEditableFieldsAndKeepsPastExpirationDate() throws Exception {
+	void rejectsUnknownReadOnlyNullAndMalformedInputsAtomically() throws Exception {
 		long id = createStudent();
-		String request = """
-				{"name":"새 이름","birthDate":"2000-05-10","nationality":"US","currentRegion":"서울 용산구",
-				"koreanLevel":"ADVANCED","visaCode":"D-2-2","stayExpirationDate":"2020-03-01"}
-				""";
-		HttpResponse<String> response = patch(token(id, "STUDENT"), request);
-		assertThat(response.statusCode()).isEqualTo(200);
-		JsonNode body = mapper.readTree(response.body());
-		JsonNode sent = mapper.readTree(request);
-		for (String field : List.of("name", "birthDate", "nationality", "currentRegion", "koreanLevel", "visaCode",
-				"stayExpirationDate")) {
-			assertThat(body.path(field)).as(field).isEqualTo(sent.path(field));
+		seedRelated(id);
+		var before = snapshot(id);
+		for (String field : List.of("name", "nationality", "visaCode", "stayExpirationDate", "topikLevel", "academicState",
+				"universityName", "studyProgram", "studyProgramId", "gradeLevel", "userId", "email", "unknown")) {
+			assertError(patch(token(id,"STUDENT"), mapper.writeValueAsString(Map.of(field,"x","currentRegion","새 지역"))),400,"INVALID_INPUT");
 		}
-		assertThat(profile(id)).containsEntry("study_program_id", null).containsEntry("grade_level", null);
-		assertThat(jdbc.queryForObject("select name from user_account where id = ?", String.class, id)).isEqualTo("새 이름");
-	}
-
-	@Test
-	void preservesVerifiedTopikAndRejectsDirectChangesIncludingNull() throws Exception {
-		long id = createStudent();
-		jdbc.update("update student_profile set topik_level = 4 where id = ?", id);
-		String token = token(id, "STUDENT");
-		assertThat(patch(token, "{\"name\":\"이름 수정\"}").statusCode()).isEqualTo(200);
-		for (String value : List.of("null", "1", "6")) {
-			assertError(patch(token, "{\"topikLevel\":" + value + "}"), 400, "INVALID_INPUT");
-			assertThat(profile(id).get("topik_level")).isEqualTo(4);
-		}
-	}
-
-	@ParameterizedTest
-	@ValueSource(strings = {"D-2-1", "D-2-2", "D-2-3", "D-2-4", "D-2-6"})
-	void acceptsOnlySupportedDetailedVisaForUnverifiedDevelopmentProfile(String visa) throws Exception {
-		long id = createStudent();
-		jdbc.update("update student_profile set academic_state = 'ENROLLED', university_name = '기존 학교' where id = ?", id);
-		assertThat(patch(token(id, "STUDENT"), mapper.writeValueAsString(Map.of("visaCode", visa))).statusCode()).isEqualTo(200);
-		assertThat(profile(id)).containsEntry("visa_code", visa).containsEntry("academic_state", "ENROLLED").containsEntry("university_name", "기존 학교");
-	}
-
-	@Test
-	void rejectsRemovedInputsAndUnsupportedCodesAtomically() throws Exception {
-		long id = createStudent();
-		Map<String, Object> before = profile(id);
-		Map<String, Object> userBefore = jdbc.queryForMap("select * from user_account where id = ?", id);
-		for (String field : List.of("academicState", "universityName", "studyProgram", "studyProgramId", "gradeLevel")) {
-			for (Object value : List.of("ENROLLED", 1, true)) {
-				assertError(patch(token(id, "STUDENT"), mapper.writeValueAsString(Map.of(field, value, "name", "저장되면 안 됨"))), 400, "INVALID_INPUT");
+		for (String field : List.of("birthDate", "phoneNumber", "currentRegion", "koreanLevel", "careers", "preferredLocation")) {
+			for (String value : List.of("null", "123", "true")) {
+				assertError(patch(token(id,"STUDENT"), "{\""+field+"\":"+value+"}"),400,"INVALID_INPUT");
 			}
 		}
-		for (String visa : List.of("D-2", "D-4", "D-2-5", "D-2-7", "D-2-8", "D-4-1", "D-4-7", "TEST-VISA", "d-2-2")) {
-			assertError(patch(token(id, "STUDENT"), mapper.writeValueAsString(Map.of("visaCode", visa, "name", "저장되면 안 됨"))), 400, "INVALID_INPUT");
+		for (String json : List.of("{}", "null", "[]", "{", "{\"birthDate\":\"2020-02-30\"}",
+				"{\"phoneNumber\":\"01112345678\"}","{\"koreanLevel\":\"EXPERT\"}","{\"currentRegion\":\" \"}",
+				"{\"currentRegion\":\""+"가".repeat(151)+"\"}","{\"careers\":[null]}")) {
+			assertError(patch(token(id,"STUDENT"),json),400,"INVALID_INPUT");
 		}
-		assertThat(profile(id)).isEqualTo(before);
-		assertThat(jdbc.queryForMap("select * from user_account where id = ?", id)).isEqualTo(userBefore);
+		assertThat(snapshot(id)).isEqualTo(before);
 	}
 
 	@Test
-	void cannotChangeVisaToConflictWithStoredProgram() throws Exception {
+	void validatesAgeUsingKoreanDateAndRollsBackAllChanges() throws Exception {
 		long id = createStudent();
-		long course = jdbc.queryForObject("insert into study_program(program_name) values ('학사') returning id", Long.class);
-		jdbc.update("update student_profile set study_program_id = ?, visa_code = 'D-2-2' where id = ?", course, id);
-		Map<String, Object> before = profile(id);
-		assertError(patch(token(id, "STUDENT"), "{\"visaCode\":\"D-2-3\"}"), 400, "INVALID_INPUT");
-		assertThat(profile(id)).isEqualTo(before);
-		assertThat(patch(token(id, "STUDENT"), "{\"visaCode\":\"D-2-2\"}").statusCode()).isEqualTo(200);
+		seedRelated(id);
+		verifyNewPhone(id);
+		var before = snapshot(id);
+		var threshold = LocalDate.now(ZoneId.of("Asia/Seoul")).minusYears(18);
+		assertError(patch(token(id,"STUDENT"),fullRequest("새 지역").replace("2001-05-14",threshold.plusDays(1).toString())),400,"INVALID_INPUT");
+		assertThat(snapshot(id)).isEqualTo(before);
+		assertThat(patch(token(id,"STUDENT"),fullRequest("새 지역").replace("2001-05-14",threshold.toString())).statusCode()).isEqualTo(200);
 	}
 
 	@Test
-	void rejectsEmptyUnknownReadOnlyAndExplicitNullFieldsWithoutChangingData() throws Exception {
+	void invalidCareerOrLocationRollsBackPhoneAndEarlierCareerWrites() throws Exception {
 		long id = createStudent();
-		String token = token(id, "STUDENT");
-		Map<String, Object> before = profile(id);
-		for (String json : List.of("{}", "null", "[]", "{", "{\"studyProgramId\":1}", "{\"gradeLevel\":2}",
-				"{\"profileImageUrl\":\"https://example.com/photo\"}", "{\"userId\":999}", "{\"email\":\"test@example.com\"}",
-				"{\"phoneNumber\":\"010-0000-0000\"}", "{\"topikLevelProvided\":true}", "{\"unknown\":1}")) {
-			assertError(patch(token, json), 400, "INVALID_INPUT");
+		seedRelated(id);
+		verifyNewPhone(id);
+		var before = snapshot(id);
+		var request = (tools.jackson.databind.node.ObjectNode) mapper.readTree(fullRequest("새 지역"));
+		var second = request.withArray("careers").get(0).deepCopy();
+		((tools.jackson.databind.node.ObjectNode) second).put("endMonth","2022-01");
+		request.withArray("careers").add(second);
+		assertError(patch(token(id,"STUDENT"),request.toString()),400,"INVALID_INPUT");
+		assertThat(snapshot(id)).isEqualTo(before);
+		for (String field : List.of("radiusM", "latitude", "longitude", "locationName")) {
+			var bad = (tools.jackson.databind.node.ObjectNode) mapper.readTree(fullRequest("새 지역"));
+			var location = (tools.jackson.databind.node.ObjectNode) bad.path("preferredLocation");
+			if (field.equals("locationName")) { location.put(field, " "); } else { location.put(field, 1250); }
+			assertError(patch(token(id,"STUDENT"),bad.toString()),400,"INVALID_INPUT");
 		}
-		for (String field : List.of("name", "birthDate", "nationality", "currentRegion", "koreanLevel", "visaCode",
-				"stayExpirationDate", "universityName", "academicState")) {
-			assertError(patch(token, "{\"" + field + "\":null}"), 400, "INVALID_INPUT");
+		assertThat(snapshot(id)).isEqualTo(before);
+	}
+
+	@Test
+	void careerBatchValidatesRequiredValuesTypesLengthsAndPeriods() throws Exception {
+		long id = createStudent();
+		seedRelated(id);
+		var before = snapshot(id);
+		for (String field : List.of("careerName", "startMonth", "endMonth", "description")) {
+			for (String value : List.of("null", "123", "true", "\"\"", "\" \"")) {
+				var request = careerRequest();
+				((tools.jackson.databind.node.ObjectNode) request.path("careers").get(0)).set(field,mapper.readTree(value));
+				assertError(patch(token(id,"STUDENT"),request.toString()),400,"INVALID_INPUT");
+			}
+			var request = careerRequest();
+			((tools.jackson.databind.node.ObjectNode) request.path("careers").get(0)).remove(field);
+			assertError(patch(token(id,"STUDENT"),request.toString()),400,"INVALID_INPUT");
 		}
-		assertThat(profile(id)).isEqualTo(before);
-	}
-
-	@ParameterizedTest
-	@ValueSource(strings = {"0", "7", "1.5", "\"5\"", "true", "2147483648"})
-	void rejectsInvalidTopikValues(String value) throws Exception {
-		long id = createStudent();
-		assertError(patch(token(id, "STUDENT"), "{\"topikLevel\":" + value + "}"), 400, "INVALID_INPUT");
-		assertThat(profile(id).get("topik_level")).isNull();
-	}
-
-	@Test
-	void validatesTextAndDateInputsWithoutSavingOtherChanges() throws Exception {
-		long id = createStudent();
-		String token = token(id, "STUDENT");
-		for (String json : List.of("{\"name\":\" \"}", "{\"currentRegion\":\"\"}", "{\"universityName\":\" \"}",
-				"{\"nationality\":\"ZZ\"}", "{\"nationality\":\"vn\"}", "{\"koreanLevel\":\"EXPERT\"}",
-				"{\"visaCode\":\"D-2-5\"}", "{\"visaCode\":\"D-2-2\",\"academicState\":\"INVALID\"}",
-				"{\"birthDate\":\"2020-02-30\"}", "{\"stayExpirationDate\":\"2025/03/01\"}",
-				"{\"name\":123}", "{\"birthDate\":[2000,3,14]}", "{\"name\":\"" + "가".repeat(101) + "\"}",
-				"{\"universityName\":\"" + "가".repeat(151) + "\"}")) {
-			assertError(patch(token, json), 400, "INVALID_INPUT");
+		for (String month : List.of("2023-00", "2023-13", "2023-3", "2023/03", "2023-03-01", "99999-03")) {
+			for (String field : List.of("startMonth", "endMonth")) {
+				var request = careerRequest();
+				((tools.jackson.databind.node.ObjectNode) request.path("careers").get(0)).put(field,month);
+				assertError(patch(token(id,"STUDENT"),request.toString()),400,"INVALID_INPUT");
+			}
 		}
-		assertThat(jdbc.queryForObject("select name from user_account where id = ?", String.class, id)).isEqualTo("테스트 이름");
+		for (String field : List.of("careerId", "userId", "unknown")) {
+			var request = careerRequest();
+			((tools.jackson.databind.node.ObjectNode) request.path("careers").get(0)).put(field, 1);
+			assertError(patch(token(id,"STUDENT"),request.toString()),400,"INVALID_INPUT");
+		}
+		var request = careerRequest();
+		var career = (tools.jackson.databind.node.ObjectNode) request.path("careers").get(0);
+		career.put("careerName", "가".repeat(151));
+		assertError(patch(token(id,"STUDENT"),request.toString()),400,"INVALID_INPUT");
+		career.put("careerName", "가".repeat(150));
+		String current = YearMonth.now(ZoneId.of("Asia/Seoul")).toString();
+		career.put("startMonth", current).put("endMonth",YearMonth.parse(current).plusMonths(1).toString());
+		assertError(patch(token(id,"STUDENT"),request.toString()),400,"INVALID_INPUT");
+		assertThat(snapshot(id)).isEqualTo(before);
+		career.put("endMonth",current).put("description","음료 제조\n고객 응대");
+		assertThat(patch(token(id,"STUDENT"),request.toString()).statusCode()).isEqualTo(200);
 	}
 
 	@Test
-	void validatesAgeBoundaryAndExpirationAgainstExistingStartDate() throws Exception {
+	void failedDatabaseWritePreservesEveryOriginalRowAndPhoneProofForRetry() throws Exception {
 		long id = createStudent();
-		String token = token(id, "STUDENT");
-		LocalDate threshold = LocalDate.now(ZoneId.of("Asia/Seoul")).minusYears(18);
-		assertError(patch(token, mapper.writeValueAsString(Map.of("birthDate", threshold.plusDays(1)))), 400, "INVALID_INPUT");
-		assertThat(patch(token, mapper.writeValueAsString(Map.of("birthDate", threshold))).statusCode()).isEqualTo(200);
-		jdbc.update("update student_profile set stay_start_date = '2020-03-01' where id = ?", id);
-		assertError(patch(token, "{\"stayExpirationDate\":\"2020-02-29\"}"), 400, "INVALID_INPUT");
-		assertThat(patch(token, "{\"stayExpirationDate\":\"2020-03-01\"}").statusCode()).isEqualTo(200);
-	}
-
-	@Test
-	void requiresCurrentStudentAccountAndOwnExistingProfile() throws Exception {
-		assertError(patch(null, "{\"name\":\"이름\"}"), 401, "UNAUTHORIZED");
-		assertError(patch("invalid-token", "{\"name\":\"이름\"}"), 401, "UNAUTHORIZED");
-		assertError(patch(token(999, "STUDENT"), "{\"name\":\"이름\"}"), 401, "UNAUTHORIZED");
-		long id = createStudent();
-		jdbc.update("update user_account set role = 'EMPLOYER' where id = ?", id);
-		assertError(patch(token(id, "STUDENT"), "{\"name\":\"이름\"}"), 403, "FORBIDDEN");
-		jdbc.update("update user_account set role = 'STUDENT', withdrawn_at = now() where id = ?", id);
-		assertError(patch(token(id, "STUDENT"), "{\"name\":\"이름\"}"), 403, "WITHDRAWN_ACCOUNT");
-		jdbc.update("update user_account set withdrawn_at = null where id = ?", id);
-		jdbc.update("delete from student_profile where id = ?", id);
-		createStudent();
-		assertError(patch(token(id, "STUDENT"), "{\"name\":\"이름\"}"), 404, "STUDENT_PROFILE_NOT_FOUND");
-	}
-
-	@Test
-	void rollsBackNameWhenDatabaseRejectsProfileUpdate() throws Exception {
-		long id = createStudent();
-		Map<String, Object> before = profile(id);
-		Map<String, Object> userBefore = jdbc.queryForMap("select * from user_account where id = ?", id);
+		seedRelated(id);
+		verifyNewPhone(id);
+		var before = snapshot(id);
 		jdbc.execute("alter table student_profile add constraint test_reject_region check (current_region <> '실패 지역')");
 		try {
-			assertError(patch(token(id, "STUDENT"), "{\"name\":\"저장되면 안 됨\",\"currentRegion\":\"실패 지역\"}"),
-					500, "INTERNAL_SERVER_ERROR");
-			assertThat(profile(id)).isEqualTo(before);
-			assertThat(jdbc.queryForMap("select * from user_account where id = ?", id)).isEqualTo(userBefore);
-		} finally {
-			jdbc.execute("alter table student_profile drop constraint test_reject_region");
+			assertError(patch(token(id,"STUDENT"),fullRequest("실패 지역")),500,"INTERNAL_SERVER_ERROR");
+			assertThat(snapshot(id)).isEqualTo(before);
+		} finally { jdbc.execute("alter table student_profile drop constraint test_reject_region"); }
+		assertThat(patch(token(id,"STUDENT"),fullRequest("정상 지역")).statusCode()).isEqualTo(200);
+	}
+
+	@Test
+	void confirmationCreatesFiveMinuteProofWithoutChangingActualAccountAndCannotBeReplayed() throws Exception {
+		long id = createStudent();
+		var before = jdbc.queryForMap("select * from user_account where id=?", id);
+		seedCode(id);
+		assertThat(confirm(id).statusCode()).isEqualTo(200);
+		assertThat(jdbc.queryForMap("select * from user_account where id=?", id)).isEqualTo(before);
+		assertThat(jdbc.queryForObject("select extract(epoch from change_expires_at-verified_at) from phone_verification where user_id=?",Integer.class,id)).isEqualTo(300);
+		var proof = proof(id);
+		assertError(confirm(id),400,"INVALID_VERIFICATION_CODE");
+		assertThat(proof(id)).isEqualTo(proof);
+		// 인증번호 유효시간이 지나도 확인 성공부터 5분 동안 저장할 수 있다.
+		jdbc.update("update phone_verification set expires_at=now()-interval '1 second' where user_id=?",id);
+		assertThat(patch(token(id,"STUDENT"), "{\"phoneNumber\":\"010-9876-5432\"}").statusCode()).isEqualTo(200);
+		assertThat(proof(id)).isEmpty();
+	}
+
+	@Test
+	void requiresOwnMatchingUnexpiredProofAndPreservesOtherChanges() throws Exception {
+		long id = createStudent();
+		seedRelated(id);
+		var before = snapshot(id);
+		assertError(patch(token(id,"STUDENT"),fullRequest("새 지역")),409,"PHONE_NOT_VERIFIED");
+		assertThat(snapshot(id)).isEqualTo(before);
+		seedCode(id);
+		assertError(patch(token(id,"STUDENT"),fullRequest("새 지역")),409,"PHONE_NOT_VERIFIED");
+		assertThat(confirm(id).statusCode()).isEqualTo(200);
+		before = snapshot(id);
+		assertError(patch(token(id,"STUDENT"),fullRequest("새 지역").replace("010-9876-5432","010-9876-5433")),409,"PHONE_NOT_VERIFIED");
+		assertThat(snapshot(id)).isEqualTo(before);
+		long other = createStudent();
+		assertError(patch(token(other,"STUDENT"),fullRequest("새 지역")),409,"PHONE_NOT_VERIFIED");
+		jdbc.update("update phone_verification set verified_at=now()-interval '6 minutes', change_expires_at=now()-interval '1 minute' where user_id=?",id);
+		before = snapshot(id);
+		assertError(patch(token(id,"STUDENT"),fullRequest("새 지역")),409,"PHONE_NOT_VERIFIED");
+		assertThat(snapshot(id)).isEqualTo(before);
+	}
+
+	@Test
+	void resendingCodeInvalidatesConfirmedProof() throws Exception {
+		long id = createStudent();
+		verifyNewPhone(id);
+		var response = send("POST","/api/auth/phone-verifications",token(id,"STUDENT"),"{\"phoneNumber\":\"01098765432\"}");
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		assertThat(proof(id).get(0)).containsEntry("verified_at",null).containsEntry("change_expires_at",null);
+		assertError(patch(token(id,"STUDENT"),fullRequest("새 지역")),409,"PHONE_NOT_VERIFIED");
+	}
+
+	@Test
+	void duplicatePhoneAtFinalSaveRollsBackAndConcurrentSavesHaveOneWinner() throws Exception {
+		long first = createStudent();
+		long second = createStudent();
+		verifyNewPhone(first);
+		verifyNewPhone(second);
+		var one = client.sendAsync(request(token(first,"STUDENT"),fullRequest("첫 지역")),HttpResponse.BodyHandlers.ofString());
+		var two = client.sendAsync(request(token(second,"STUDENT"),fullRequest("둘 지역")),HttpResponse.BodyHandlers.ofString());
+		var r1 = one.get(20,TimeUnit.SECONDS);
+		var r2 = two.get(20,TimeUnit.SECONDS);
+		assertThat(List.of(r1.statusCode(),r2.statusCode())).containsExactlyInAnyOrder(200,409);
+		long loser = r1.statusCode()==409 ? first : second;
+		assertError(r1.statusCode()==409?r1:r2,409,"DUPLICATE_PHONE_NUMBER");
+		assertThat(profile(loser).get("current_region")).isEqualTo("서울 마포구");
+		assertThat(proof(loser)).hasSize(1);
+		assertThat(jdbc.queryForObject("select count(*) from user_account where phone_number='01098765432'",Integer.class)).isEqualTo(1);
+	}
+
+	@Test
+	void samePhoneDoesNotRequireNewProofAndInitialAccountConfirmationStillSavesImmediately() throws Exception {
+		long id = createStudent();
+		String phone = jdbc.queryForObject("select phone_number from user_account where id=?",String.class,id);
+		assertThat(patch(token(id,"STUDENT"),mapper.writeValueAsString(Map.of("phoneNumber",phone,"currentRegion","새 지역"))).statusCode()).isEqualTo(200);
+		jdbc.update("delete from student_profile where id=?",id);
+		seedCode(id);
+		assertThat(confirm(id).statusCode()).isEqualTo(200);
+		assertThat(jdbc.queryForObject("select phone_number from user_account where id=?",String.class,id)).isEqualTo("01098765432");
+		assertThat(proof(id)).isEmpty();
+	}
+
+	@Test
+	void finalSaveChecksExpiryAfterWaitingForMemberLock() throws Exception {
+		long id = createStudent();
+		verifyNewPhone(id);
+		CompletableFuture<HttpResponse<String>> pending;
+		try (var connection = dataSource.getConnection()) {
+			connection.setAutoCommit(false);
+			try (var statement = connection.prepareStatement("select id from user_account where id=? for update")) {
+				statement.setLong(1,id); statement.executeQuery().close();
+			}
+			try {
+				pending = client.sendAsync(request(token(id,"STUDENT"),fullRequest("새 지역")),HttpResponse.BodyHandlers.ofString());
+				await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(jdbc.queryForObject("select count(*) from pg_stat_activity where datname=current_database() and wait_event_type='Lock' and query like '%user_account%'",Integer.class)).isPositive());
+				jdbc.update("update phone_verification set verified_at=now()-interval '6 minutes',change_expires_at=now()-interval '1 minute' where user_id=?",id);
+			} finally { connection.rollback(); }
 		}
+		assertError(pending.get(15,TimeUnit.SECONDS),409,"PHONE_NOT_VERIFIED");
+		assertThat(profile(id).get("current_region")).isEqualTo("서울 마포구");
 	}
 
 	@Test
 	void simultaneousPartialUpdatesPreserveBothChanges() throws Exception {
 		long id = createStudent();
 		String token = token(id, "STUDENT");
-		CompletableFuture<HttpResponse<String>> region = client.sendAsync(request(token, "{\"currentRegion\":\"서울 용산구\"}"),
-				HttpResponse.BodyHandlers.ofString());
-		CompletableFuture<HttpResponse<String>> korean = client.sendAsync(request(token, "{\"koreanLevel\":\"ADVANCED\"}"),
-				HttpResponse.BodyHandlers.ofString());
+		var region = client.sendAsync(request(token, "{\"currentRegion\":\"서울 용산구\"}"),HttpResponse.BodyHandlers.ofString());
+		var korean = client.sendAsync(request(token, "{\"koreanLevel\":\"ADVANCED\"}"),HttpResponse.BodyHandlers.ofString());
 		assertThat(region.get(20, TimeUnit.SECONDS).statusCode()).isEqualTo(200);
 		assertThat(korean.get(20, TimeUnit.SECONDS).statusCode()).isEqualTo(200);
 		assertThat(profile(id)).containsEntry("current_region", "서울 용산구").containsEntry("korean_level", "ADVANCED");
+	}
+
+	@Test
+	void requiresCurrentActiveStudentAndOwnExistingProfile() throws Exception {
+		String json = "{\"currentRegion\":\"새 지역\"}";
+		assertError(patch(null,json),401,"UNAUTHORIZED");
+		assertError(patch("invalid",json),401,"UNAUTHORIZED");
+		assertError(patch(token(999,"STUDENT"),json),401,"UNAUTHORIZED");
+		long id = createStudent();
+		jdbc.update("update user_account set role='EMPLOYER' where id=?",id);
+		assertError(patch(token(id,"STUDENT"),json),403,"FORBIDDEN");
+		jdbc.update("update user_account set role='STUDENT',withdrawn_at=now() where id=?",id);
+		assertError(patch(token(id,"STUDENT"),json),403,"WITHDRAWN_ACCOUNT");
+		jdbc.update("update user_account set withdrawn_at=null where id=?",id);
+		jdbc.update("delete from student_profile where id=?",id);
+		assertError(patch(token(id,"STUDENT"),json),404,"STUDENT_PROFILE_NOT_FOUND");
+	}
+
+	@Test
+	void legacyCareerWritesNeverPersistDrafts() throws Exception {
+		long id = createStudent();
+		seedRelated(id);
+		var before = snapshot(id);
+		for (String method : List.of("POST","PATCH","DELETE")) {
+			String path = "/api/students/me/careers"+(method.equals("POST")?"":"/1");
+			assertError(send(method,path,token(id,"STUDENT"),"{}"),400,"INVALID_INPUT");
+			assertError(send(method,path,null,"{}"),401,"UNAUTHORIZED");
+		}
+		assertThat(snapshot(id)).isEqualTo(before);
+	}
+
+	private tools.jackson.databind.node.ObjectNode careerRequest() {
+		var request = (tools.jackson.databind.node.ObjectNode) mapper.readTree(fullRequest("새 지역"));
+		request.remove("phoneNumber");
+		return request;
+	}
+
+	private String fullRequest(String region) {
+		return """
+			{"birthDate":"2001-05-14","phoneNumber":"010-9876-5432","currentRegion":"%s","koreanLevel":"ADVANCED",
+			"preferredLocation":{"locationName":"강남역","latitude":37.4979,"longitude":127.0276,"radiusM":500},
+			"careers":[{"careerName":"새 경력","startMonth":"2023-03","endMonth":"2023-09","description":"음료 제조"}]}
+			""".formatted(region);
+	}
+
+	private void seedRelated(long id) {
+		jdbc.update("insert into student_career(user_id,career_name,start_month,end_month,description) values (?,'기존 경력','2022-01','2022-06','판매')",id);
+		jdbc.update("insert into student_preferred_location(user_id,location_name,latitude,longitude,radius_m) values (?,'기존 위치',37,127,300)",id);
+	}
+
+	private void seedCode(long id) {
+		jdbc.update("insert into phone_verification(user_id,phone_number,code_hash,expires_at) values (?,'01098765432',?,now()+interval '5 minutes')",id,encoder.encode("123456"));
+	}
+
+	private void verifyNewPhone(long id) throws Exception {
+		seedCode(id);
+		var response = confirm(id);
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+	}
+
+	private HttpResponse<String> confirm(long id) throws Exception {
+		return send("POST","/api/auth/phone-verifications/verify",token(id,"STUDENT"),"{\"phoneNumber\":\"010-9876-5432\",\"code\":\"123456\"}");
+	}
+
+	private List<Map<String,Object>> proof(long id) {
+		return jdbc.queryForList("select * from phone_verification where user_id=?",id);
+	}
+
+	private List<Object> snapshot(long id) {
+		return List.of(jdbc.queryForMap("select * from user_account where id=?",id),profile(id),
+			jdbc.queryForList("select * from student_career where user_id=? order by id",id),
+			jdbc.queryForList("select * from student_preferred_location where user_id=?",id),proof(id));
+	}
+
+	private HttpResponse<String> send(String method,String path,String token,String json) throws Exception {
+		var request = HttpRequest.newBuilder(URI.create("http://localhost:"+port+path)).timeout(Duration.ofSeconds(15));
+		if (token!=null) { request.header("Authorization","Bearer "+token); }
+		request.header("Content-Type","application/json").method(method,json==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(json));
+		return client.send(request.build(),HttpResponse.BodyHandlers.ofString());
 	}
 
 	private long createStudent() {

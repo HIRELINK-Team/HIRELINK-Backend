@@ -385,7 +385,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
-	void standaloneCareerWritesAlsoWaitForTheMemberLock() throws Exception {
+	void retiredCareerWritesWaitForTheMemberLockAndReject() throws Exception {
 		long user = verifiedStudent();
 		seedIncomplete(user);
 		CompletableFuture<HttpResponse<String>> pending;
@@ -404,7 +404,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 				assertThat(pending.isDone()).isFalse();
 			} finally { connection.rollback(); }
 		}
-		assertThat(pending.get(15, TimeUnit.SECONDS).statusCode()).isEqualTo(201);
+		assertError(pending.get(15, TimeUnit.SECONDS), 400, "INVALID_INPUT");
 	}
 
 	@Test
