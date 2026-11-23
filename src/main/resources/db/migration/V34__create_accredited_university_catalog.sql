@@ -14,7 +14,7 @@ CREATE TABLE accredited_university_entry (
 CREATE INDEX ix_accredited_university_name ON accredited_university_entry(effective_from, normalized_name);
 
 INSERT INTO accredited_university_catalog(effective_from, source_name, expected_entry_count)
-VALUES ('2026-11-23', '사용자 제공 학위과정 인증대학 184교 이미지', 184);
+VALUES ('2026-11-23', '학위과정 인증대학 184교 목록', 184);
 
 INSERT INTO accredited_university_entry(effective_from, category, listed_name, normalized_name) VALUES
 ('2026-11-23','GENERAL','가천대학교','가천대학교'),
