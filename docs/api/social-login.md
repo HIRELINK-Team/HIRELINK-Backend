@@ -49,7 +49,7 @@
 }
 ```
 
-`login.accessToken`을 메모리에 보관하고 보호된 API의 `Authorization: Bearer ...` 헤더에 사용한다. Refresh Token은 응답 본문 대신 기존 방식의 HttpOnly 쿠키로 설정한다. 이후 재발급·로그아웃은 기존 API와 CSRF 규칙을 사용한다. 기존 회원의 결과는 한 번만 교환할 수 있다.
+`login.accessToken`을 메모리에 보관하고 보호된 API의 `Authorization: Bearer ...` 헤더에 사용한다. Refresh Token은 응답 본문 대신 기존 방식의 HttpOnly 쿠키로 설정한다. 이후 재발급·로그아웃은 기존 API와 CSRF 규칙을 사용한다. 로그인별 식별값을 공유하는 접근·리프레시 토큰은 일반 로그아웃 시 해당 로그인만 함께 무효화된다([로그아웃 계약](./logout-session.md)). 기존 회원의 결과는 한 번만 교환할 수 있다.
 
 회원은 이메일이 아닌 `(provider, providerUserId)`로 식별한다. 이메일이 같아도 서로 다른 소셜 계정을 자동으로 연결하지 않는다. 소셜 이메일이 없거나 확인되지 않았다면 `null`이다. 선택한 유형이 기존 회원 유형과 다르면 `SOCIAL_ROLE_MISMATCH`로 실패하며 기존 유형을 바꾸지 않는다.
 
