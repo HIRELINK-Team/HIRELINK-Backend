@@ -33,6 +33,7 @@ import com.hirelink.global.exception.WithdrawnAccountException;
 @Service
 public class StudentEnrollmentService {
 	private static final int MAX_BYTES = 5 * 1024 * 1024;
+	private final StudentBadgeService badges;
 	private final UserAccountRepository users;
 	private final StudentProfileRepository profiles;
 	private final StudentEnrollmentDocumentRepository documents;
@@ -43,7 +44,8 @@ public class StudentEnrollmentService {
 
 	public StudentEnrollmentService(UserAccountRepository users, StudentProfileRepository profiles,
 			StudentEnrollmentDocumentRepository documents, StudentDocumentCleanupRepository cleanup,
-			StudentDocumentCleanupService cleaner, EnrollmentOcrClient ocr, StudentDocumentStorageClient storage) {
+			StudentDocumentCleanupService cleaner, EnrollmentOcrClient ocr, StudentDocumentStorageClient storage, StudentBadgeService badges) {
+		this.badges = badges;
 		this.users = users; this.profiles = profiles; this.documents = documents; this.cleanup = cleanup;
 		this.cleaner = cleaner; this.ocr = ocr; this.storage = storage;
 	}
@@ -78,7 +80,9 @@ public class StudentEnrollmentService {
 		retire(document.getObjectKey());
 		document.confirm(grade, Instant.now());
 		profile.updateEnrollment(document.getUniversityName(), grade);
-		documents.flush(); profiles.flush();
+		documents.flush();
+		badges.issueIfEligible(profile, false);
+		profiles.flush();
 		return response(document);
 	}
 

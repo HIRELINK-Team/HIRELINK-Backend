@@ -193,6 +193,11 @@ public class StudentProfile {
 		return profileImageKey;
 	}
 
+	public void updateVerifiedStayExpiration(LocalDate expiry) { stayExpirationDate = expiry; }
+	public void issueHirelinkBadge(Instant issuedAt, boolean reissue) {
+		if (hirelinkBadgeIssuedAt == null || reissue) { hirelinkBadgeIssuedAt = issuedAt; }
+	}
+
 	public Instant getHirelinkBadgeIssuedAt() {
 		return hirelinkBadgeIssuedAt;
 	}

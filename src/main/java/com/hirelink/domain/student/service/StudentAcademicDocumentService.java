@@ -20,6 +20,7 @@ import com.hirelink.global.exception.StudentDocumentException;
 
 @Service
 public class StudentAcademicDocumentService {
+    private final StudentBadgeService badges;
     private final StudentEnrollmentService common;
     private final StudentEnrollmentDocumentRepository documents;
     private final StudentDocumentCleanupService cleaner;
@@ -27,7 +28,8 @@ public class StudentAcademicDocumentService {
     private final AcademicOcrClient ocr;
     private final StudentDocumentStorageClient storage;
     public StudentAcademicDocumentService(StudentEnrollmentService common,StudentEnrollmentDocumentRepository documents,
-            StudentDocumentCleanupService cleaner,StudentDocumentCleanupRepository cleanup,AcademicOcrClient ocr,StudentDocumentStorageClient storage) {
+            StudentDocumentCleanupService cleaner,StudentDocumentCleanupRepository cleanup,AcademicOcrClient ocr,StudentDocumentStorageClient storage, StudentBadgeService badges) {
+        this.badges=badges;
         this.common=common; this.documents=documents; this.cleaner=cleaner; this.cleanup=cleanup; this.ocr=ocr; this.storage=storage;
     }
     @Transactional(timeout=120)
@@ -54,6 +56,7 @@ public class StudentAcademicDocumentService {
         common.retire(doc.getObjectKey()); doc.confirmAcademic(Instant.now());
         if(type.equals("TRANSCRIPT")) profile.updateTranscript(value.averageGpa()); else profile.updateVerifiedTopik(value.topikLevel());
         documents.flush();
+        badges.issueIfEligible(profile,false);
         return new AcademicDocumentResponse(type,null,doc.confirmedAcademic(),doc.getRegisteredAt());
     }
     @Transactional

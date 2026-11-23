@@ -134,7 +134,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
 		String message = request.getDescription(false).startsWith("uri=/api/students/me/documents/")
 				? "서류 파일은 5MB 이하여야 합니다."
-				: request.getDescription(false).startsWith("uri=/api/auth/social/registration/")
+				: (request.getDescription(false).startsWith("uri=/api/auth/social/registration/")
+                || request.getDescription(false).startsWith("uri=/api/students/me/registration-renewals/"))
 				? "등록증 이미지 또는 체류기간 증빙 파일은 5MB 이하여야 합니다." : "사업자등록증 파일은 5MB 이하여야 합니다.";
 		return new ResponseEntity<>(new ErrorResponse("FILE_TOO_LARGE", message), headers, status);
 	}
