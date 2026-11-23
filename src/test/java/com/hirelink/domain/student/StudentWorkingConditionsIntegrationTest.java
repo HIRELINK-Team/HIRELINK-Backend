@@ -305,7 +305,7 @@ class StudentWorkingConditionsIntegrationTest extends PostgreSQLIntegrationTest 
         var fixed=Clock.fixed(date.atTime(12,0).atZone(ZoneId.of("Asia/Seoul")).toInstant(),ZoneId.of("Asia/Seoul"));
         when(clock.instant()).thenReturn(fixed.instant());
         when(clock.getZone()).thenReturn(fixed.getZone());
-        when(clock.withZone(any())).thenAnswer(call->fixed.withZone(call.getArgument(0)));
+        doAnswer(call->fixed.withZone(call.getArgument(0))).when(clock).withZone(any());
     }
     private JsonNode stored() throws Exception {
         String json=jdbc.queryForObject("select working_conditions::text from student_profile where id=?",String.class,user);
