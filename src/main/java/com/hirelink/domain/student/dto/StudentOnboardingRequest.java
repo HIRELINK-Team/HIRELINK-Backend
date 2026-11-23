@@ -5,8 +5,6 @@ import java.util.List;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -18,7 +16,7 @@ import com.fasterxml.jackson.annotation.Nulls;
 import tools.jackson.databind.JsonNode;
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "온보딩 마지막 마치기에서 전체 정보를 한 번에 제출한다. 경력 없음은 careers=[], TOPIK 없음은 topikLevel=null이며 두 필드 모두 생략할 수 없다. 학업과정 studyProgram은 필수다. 체류자격은 서버의 등록증 코드와 선택한 학업과정으로 결정한다. 이름 · 국적 · 체류 만료일은 가입 인증 결과를 사용한다. 학교·학년·학적 상태는 입력받지 않는다.")
+@Schema(description = "온보딩 마지막 마치기에서 전체 정보를 한 번에 제출한다. 경력 없음은 careers=[], TOPIK은 입력받지 않고 OCR 최종 등록으로만 반영한다. 학업과정 studyProgram은 필수다. 체류자격은 서버의 등록증 코드와 선택한 학업과정으로 결정한다. 이름 · 국적 · 체류 만료일은 가입 인증 결과를 사용한다. 학교·학년·학적 상태는 입력받지 않는다.")
 public class StudentOnboardingRequest {
 
 	@Schema(description = "가입 때 생년월일을 보존한 회원은 생략한다. 보내면 저장된 값과 같아야 한다. 이전 버전에서 가입하여 날짜가 보존되지 않은 회원만 필수 입력. 한국 날짜 기준 만 18세 이상", type = "string", format = "date", example = "2000-05-14", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
@@ -39,11 +37,6 @@ public class StudentOnboardingRequest {
 	@Valid
 	@Schema(description = "경력 목록. 경력 없음은 빈 목록을 명시한다", requiredMode = Schema.RequiredMode.REQUIRED)
 	private List<@NotNull StudentCareerCreateRequest> careers;
-	@Min(1)
-	@Max(6)
-	@Schema(description = "TOPIK 급수 1~6. 없음은 null을 명시하고, 필드 생략은 허용하지 않는다", minimum = "1", maximum = "6", nullable = true, requiredMode = Schema.RequiredMode.REQUIRED)
-	private Integer topikLevel;
-	private boolean topikLevelProvided;
 	@NotNull
 	@Valid
 	@Schema(description = "구직조건 전체. 업종 상관없음 여부 · 업종 목록 · 최소 1개 근무시간 · 위치와 반경 · 4개 우선순위가 모두 필수. minimumHourlyWage는 선택 입력", requiredMode = Schema.RequiredMode.REQUIRED)
@@ -70,18 +63,6 @@ public class StudentOnboardingRequest {
 	@JsonSetter(nulls = Nulls.FAIL, contentNulls = Nulls.FAIL)
 	public void setCareers(List<StudentCareerCreateRequest> value) { careers = value; }
 
-	@JsonSetter
-	public void setTopikLevel(JsonNode value) {
-		topikLevelProvided = true;
-		if (value == null || value.isNull()) {
-			topikLevel = null;
-		} else if (value.isIntegralNumber() && value.canConvertToInt()) {
-			topikLevel = value.intValue();
-		} else {
-			throw new IllegalArgumentException("TOPIK 급수는 정수 또는 null이어야 합니다.");
-		}
-	}
-
 	@JsonSetter(nulls = Nulls.FAIL)
 	public void setMatchingPreferences(StudentOnboardingMatchingPreferenceRequest value) { matchingPreferences = value; }
 
@@ -89,10 +70,6 @@ public class StudentOnboardingRequest {
 	public void rejectUnknownField(String field, JsonNode value) {
 		throw new IllegalArgumentException("온보딩에서 제출할 수 없는 항목이 포함되어 있습니다.");
 	}
-
-	@AssertTrue(message = "TOPIK 급수 또는 없음을 명시해주세요.")
-	@Schema(hidden = true)
-	public boolean isTopikAnswerPresent() { return topikLevelProvided; }
 
 	@AssertTrue(message = "업종 · 근무시간 · 근무위치 · 우선순위를 모두 입력해주세요. 근무시간은 최소 한 개가 필요합니다.")
 	@Schema(hidden = true)
@@ -119,6 +96,6 @@ public class StudentOnboardingRequest {
 	public String getKoreanLevel() { return koreanLevel; }
 	public String getStudyProgram() { return studyProgram; }
 	public List<StudentCareerCreateRequest> getCareers() { return careers; }
-	public Integer getTopikLevel() { return topikLevel; }
+
 	public StudentOnboardingMatchingPreferenceRequest getMatchingPreferences() { return matchingPreferences; }
 }

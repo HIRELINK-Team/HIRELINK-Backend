@@ -58,7 +58,18 @@ public class UserAccount {
 	@Column(name = "withdrawn_at")
 	private Instant withdrawnAt;
 
-	protected UserAccount() {
+	@Column(name="withdrawal_requested_at") private Instant withdrawalRequestedAt;
+    @Column(name="withdrawal_finalized_at") private Instant withdrawalFinalizedAt;
+    @Column(name="account_version",nullable=false) private long accountVersion;
+    public Instant getWithdrawalRequestedAt() { return withdrawalRequestedAt; }
+    public Instant getWithdrawalFinalizedAt() { return withdrawalFinalizedAt; }
+    public long getAccountVersion() { return accountVersion; }
+    public boolean canRestore(Instant now) { return withdrawalRequestedAt!=null && withdrawalFinalizedAt==null && now.isBefore(withdrawalRequestedAt.plus(java.time.Duration.ofDays(30))); }
+    public void requestWithdrawal(Instant now) { withdrawnAt=now; withdrawalRequestedAt=now; accountVersion++; }
+    public void restoreWithdrawal() { withdrawnAt=null; withdrawalRequestedAt=null; }
+    public void finalizeWithdrawal(Instant now) { withdrawalFinalizedAt=now; email=null; phoneNumber=null; phoneVerifiedAt=null; name=null; }
+
+    protected UserAccount() {
 	}
 
 	public UserAccount(String email, MemberRole role) {

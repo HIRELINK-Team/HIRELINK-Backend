@@ -72,19 +72,19 @@ public class SocialLoginConfig {
 		@Bean
 		@Order(1)
 		SecurityFilterChain socialSecurityFilterChain(HttpSecurity http, ClientRegistrationRepository clients,
-				SocialLoginProperties properties, SocialAuthService service, SocialLoginCookie cookie) throws Exception {
+				SocialLoginProperties properties, SocialAuthService service, SocialLoginCookie cookie, com.hirelink.domain.auth.service.ProviderTokenProtector protector) throws Exception {
 			DefaultOAuth2AuthorizationRequestResolver delegate = new DefaultOAuth2AuthorizationRequestResolver(
 					clients, "/api/auth/social/authorize");
 			delegate.setAuthorizationRequestCustomizer(OAuth2AuthorizationRequestCustomizers.withPkce());
 			OAuth2AuthorizationRequestResolver resolver = new OAuth2AuthorizationRequestResolver() {
 				@Override
 				public OAuth2AuthorizationRequest resolve(HttpServletRequest request) {
-					return withRole(delegate.resolve(request), request);
+					return withRole(delegate.resolve(request), request, protector.enabled());
 				}
 
 				@Override
 				public OAuth2AuthorizationRequest resolve(HttpServletRequest request, String clientId) {
-					return withRole(delegate.resolve(request, clientId), request);
+					return withRole(delegate.resolve(request, clientId), request, protector.enabled());
 				}
 			};
 			http.securityMatcher("/api/auth/social/authorize/**", "/api/auth/social/callback/**")
@@ -112,7 +112,7 @@ public class SocialLoginConfig {
 									}
 									AuthProvider provider = AuthProvider.valueOf(oauthToken.getAuthorizedClientRegistrationId().toUpperCase(java.util.Locale.ROOT));
 									String token = service.createSession(provider, user.getSubject(), role,
-											Boolean.TRUE.equals(user.getEmailVerified()) ? user.getEmail() : null);
+											Boolean.TRUE.equals(user.getEmailVerified()) ? user.getEmail() : null, (String) request.getAttribute("hirelink.revocation-token"));
 									response.addHeader(HttpHeaders.SET_COOKIE, cookie.create(token).toString());
 									redirect(request, response, properties.frontendRedirectUri());
 								} catch (SocialAuthException exception) {
@@ -128,7 +128,7 @@ public class SocialLoginConfig {
 			return http.build();
 		}
 
-		private OAuth2AuthorizationRequest withRole(OAuth2AuthorizationRequest original, HttpServletRequest request) {
+		private OAuth2AuthorizationRequest withRole(OAuth2AuthorizationRequest original, HttpServletRequest request, boolean withdrawalEnabled) {
 			if (original == null) { return null; }
 			MemberRole role;
 			try {
@@ -136,7 +136,10 @@ public class SocialLoginConfig {
 			} catch (IllegalArgumentException | NullPointerException exception) {
 				throw new OAuth2AuthorizationException(new OAuth2Error("invalid_request"));
 			}
-			return OAuth2AuthorizationRequest.from(original).attributes(attributes -> {
+			if(withdrawalEnabled && role==MemberRole.STUDENT && "google".equals(original.getAttribute("registration_id"))) {
+                original=OAuth2AuthorizationRequest.from(original).additionalParameters(parameters -> { parameters.put("access_type","offline"); parameters.put("prompt","consent"); }).build();
+            }
+            return OAuth2AuthorizationRequest.from(original).attributes(attributes -> {
 				attributes.put(SocialAuthorizationRequestRepository.ROLE, role);
 				attributes.put(SocialAuthorizationRequestRepository.CREATED_AT, Instant.now());
 			}).build();
@@ -181,7 +184,11 @@ public class SocialLoginConfig {
 				@Override
 				public <T extends OAuth2AuthorizedClient> T loadAuthorizedClient(String id, Authentication principal, HttpServletRequest request) { return null; }
 				@Override
-				public void saveAuthorizedClient(OAuth2AuthorizedClient client, Authentication principal, HttpServletRequest request, HttpServletResponse response) { }
+				public void saveAuthorizedClient(OAuth2AuthorizedClient client, Authentication principal, HttpServletRequest request, HttpServletResponse response) {
+                    if("google".equals(client.getClientRegistration().getRegistrationId()) && client.getRefreshToken()!=null) {
+                        request.setAttribute("hirelink.revocation-token",client.getRefreshToken().getTokenValue());
+                    }
+                }
 				@Override
 				public void removeAuthorizedClient(String id, Authentication principal, HttpServletRequest request, HttpServletResponse response) { }
 			};

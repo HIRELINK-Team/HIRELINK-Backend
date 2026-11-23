@@ -171,7 +171,13 @@ public class StudentProfile {
 		return academicState;
 	}
 
-	public Short getTopikLevel() {
+	@Column(name="previous_semester_gpa", precision=10, scale=4)
+    private java.math.BigDecimal previousSemesterGpa;
+    public java.math.BigDecimal getPreviousSemesterGpa() { return previousSemesterGpa; }
+    public void updateTranscript(java.math.BigDecimal value) { previousSemesterGpa=value; }
+    public void updateVerifiedTopik(short value) { topikLevel=value; }
+
+    public Short getTopikLevel() {
 		return topikLevel;
 	}
 

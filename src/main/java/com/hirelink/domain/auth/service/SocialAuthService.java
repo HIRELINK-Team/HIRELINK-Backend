@@ -35,23 +35,31 @@ public class SocialAuthService {
 	private final SocialAuthSessionRepository sessionRepository;
 	private final AuthAccountRepository authAccountRepository;
 	private final TokenService tokenService;
+    private final ProviderTokenProtector protector;
+    private final com.hirelink.domain.member.repository.UserAccountRepository users;
 
 	public SocialAuthService(SocialAuthSessionRepository sessionRepository,
-			AuthAccountRepository authAccountRepository, TokenService tokenService) {
+			AuthAccountRepository authAccountRepository, TokenService tokenService, ProviderTokenProtector protector, com.hirelink.domain.member.repository.UserAccountRepository users) {
 		this.sessionRepository = sessionRepository;
 		this.authAccountRepository = authAccountRepository;
-		this.tokenService = tokenService;
+		this.tokenService = tokenService; this.protector=protector; this.users=users;
 	}
 
 	@Transactional
 	public String createSession(AuthProvider provider, String subject, MemberRole role, String email) {
+        return createSession(provider,subject,role,email,null);
+    }
+
+    @Transactional
+    public String createSession(AuthProvider provider, String subject, MemberRole role, String email, String refreshToken) {
 		if (provider == AuthProvider.LOCAL || subject == null || subject.isBlank() || subject.length() > 255) {
 			throw new SocialAuthException(HttpStatus.UNAUTHORIZED, "SOCIAL_AUTH_FAILED", "소셜 인증을 완료하지 못했습니다.");
 		}
 		sessionRepository.lockIdentity(hash(provider.name() + ":" + subject));
 		var account = authAccountRepository.findByProviderAndProviderUserId(provider, subject);
 		if (account.isPresent()) {
-			checkMember(account.get().getUserAccount(), role);
+			var member=users.findByIdForUpdate(account.get().getUserAccount().getId()).orElseThrow();
+            checkMember(member, role);
 		} else {
 			// 새 소셜 인증부터 다시 가입하며 이전 인증번호와 약관도 함께 폐기한다.
 			sessionRepository.deleteByIdentity(provider.name(), subject);
@@ -60,8 +68,13 @@ public class SocialAuthService {
 		random.nextBytes(bytes);
 		String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
 		Instant now = Instant.now();
-		sessionRepository.save(new SocialAuthSession(hash(token), provider, subject, role,
-				email == null || email.isBlank() || email.length() > 255 ? null : email, now, now.plus(SIGNUP_TTL)));
+		var session=new SocialAuthSession(hash(token), provider, subject, role,
+                email == null || email.isBlank() || email.length() > 255 ? null : email, now, now.plus(SIGNUP_TTL));
+        if(protector.enabled() && role==MemberRole.STUDENT && provider==AuthProvider.GOOGLE && refreshToken!=null) {
+            String encrypted=protector.encrypt(refreshToken,provider.name()+":"+subject);
+            session.saveRevocationToken(encrypted); account.ifPresent(value -> value.saveRevocationToken(encrypted));
+        }
+        sessionRepository.save(session);
 		return token;
 	}
 
@@ -74,9 +87,13 @@ public class SocialAuthService {
 			return new Result(new SocialAuthResponse(Status.SIGNUP_REQUIRED, session.getRole(),
 					session.getEmail(), session.getExpiresAt(), null), null);
 		}
-		UserAccount member = account.get().getUserAccount();
+		UserAccount member = users.findByIdForUpdate(account.get().getUserAccount().getId()).orElseThrow();
 		checkMember(member, session.getRole());
-		AuthResult tokens = tokenService.issueTokens(member);
+        if(member.isWithdrawn()) {
+            if(session.getCreatedAt().isBefore(member.getWithdrawalRequestedAt())) throw new WithdrawnAccountException();
+            member.restoreWithdrawal();
+        }
+        AuthResult tokens = tokenService.issueTokens(member);
 		// 기존 회원의 결과 교환은 한 번만 허용한다.
 		sessionRepository.delete(session);
 		return new Result(new SocialAuthResponse(Status.LOGIN, member.getRole(), member.getEmail(), null,
@@ -134,7 +151,7 @@ public class SocialAuthService {
 	}
 
 	private void checkMember(UserAccount member, MemberRole role) {
-		if (member.isWithdrawn()) {
+		if (member.isWithdrawn() && !member.canRestore(Instant.now())) {
 			throw new WithdrawnAccountException();
 		}
 		if (member.getRole() != role) {

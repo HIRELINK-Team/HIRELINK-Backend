@@ -45,16 +45,16 @@ public class JwtConfig {
 	}
 
 	@Bean
-	public JwtDecoder jwtDecoder(SecretKey jwtSigningKey, @Value("${jwt.issuer}") String issuer) {
-		return createDecoder(jwtSigningKey, issuer, "access");
+	public JwtDecoder jwtDecoder(SecretKey jwtSigningKey, @Value("${jwt.issuer}") String issuer, com.hirelink.domain.member.repository.UserAccountRepository users) {
+		return createDecoder(jwtSigningKey, issuer, "access", users);
 	}
 
 	@Bean
-	public JwtDecoder refreshJwtDecoder(SecretKey jwtSigningKey, @Value("${jwt.issuer}") String issuer) {
-		return createDecoder(jwtSigningKey, issuer, "refresh");
+	public JwtDecoder refreshJwtDecoder(SecretKey jwtSigningKey, @Value("${jwt.issuer}") String issuer, com.hirelink.domain.member.repository.UserAccountRepository users) {
+		return createDecoder(jwtSigningKey, issuer, "refresh", users);
 	}
 
-	private JwtDecoder createDecoder(SecretKey jwtSigningKey, String issuer, String tokenType) {
+	private JwtDecoder createDecoder(SecretKey jwtSigningKey, String issuer, String tokenType, com.hirelink.domain.member.repository.UserAccountRepository users) {
 		NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(jwtSigningKey)
 				.macAlgorithm(MacAlgorithm.HS256).build();
 		MappedJwtClaimSetConverter claimConverter = MappedJwtClaimSetConverter.withDefaults(Map.of());
@@ -68,11 +68,21 @@ public class JwtConfig {
 		decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
 				new JwtTimestampValidator(Duration.ZERO),
 				new JwtIssuerValidator(issuer),
-				jwt -> validateTokenClaims(jwt, tokenType)));
+				jwt -> validateTokenClaims(jwt, tokenType),
+                jwt -> validateAccountVersion(jwt, users)));
 		return decoder;
 	}
 
-	private OAuth2TokenValidatorResult validateTokenClaims(Jwt jwt, String tokenType) {
+    private OAuth2TokenValidatorResult validateAccountVersion(Jwt jwt, com.hirelink.domain.member.repository.UserAccountRepository users) {
+        try {
+            var user=users.findById(Long.valueOf(jwt.getSubject()));
+            Number version=jwt.getClaim("account_version");
+            if(user.isEmpty() || user.get().getAccountVersion()==(version==null?0:version.longValue())) return OAuth2TokenValidatorResult.success();
+        } catch(IllegalArgumentException | NullPointerException | ClassCastException exception) { }
+        return OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token","다시 로그인해주세요.",null));
+    }
+
+    private OAuth2TokenValidatorResult validateTokenClaims(Jwt jwt, String tokenType) {
 		try {
 			boolean valid = tokenType.equals(jwt.getClaimAsString("token_type"))
 					&& jwt.getIssuedAt() != null && jwt.getExpiresAt() != null

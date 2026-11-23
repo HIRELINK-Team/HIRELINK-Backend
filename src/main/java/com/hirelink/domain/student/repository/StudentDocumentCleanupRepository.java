@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import com.hirelink.domain.student.entity.StudentDocumentCleanup;
 
 public interface StudentDocumentCleanupRepository extends JpaRepository<StudentDocumentCleanup, String> {
+	List<StudentDocumentCleanup> findAllByObjectKeyStartingWith(String prefix);
 	List<StudentDocumentCleanup> findTop20ByAvailableAtBeforeOrderByAvailableAt(Instant now);
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select c from StudentDocumentCleanup c where c.objectKey = :key and c.availableAt < :now")

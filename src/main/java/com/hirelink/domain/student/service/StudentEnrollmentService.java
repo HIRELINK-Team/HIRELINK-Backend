@@ -90,13 +90,13 @@ public class StudentEnrollmentService {
 		return response(document);
 	}
 
-	private StudentProfile student(Long userId) {
+	StudentProfile student(Long userId) {
 		var user = users.findByIdForUpdate(userId).orElseThrow(() -> new AuthenticationCredentialsNotFoundException("로그인이 필요합니다."));
 		if (user.isWithdrawn()) { throw new WithdrawnAccountException(); }
 		if (user.getRole() != MemberRole.STUDENT) { throw new AccessDeniedException("유학생 본인의 서류만 등록할 수 있습니다."); }
 		return profiles.findById(userId).orElseThrow(StudentProfileNotFoundException::new);
 	}
-	private void retire(String key) {
+	void retire(String key) {
 		if (key == null) { return; }
 		cleanup.save(new StudentDocumentCleanup(key, Instant.now()));
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -108,7 +108,7 @@ public class StudentEnrollmentService {
 			}
 		});
 	}
-	private byte[] read(MultipartFile file) {
+	byte[] read(MultipartFile file) {
 		if (file == null || file.isEmpty()) { throw EnrollmentExtraction.unreadable(); }
 		if (file.getSize() > MAX_BYTES) { throw tooLarge(); }
 		try (var stream = file.getInputStream()) {
@@ -117,7 +117,7 @@ public class StudentEnrollmentService {
 			return bytes;
 		} catch (IOException exception) { throw EnrollmentExtraction.unreadable(); }
 	}
-	private String contentType(MultipartFile file, byte[] bytes) {
+	String contentType(MultipartFile file, byte[] bytes) {
 		String type = file.getContentType();
 		if (("application/pdf".equals(type) && prefix(bytes, "%PDF-".getBytes(StandardCharsets.US_ASCII)))
 				|| ("image/png".equals(type) && prefix(bytes, new byte[] {(byte) 137,80,78,71,13,10,26,10}))

@@ -62,7 +62,7 @@ public class StudentDocumentStorageClient {
 		boolean local = "http".equals(base.getScheme()) && ("127.0.0.1".equals(base.getHost()) || "localhost".equals(base.getHost()));
 		if ((!"https".equals(base.getScheme()) && !local) || base.getHost() == null || base.getUserInfo() != null
 				|| base.getQuery() != null || base.getFragment() != null || !base.getPath().isEmpty() || secret.isBlank()
-				|| !bucket.matches("[A-Za-z0-9_-]+") || key == null || !key.matches("enrollment/[0-9]+/[0-9a-f-]{36}")) { throw failed(); }
+				|| !bucket.matches("[A-Za-z0-9_-]+") || key == null || !key.matches("(?:enrollment|transcript|topik)/[0-9]+/[0-9a-f-]{36}")) { throw failed(); }
 	}
 	private StudentDocumentException failed() {
 		return new StudentDocumentException(HttpStatus.BAD_GATEWAY, "STUDENT_DOCUMENT_STORAGE_FAILED", "서류 저장소를 이용할 수 없습니다.");

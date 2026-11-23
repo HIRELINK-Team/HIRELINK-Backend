@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 import com.hirelink.domain.auth.entity.RefreshToken;
 
 public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long> {
+	void deleteAllByUserAccountId(Long userId);
 	Optional<RefreshToken> findByTokenHash(String tokenHash);
 
 	@Modifying

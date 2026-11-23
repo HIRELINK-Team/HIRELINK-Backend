@@ -103,6 +103,7 @@ public class TokenService {
 				.subject(userAccount.getId().toString())
 				.claim("role", userAccount.getRole().name())
 				.claim("token_type", tokenType)
+                .claim("account_version", userAccount.getAccountVersion())
 				.id(UUID.randomUUID().toString())
 				.issuedAt(issuedAt)
 				.notBefore(issuedAt)

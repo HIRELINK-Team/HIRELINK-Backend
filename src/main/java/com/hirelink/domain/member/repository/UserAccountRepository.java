@@ -17,6 +17,7 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select user from UserAccount user where user.id = :id")
 	Optional<UserAccount> findByIdForUpdate(@Param("id") Long id);
+	java.util.List<UserAccount> findTop20ByWithdrawalRequestedAtBeforeAndWithdrawalFinalizedAtIsNullOrderByWithdrawalRequestedAt(java.time.Instant deadline);
 	boolean existsByEmail(String email);
 	boolean existsByPhoneNumber(String phoneNumber);
 }

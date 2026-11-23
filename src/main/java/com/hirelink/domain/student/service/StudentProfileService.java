@@ -171,10 +171,9 @@ public class StudentProfileService {
 				request.getNationality() != null ? request.getNationality() : profile.getNationality(),
 				request.getCurrentRegion() != null ? request.getCurrentRegion() : profile.getCurrentRegion(),
 				request.getKoreanLevel() != null ? KoreanLevel.valueOf(request.getKoreanLevel()) : profile.getKoreanLevel());
-		Short topikLevel = request.hasTopikLevel()
-				? (request.getTopikLevel() == null ? null : request.getTopikLevel().shortValue()) : profile.getTopikLevel();
+
 		profile.updateOnboardingInformation(visaCode,
-				profile.getUniversityName(), profile.getAcademicState(), topikLevel, expirationDate);
+				profile.getUniversityName(), profile.getAcademicState(), profile.getTopikLevel(), expirationDate);
 
 		return new StudentProfileUpdateResponse(userId, user.getName(), user.getEmail(), formatPhoneNumber(user.getPhoneNumber()),
 				profile.getBirthDate(), profile.getNationality(), profile.getCurrentRegion(), profile.getKoreanLevel(),
