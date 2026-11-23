@@ -9,7 +9,7 @@
 성공은 `200 application/json`, `Cache-Control: no-store`다. 약관 ID는 응답 값을 사용하며 예시의 `9`를 고정하지 않는다.
 
 ```json
-{"termTypeId":9,"termTypeName":"위치기반 서비스 이용약관","isAgreed":false,"agreedAt":null,"currentVersion":"example-v1","agreedVersion":null}
+{"termTypeId":9,"termTypeName":"위치기반 서비스 이용약관","isAgreed":false,"agreedAt":null,"currentVersion":"v1","agreedVersion":null}
 ```
 
 처음 조회하면 미동의 `false/null`이며 조회만으로 동의 행을 생성하지 않는다. 기존 동의가 있으면 `true`와 동의 시각을 반환한다. 회원 본인만 조회하며 가입 진행 쿠키만으로는 호출할 수 없다. 유학생·사업주·LOCAL 회원 모두 사용할 수 있고 온보딩 완료·등록증 인증을 요구하지 않는다.
@@ -23,16 +23,16 @@
 
 ## 저장
 
-기존 `PUT /api/users/me/term-agreements`를 그대로 사용한다. ID는 조회 응답에서 받은 값이고 version은 실제 표시한 본문의 버전이다. 예시 버전을 그대로 사용하지 않는다.
+기존 `PUT /api/users/me/term-agreements`를 그대로 사용한다. ID는 조회 응답에서 받은 값이고 version은 실제 표시한 본문의 버전이다. 현재 제공하는 본문 버전은 `v1`이다.
 
 ```json
-{"agreements":[{"termTypeId":9,"version":"example-v1","isAgreed":true}]}
+{"agreements":[{"termTypeId":9,"version":"v1","isAgreed":true}]}
 ```
 
 성공은 `200 application/json`, `Cache-Control: no-store`다.
 
 ```json
-{"agreements":[{"termTypeId":9,"isAgreed":true,"agreedAt":"2026-11-20T05:00:00Z","agreedVersion":"example-v1"}]}
+{"agreements":[{"termTypeId":9,"isAgreed":true,"agreedAt":"2026-11-20T05:00:00Z","agreedVersion":"v1"}]}
 ```
 
 - 동의 시각은 서버가 기록한다. 같은 버전의 반복 또는 동시 `true` 요청은 최초 동의 시각을 유지하며 동의 행을 중복 생성하지 않는다.

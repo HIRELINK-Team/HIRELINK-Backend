@@ -42,7 +42,7 @@ public class TermAgreementController {
 	@GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
 	@Operation(summary = "내 약관 동의 기록과 현재 버전 조회", description = "약관 종류·필수 여부·현재 본문 버전과 본인의 동의 여부·시각·버전을 구분하여 반환한다. 본문은 프론트에서 제공한다. 개정된 본문을 읽어도 기존 동의 기록은 변경하지 않는다. 기존 버전 미기록은 agreedVersion=null이며 미동의라는 뜻이 아니다. 본문 버전 미설정은 currentVersion=null이다.")
 	@ApiResponses({
-		@ApiResponse(responseCode = "200", description = "현재 메타데이터와 기존 동의 기록", content = @Content(mediaType = "application/json", schema = @Schema(implementation = TermAgreementOverviewResponse.class), examples = @ExampleObject(name = "success", value = "{\"terms\":[{\"termTypeId\":4,\"termTypeName\":\"서비스 이용약관\",\"isRequired\":true,\"currentVersion\":\"example-v2\",\"isAgreed\":true,\"agreedAt\":\"2026-11-01T01:00:00Z\",\"agreedVersion\":\"example-v1\"}]}"))),
+		@ApiResponse(responseCode = "200", description = "현재 메타데이터와 기존 동의 기록", content = @Content(mediaType = "application/json", schema = @Schema(implementation = TermAgreementOverviewResponse.class), examples = @ExampleObject(name = "success", value = "{\"terms\":[{\"termTypeId\":4,\"termTypeName\":\"서비스 이용약관\",\"isRequired\":true,\"currentVersion\":\"v1\",\"isAgreed\":true,\"agreedAt\":\"2026-11-01T01:00:00Z\",\"agreedVersion\":\"v1\"}]}"))),
 		@ApiResponse(responseCode = "401", description = "로그인 필요", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "UNAUTHORIZED", value = "{\"code\":\"UNAUTHORIZED\",\"message\":\"유효한 인증 정보가 필요합니다.\"}"))),
 		@ApiResponse(responseCode = "403", description = "탈퇴한 계정", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "WITHDRAWN_ACCOUNT", value = "{\"code\":\"WITHDRAWN_ACCOUNT\",\"message\":\"탈퇴한 계정입니다.\"}"))),
 		@ApiResponse(responseCode = "500", description = "서버 오류", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(name = "INTERNAL_SERVER_ERROR", value = "{\"code\":\"INTERNAL_SERVER_ERROR\",\"message\":\"서버 오류가 발생했습니다.\"}")))
@@ -55,8 +55,8 @@ public class TermAgreementController {
 	@Operation(summary = "내 위치 약관 동의 상태 조회", description = "계정 생성 후 온보딩과 마이페이지에서 같은 로그인 회원의 동의를 조회한다. GPS를 사용하려 할 때 isAgreed=false이면 프론트가 위치 약관 동의를 받고, 반환된 termTypeId와 실제 표시한 본문 version 및 isAgreed=true를 기존 PUT /api/users/me/term-agreements에 보낸다. true이면 약관 동의창을 반복 표시하지 않는다. 주소 직접 입력은 동의 없이 진행하며 위치 약관은 계정 생성 전 필수 가입 약관 목록에 포함되지 않는다. 미저장은 false/agreedAt=null이며 조회로 동의 기록을 생성하거나 시각을 변경하지 않는다. 약관 본문·번역·기기 위치 권한·GPS 실행은 프론트에서 처리하며 이 API는 좌표를 받거나 저장하지 않는다. 유학생·사업주·LOCAL 회원이 본인의 동의만 조회하며 온보딩 완료나 등록증 인증을 요구하지 않는다. 가입 진행 쿠키만으로는 호출할 수 없다.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "본인의 위치 약관 동의 상태", content = @Content(mediaType = "application/json", schema = @Schema(implementation = LocationConsentResponse.class), examples = {
-			@ExampleObject(name = "notAgreed", value = "{\"termTypeId\":9,\"termTypeName\":\"위치기반 서비스 이용약관\",\"isAgreed\":false,\"agreedAt\":null,\"agreedVersion\":null,\"currentVersion\":\"example-v1\"}"),
-			@ExampleObject(name = "agreed", value = "{\"termTypeId\":9,\"termTypeName\":\"위치기반 서비스 이용약관\",\"isAgreed\":true,\"agreedAt\":\"2026-11-20T05:00:00Z\",\"agreedVersion\":\"example-v1\",\"currentVersion\":\"example-v1\"}") })),
+			@ExampleObject(name = "notAgreed", value = "{\"termTypeId\":9,\"termTypeName\":\"위치기반 서비스 이용약관\",\"isAgreed\":false,\"agreedAt\":null,\"agreedVersion\":null,\"currentVersion\":\"v1\"}"),
+			@ExampleObject(name = "agreed", value = "{\"termTypeId\":9,\"termTypeName\":\"위치기반 서비스 이용약관\",\"isAgreed\":true,\"agreedAt\":\"2026-11-20T05:00:00Z\",\"agreedVersion\":\"v1\",\"currentVersion\":\"v1\"}") })),
 		@ApiResponse(responseCode = "401", description = "유효한 로그인 없음 또는 회원 없음", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(value = "{\"code\":\"UNAUTHORIZED\",\"message\":\"유효한 인증 정보가 필요합니다.\"}"))),
 		@ApiResponse(responseCode = "403", description = "탈퇴한 회원", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(value = "{\"code\":\"WITHDRAWN_ACCOUNT\",\"message\":\"탈퇴한 계정입니다.\"}"))),
 		@ApiResponse(responseCode = "404", description = "위치 약관 항목 없음", content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class), examples = @ExampleObject(value = "{\"code\":\"TERM_TYPE_NOT_FOUND\",\"message\":\"존재하지 않는 약관 유형입니다.\"}"))),
@@ -73,7 +73,7 @@ public class TermAgreementController {
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = TermAgreementResponse.class),
-						examples = @ExampleObject(name = "success", value = "{\"agreements\":[{\"termTypeId\":1,\"isAgreed\":true,\"agreedAt\":\"2026-11-01T01:00:00Z\",\"agreedVersion\":\"example-v1\"},{\"termTypeId\":3,\"isAgreed\":false,\"agreedAt\":null,\"agreedVersion\":\"example-v1\"}]}"))),
+						examples = @ExampleObject(name = "success", value = "{\"agreements\":[{\"termTypeId\":1,\"isAgreed\":true,\"agreedAt\":\"2026-11-01T01:00:00Z\",\"agreedVersion\":\"v1\"},{\"termTypeId\":3,\"isAgreed\":false,\"agreedAt\":null,\"agreedVersion\":\"v1\"}]}"))),
 		@ApiResponse(responseCode = "400", description = "입력 형식 또는 값 오류",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {

@@ -12,7 +12,7 @@ import jakarta.validation.constraints.Pattern;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(description = "소셜 가입 중 약관 동의 저장. GET /api/auth/social/terms에서 받은 ID를 사용한다.",
-		example = "{\"agreements\":[{\"termTypeId\":4,\"version\":\"example-v1\",\"isAgreed\":true},{\"termTypeId\":5,\"version\":\"example-v1\",\"isAgreed\":true},{\"termTypeId\":6,\"version\":\"example-v1\",\"isAgreed\":true},{\"termTypeId\":7,\"version\":\"example-v1\",\"isAgreed\":false}]}")
+		example = "{\"agreements\":[{\"termTypeId\":4,\"version\":\"v1\",\"isAgreed\":true},{\"termTypeId\":5,\"version\":\"v1\",\"isAgreed\":true},{\"termTypeId\":6,\"version\":\"v1\",\"isAgreed\":true},{\"termTypeId\":7,\"version\":\"v1\",\"isAgreed\":false}]}")
 public record SocialSignupTermsRequest(
 		@NotEmpty(message = "약관 동의 목록을 입력해주세요.")
 		@Valid

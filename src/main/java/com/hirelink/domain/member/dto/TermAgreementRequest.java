@@ -11,7 +11,7 @@ import jakarta.validation.constraints.Pattern;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(description = "로그인 회원의 약관별 동의 상태 저장. userId는 요청에 포함하지 않는다.",
-		example = "{\"agreements\":[{\"termTypeId\":1,\"version\":\"example-v1\",\"isAgreed\":true},{\"termTypeId\":3,\"version\":\"example-v1\",\"isAgreed\":false}]}")
+		example = "{\"agreements\":[{\"termTypeId\":1,\"version\":\"v1\",\"isAgreed\":true},{\"termTypeId\":3,\"version\":\"v1\",\"isAgreed\":false}]}")
 public record TermAgreementRequest(
 		@NotNull(message = "약관 동의 목록을 입력해주세요.")
 		@Valid @Schema(description = "이번 요청에서 저장할 약관 목록. 빈 목록 허용, 같은 약관 ID 중복 불가", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
