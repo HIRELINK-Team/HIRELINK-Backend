@@ -22,6 +22,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -1023,12 +1024,13 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = {"D-4", "D-4-1", "D-4-7", "D-2-7", "D-2-8"})
-	void unsupportedRegistrationInvalidatesPreviousResultAndCannotReachVerification(String visa) throws Exception {
+	@CsvSource({"D-4,UNSUPPORTED_VISA", "D-4-1,UNSUPPORTED_VISA", "D-4-7,UNSUPPORTED_VISA",
+		"D-2-7,UNSUPPORTED_VISA", "D-2-8,UNSUPPORTED_VISA", "D-10,UNREADABLE_REGISTRATION", "F-2,UNREADABLE_REGISTRATION"})
+	void unsupportedRegistrationInvalidatesPreviousResultAndCannotReachVerification(String visa, String expectedCode) throws Exception {
 		agree();
 		assertThat(upload("front").statusCode()).isEqualTo(200);
 		when(ocr.recognize(any(), anyString(), eq(true))).thenReturn(((ObjectNode) frontResult()).put("visaCode", visa));
-		assertError(upload("front"), 422, "UNSUPPORTED_VISA");
+		assertError(upload("front"), 422, expectedCode);
 		assertThat(payload()).isNull();
 		assertError(upload("back"), 409, "REGISTRATION_FRONT_REQUIRED");
 		assertError(phoneRequest(), 409, "REGISTRATION_VERIFICATION_REQUIRED");

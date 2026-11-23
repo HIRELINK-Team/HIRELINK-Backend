@@ -62,6 +62,7 @@
   - `/api/students/me/documents/**`
   - `/api/students/me/badge`, `/api/students/me/working-conditions`
   - `/api/students/me/registration-renewals/**`
+  - `/api/students/me/registration`, `/api/students/me/stay-expiration-notice/**`
 - 로그인·토큰 처리, 온보딩 상태 조회·최종 저장, 위치 약관 동의, 탈퇴 API는 이 차단 목록에 포함하지 않는다. 각 API의 기존 인증·검증은 유지한다.
 - 최종 저장이 성공하면 같은 액세스 토큰으로 위 API를 사용할 수 있다. 실패하면 계정·가입 인증은 유지되며 서비스 접근은 계속 차단한다.
 - 프론트는 홈·매칭·지원내역·마이페이지 진입을 막고 생년월일 화면으로 안내한다. 추천·지원 등 위 목록 밖 API에는 이번 차단 규칙을 적용하지 않는다.

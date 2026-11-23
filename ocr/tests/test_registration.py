@@ -26,6 +26,12 @@ class RegistrationExtractionTest(unittest.TestCase):
                                  "Nationality: VN", "Status of Stay: D - 2 - 2", "Date of Issue: 2020-01-01"]])
         self.assertEqual(result["visaCode"], "D-2-2")
 
+    def test_front_extracts_changed_visa_without_deciding_service_eligibility(self):
+        for visa in ["D-10", "F-2", "E-7", "H-1"]:
+            with self.subTest(visa=visa):
+                result = extract_front([[line.replace("D-2", visa) for line in FRONT]])
+                self.assertEqual(result["visaCode"], visa)
+
     def test_expiry_uses_label_or_latest_permission_row_not_other_dates(self):
         for value in ["2027.07.27", "2026.07.28 ~ 2027.07.27"]:
             result = extract_back([["체류기간 만료일: " + value, "일련번호: 00000000001", "발급일: 2099.01.01"]])

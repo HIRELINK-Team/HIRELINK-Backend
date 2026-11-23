@@ -26,7 +26,7 @@ public class StudentOnboardingAccessConfig implements WebMvcConfigurer {
 			"/api/students/me/careers", "/api/students/me/careers/**",
 			"/api/students/me/matching-preferences",
 			"/api/students/me/documents/**", "/api/students/me/badge",
-			"/api/students/me/working-conditions", "/api/students/me/registration-renewals/**"
+			"/api/students/me/working-conditions", "/api/students/me/registration", "/api/students/me/stay-expiration-notice/**", "/api/students/me/registration-renewals/**"
 	};
 	private final StudentOnboardingInterceptor interceptor;
 

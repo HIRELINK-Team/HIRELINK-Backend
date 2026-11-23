@@ -65,7 +65,7 @@ def extract_front(pages):
     name = labelled(lines, LABELS["name"])
     nationality = labelled(lines, LABELS["nationality"])
     visa = labelled(lines, LABELS["visaCode"])
-    if not re.fullmatch(r"D\s*-\s*[24](?:\s*-\s*[1-8])?", visa, re.I):
+    if not re.fullmatch(r"[A-Z]\s*-\s*[0-9]{1,2}(?:\s*-\s*[0-9]{1,2})?", visa, re.I):
         raise UnreadableDocument()
     issued = single(dates(labelled(lines, LABELS["issueDate"])))
     return {"name": name, "nationality": nationality,
