@@ -116,6 +116,8 @@ public class StudentRegistrationVerification {
 	}
 
 	public String getNationality() { return nationality; }
+	public Long getUserId() { return userId; }
+	public UserAccount getUserAccount() { return userAccount; }
 	public LocalDate getBirthDate() { return birthDate; }
 	public String getVisaCode() { return visaCode; }
 	public LocalDate getStayExpiresOn() { return stayExpiresOn; }
