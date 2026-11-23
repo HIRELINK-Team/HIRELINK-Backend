@@ -32,7 +32,7 @@ HIRELINK는 외국인 유학생의 구직 조건과 사업주의 채용 정보�
 - PaddleOCR을 통한 사업자등록번호·주소 인식과 사용자가 확인한 정보로 사업장 등록
 - 유학생 본인의 프로필·경력 조회 및 비공개 프로필 사진의 임시 URL 발급
 - 유학생 프로필 부분 수정 및 비자별 학업 상태 검증
-- 유학생 본인의 근무 경력 추가·수정·삭제
+- 유학생 본인의 프로필·전화번호·희망 근무지역·경력 최종 일괄 저장
 - 유학생 본인의 매칭 조건 조회·저장·수정
 - 업종·사업장·채용공고 테이블과 Entity, 공고 소유 사업주 관계
 - 유학생의 지원 생성·취소와 공고 소유 사업주의 지원 거절
@@ -210,7 +210,7 @@ smsSender.send(new SmsSendRequest(
 
 - 인증번호는 요청한 계정과 전화번호에서만 사용할 수 있습니다. 다른 계정·번호, 만료 또는 소비된 인증번호는 `400 INVALID_VERIFICATION_CODE`입니다.
 - 일치하지 않는 인증번호는 실패 횟수를 저장합니다. 1~4회는 `400`, 5회부터는 만료 전까지 `429 PHONE_VERIFICATION_RATE_LIMIT`이며 올바른 번호를 입력해도 인증하거나 재전송할 수 없습니다.
-- 인증 성공 시 회원의 `phone_number`, `phone_verified_at`을 저장하고 인증번호와 실패 횟수를 삭제합니다. 최근 1시간 발송 시도 기록은 유지하여 요청 제한이 초기화되지 않게 합니다.
+- 유학생 프로필이 있는 계정은 인증 성공 결과를 보관하고, 5분 이내 [내 정보 일괄 저장](docs/api/student-information.md) 시 실제 번호를 변경합니다. 프로필 생성 전 가입 단계와 사업주는 확인 성공 시 `phone_number`, `phone_verified_at`을 저장하고 인증번호를 삭제합니다. 최근 1시간 발송 시도 기록은 유지합니다.
 - 다른 회원이 이미 인증한 번호는 `409 DUPLICATE_PHONE_NUMBER`입니다. 동시에 같은 번호를 인증해도 한 회원에게만 저장됩니다.
 - 입력 형식 오류 `400`, 로그인 필요 `401`, 탈퇴 계정 `403`, 예상하지 못한 서버 오류 `500`을 반환합니다.
 - 회원 정보 저장과 인증번호 삭제는 하나의 트랜잭션으로 처리합니다. 저장이 실패하면 기존 회원 정보와 인증번호를 유지합니다.
@@ -602,79 +602,13 @@ smsSender.send(new SmsSendRequest(
 - 사진 경로가 있는데 설정 누락·파일 없음·통신 오류 등으로 임시 URL 발급에 실패하면 `500 INTERNAL_SERVER_ERROR`를 반환합니다. 예상하지 못한 서버 오류도 같은 코드를 사용합니다.
 - 사진 업로드·변경 API는 별도 작업입니다. 이번 API는 저장된 사진의 조회 주소만 발급합니다.
 
-### 경력 추가 API
+### 내 정보 수정 및 경력 저장 API
 
-`POST /api/students/me/careers`는 프로필이 등록된 유학생 본인의 근무 경력을 추가합니다. 사용자 ID는 Access Token에서 가져오며 Request에 포함하지 않습니다.
+`PATCH /api/students/me/profile`은 **수정 반영하기**에서 생년월일·전화번호·거주지역·한국어 수준·희망 근무지역·경력을 한 트랜잭션으로 저장한다. 상세 화면의 임시 변경은 DB에 저장하지 않는다. 경력 개별 POST/PATCH/DELETE는 `400 INVALID_INPUT`으로 일괄 저장 경로를 안내한다.
 
-```json
-{
-  "careerName": "카페 아르바이트",
-  "startMonth": "2023-03",
-  "endMonth": "2023-09",
-  "description": "음료 제조, 고객 응대"
-}
-```
+새 전화번호는 문자 인증 성공 후 5분 이내에 최종 저장해야 한다. 인증 성공만으로 실제 회원 번호를 변경하지 않는다. 검증 또는 저장 실패 시 모든 변경과 인증 결과 소비를 롤백한다. 체류자격·만료일·TOPIK 등 서류 정보는 직접 수정하지 않는다.
 
-- `careerName`은 필수이며 공백만 입력할 수 없고 최대 150자입니다.
-- `startMonth`, `endMonth`는 모두 필수이며 JSON 문자열 `YYYY-MM` 형식으로 전달합니다. 종료월은 시작월과 같거나 뒤여야 합니다.
-- 두 날짜 모두 한국 날짜(`Asia/Seoul`) 기준 현재 월까지만 허용합니다. 다음 달 이후의 시작월·종료월은 `400 INVALID_INPUT`입니다.
-- `description`은 필수입니다. 생략 · `null` · 빈 문자열 · 공백만 입력하면 `400 INVALID_INPUT`이며 경력을 저장하지 않습니다.
-- 필수값 누락, 잘못된 자료형·월 형식·근무기간, 허용되지 않은 요청 항목은 `400 INVALID_INPUT`입니다.
-- 성공 응답은 `201 Created`이며 `careerId`, `careerName`, `startMonth`, `endMonth`, `description`을 반환합니다. 응답에는 `Cache-Control: no-store`를 설정합니다.
-- 한 회원은 여러 경력을 등록할 수 있습니다. 저장된 경력은 기존 `GET /api/students/me/profile` 응답의 `careers`에 포함됩니다.
-- 이 API는 성공 시 즉시 저장합니다. 온보딩 전체 일괄 저장 API가 아니므로 마지막 제출 전 임시 경력 목록을 관리하는 용도로 호출하지 않습니다.
-- 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아닌 계정은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`, 본인 프로필 미등록은 `404 STUDENT_PROFILE_NOT_FOUND`, 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
-- 기존 V6의 `student_career` 테이블을 사용하며 이번 기능을 위한 새 마이그레이션은 없습니다. 실제 Supabase DB에 V6가 적용되어 있어야 하며, Redis·Storage 설정은 추가로 필요하지 않습니다.
-
-### 경력 수정 API
-
-`PATCH /api/students/me/careers/{careerId}`는 로그인한 유학생 본인의 경력에서 요청에 포함된 항목만 수정합니다.
-
-```json
-{
-  "endMonth": "2023-10",
-  "description": "음료 제조 및 고객 응대"
-}
-```
-
-- 수정 가능한 항목은 `careerName`, `startMonth`, `endMonth`, `description`입니다. 생략한 항목은 유지합니다. `description`의 명시적인 `null` · 빈 문자열 · 공백만 입력은 `400 INVALID_INPUT`이며 내용을 삭제할 수 없습니다.
-- 기존 경력의 근무 내용이 비어 있으면 다른 항목을 수정할 때도 `description`을 함께 보내야 합니다. 검증에 실패하면 요청 전체를 저장하지 않습니다. 기존 빈 내용은 일괄 변경하지 않으며 조회 · 경력 삭제는 계속 가능합니다.
-- 경력명은 공백만 입력할 수 없으며 최대 150자입니다. 모든 필드의 명시적인 `null`, 빈 객체 · 잘못된 자료형 · 허용하지 않은 항목은 `400 INVALID_INPUT`입니다.
-- 근무기간은 JSON 문자열 `YYYY-MM` 형식입니다. 기존 값과 합친 최종 근무기간에서 종료월은 시작월과 같거나 뒤여야 하며, 두 날짜 모두 한국 날짜(`Asia/Seoul`) 기준 이번 달까지만 허용합니다.
-- 성공 응답은 `200 OK`와 기존 `StudentCareerResponse`의 다섯 항목이며 `Cache-Control: no-store`를 설정합니다. 수정 결과는 프로필 조회의 `careers`에도 반영됩니다.
-- 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아니거나 다른 사람의 경력은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`, 없는 경력은 `404 STUDENT_CAREER_NOT_FOUND`입니다. 예상하지 못한 서버 오류는 `500 INTERNAL_SERVER_ERROR`입니다.
-- 같은 경력의 동시 수정은 순서대로 처리합니다. 저장 실패 시 요청의 변경사항은 모두 취소됩니다.
-- 성공 시 즉시 저장하며 온보딩 전체 일괄 저장 API가 아닙니다.
-- 기존 V6의 `student_career` 테이블을 사용합니다. 추가 마이그레이션이나 Redis·Storage 설정은 필요하지 않습니다.
-
-### 경력 삭제 API
-
-`DELETE /api/students/me/careers/{careerId}`는 로그인한 유학생 본인의 경력을 실제 삭제합니다. Request Body는 사용하지 않습니다.
-
-- 성공 응답은 `204 No Content`이며 응답 본문은 없습니다. 응답에는 `Cache-Control: no-store`를 설정합니다.
-- 현재 회원의 유학생 역할·탈퇴 여부와 해당 경력의 소유자를 확인합니다. 사용자 ID는 Access Token에서 가져옵니다.
-- 삭제된 경력은 이후 프로필 조회의 `careers`에 포함되지 않습니다. 회원·프로필·다른 경력은 유지됩니다.
-- 인증 오류는 `401 UNAUTHORIZED`, 유학생이 아니거나 다른 사람의 경력은 `403 FORBIDDEN`, 탈퇴 계정은 `403 WITHDRAWN_ACCOUNT`입니다.
-- 없는 경력이나 이미 삭제한 경력을 다시 요청하면 `404 STUDENT_CAREER_NOT_FOUND`입니다. 숫자가 아니거나 Long 범위를 벗어난 ID는 `400 INVALID_INPUT`입니다.
-- 삭제는 하나의 트랜잭션으로 처리합니다. 저장소 오류 시 삭제를 취소하고 `500 INTERNAL_SERVER_ERROR`를 반환합니다. 같은 경력의 수정·삭제 요청은 순서대로 처리합니다.
-- 삭제 복구 기능은 제공하지 않습니다. 기존 테이블과 예외 처리를 사용하므로 추가 마이그레이션이나 Redis·Storage 설정은 필요하지 않습니다.
-
-### 내 유학생 프로필 수정 API
-
-`PATCH /api/students/me/profile`은 요청한 항목만 즉시 저장한다. 온보딩 전체 저장은 별도의 `POST /api/students/me/onboarding`을 사용한다.
-
-```json
-{"currentRegion":"서울 마포구","topikLevel":null}
-```
-
-- 수정 항목: `name`, `birthDate`, `nationality`, `currentRegion`, `koreanLevel`, `stayExpirationDate`, `topikLevel`. `visaCode`는 등록증 인증 기록이 없는 개발용 기존 프로필에만 허용한다.
-- 생략은 유지, `topikLevel:null`은 삭제다. 다른 항목의 null·알 수 없는 필드·빈 객체·잘못된 타입은 `400 INVALID_INPUT`이다. 이름은 최대 100자, 거주지역은 최대 150자이며 공백만 허용하지 않는다. 국적·한국어 수준·만 18세 조건은 등록 API와 같다.
-- `universityName`, `gradeLevel`, `academicState`, `studyProgram`, `studyProgramId`는 직접 입력할 수 없다. 학교·학년은 [재학증명서 OCR 최종 등록](docs/api/student-enrollment.md)으로 반영하며 학적 상태는 수집하지 않는다. 기존 값과 수정 대상 외 컬럼은 보존한다.
-- 개발용 프로필의 체류자격 입력도 `D-2-1·D-2-2·D-2-3·D-2-4·D-2-6`만 허용한다. 저장된 학업과정과 다른 코드는 400이다. 인증 회원의 `visaCode` 직접 입력은 400이다. 체류 만료일은 과거도 허용하되 기존 시작일보다 앞설 수 없다.
-- 이름과 프로필은 동일 트랜잭션으로 수정하며 동일 회원의 동시 요청은 순서대로 처리한다. 실패하면 모든 변경을 취소한다.
-- 응답 `200 OK`는 기존 프로필 수정 응답에 `studyProgram`을 추가한다. 조회 응답에도 같은 필드를 추가한다. `studyProgramId`는 DB ID, `studyProgram`은 선택 코드다. 기존 미입력 또는 대응하지 않는 기존 과정은 null이다. 수정 응답에는 사진 URL·경력을 포함하지 않으며 Storage API를 호출하지 않는다.
-- 인증·권한·미등록 오류는 기존 `401 UNAUTHORIZED`, `403 FORBIDDEN`, `403 WITHDRAWN_ACCOUNT`, `404 STUDENT_PROFILE_NOT_FOUND`를 사용한다. 예상하지 못한 오류는 `500 INTERNAL_SERVER_ERROR`다.
-- 지원 학업과정·등록증 조합은 [온보딩 문서](docs/api/student-onboarding.md)를 따른다. V29는 다섯 학업과정 기준 데이터만 추가하며 기존 회원·등록증 원문·학적 상태를 변환하거나 삭제하지 않는다. 운영 DB 적용 여부는 배포 환경에서 확인한다.
+요청 예시·오류·경력 전체 교체 규칙·Flyway V35는 [내 정보 일괄 저장 명세](docs/api/student-information.md)를 참고한다. 온보딩의 마지막 마치기는 기존 `POST /api/students/me/onboarding`을 사용한다.
 
 ### 매칭 조건 조회 API
 
@@ -1026,9 +960,9 @@ Windows PowerShell:
 
 `StudentProfileReadIntegrationTest`는 본인 정보만 조회하는지, 미입력 값과 빈 경력 목록, 경력 정렬, 권한·미등록 오류와 이미지 주소 발급 실패를 확인합니다. `SupabaseStorageClientTest`는 테스트용 HTTP 서버로 900초 발급 요청, URL 인코딩, 외부 오류 처리와 리다이렉트 차단을 검증합니다.
 
-`StudentProfileUpdateIntegrationTest`는 비자 초기 데이터, 미전송 필드 보존, TOPIK 삭제, 비자·학업 상태 조합, 입력·권한 오류, 동시 부분 수정 및 저장 실패 시 롤백을 검증합니다. 사진 서비스 장애가 프로필 수정을 막지 않는지도 확인합니다.
+`StudentProfileUpdateIntegrationTest`는 내 정보 일괄 저장, 생략 값 보존, 서류 정보 직접 수정 차단, 문자 인증 후 5분 제한, 번호 중복·동시 저장, 경력·지역 검증, 전체 롤백과 재시도, 경력 개별 API의 저장 차단을 검증합니다.
 
-`StudentCareerCreateIntegrationTest`는 경력 저장과 프로필 조회 연동, 선택 입력, 월 형식·현재 월 경계·기간 순서, 입력·권한 오류 및 DB 저장 실패 처리를 검증합니다.
+`PhoneChangeMigrationIntegrationTest`는 V34에서 V35로 업그레이드할 때 기존 회원과 인증 요청 보존, 확인 시각 제약, 재실행을 검증합니다.
 
 `StudentMatchingPreferenceReadIntegrationTest`는 기준 데이터와 ID 생성, 입력 전·부분 입력 상태, 본인 조건 조회와 정렬, 권한 검사, DB 제약 및 안전한 오류 응답을 검증합니다. 테스트는 일회용 PostgreSQL에서 실행하며 실제 Supabase 데이터를 변경하지 않습니다.
 

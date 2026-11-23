@@ -70,7 +70,7 @@ public class StudentOnboardingService {
 		StudentProfile profile = profiles.findById(userId).orElse(null);
 		if (profile != null && profile.getOnboardingCompletedAt() != null) {
 			throw new SocialAuthException(HttpStatus.CONFLICT, "ONBOARDING_ALREADY_COMPLETED",
-					"이미 온보딩을 완료했습니다. 개별 수정 API를 이용해주세요.");
+					"이미 온보딩을 완료했습니다. 내 정보 최종 저장 API를 이용해주세요.");
 		}
 		LocalDate birthDate = verification.getBirthDate();
 		StudyProgramType selectedProgram = StudyProgramType.valueOf(request.getStudyProgram());
