@@ -1018,7 +1018,7 @@ class SocialSignupRegistrationIntegrationTest extends PostgreSQLIntegrationTest 
 	}
 
 	@ParameterizedTest
-	@ValueSource(strings = {"D-4", "D-4-1", "D-4-7", "D-2-7", "D-2-8"})
+	@ValueSource(strings = {"D-4", "D-4-1", "D-4-7", "D-2-7", "D-2-8", "D-10", "F-2"})
 	void unsupportedRegistrationInvalidatesPreviousResultAndCannotReachVerification(String visa) throws Exception {
 		agree();
 		assertThat(upload("front").statusCode()).isEqualTo(200);

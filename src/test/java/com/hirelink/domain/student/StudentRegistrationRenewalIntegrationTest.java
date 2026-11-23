@@ -138,14 +138,14 @@ class StudentRegistrationRenewalIntegrationTest extends PostgreSQLIntegrationTes
         error(confirm(old),409,"REGISTRATION_RENEWAL_NOT_FOUND"); assertThat(snapshot()).isEqualTo(before);
     }
 
-    @Test void authenticityFailureAndUnsupportedVisaCannotConfirm() throws Exception {
+    @Test void authenticityFailureAndMalformedVisaCannotConfirm() throws Exception {
         var before=snapshot(); UUID id=front();
         doThrow(new SocialAuthException(HttpStatus.UNPROCESSABLE_ENTITY,"INVALID_REGISTRATION","진위 확인 실패")).when(apick).verify(anyString(),any(),any());
         error(back(id),422,"INVALID_REGISTRATION"); error(confirm(id),409,"REGISTRATION_BACK_REQUIRED");
         assertThat(snapshot()).isEqualTo(before);
         when(ocr.recognize(any(),anyString(),eq(true))).thenReturn(mapper.createObjectNode()
-            .put("name","LIN MAI").put("nationality","VN").put("visaCode","D-2-2").put("registrationNumber",NUMBER).put("issueDate","2020-01-01"));
-        error(upload(PATH+"/front",user,false),422,"UNSUPPORTED_VISA");
+            .put("name","LIN MAI").put("nationality","VN").put("visaCode","UNKNOWN").put("registrationNumber",NUMBER).put("issueDate","2020-01-01"));
+        error(upload(PATH+"/front",user,false),422,"UNREADABLE_REGISTRATION");
     }
 
     @Test void onlyLatestOwnDraftIsAcceptedAndExpiredDraftIsCleaned() throws Exception {
@@ -195,6 +195,159 @@ class StudentRegistrationRenewalIntegrationTest extends PostgreSQLIntegrationTes
         var operation=docs.path("paths").path(PATH+"/{renewalId}/confirm").path("post");
         assertThat(operation.isMissingNode()).isFalse(); assertThat(operation.has("requestBody")).isFalse();
         assertThat(docs.path("paths").has("/api/students/me/badge")).isTrue();
+        var confirmation=docs.path("components").path("schemas").path("RegistrationRenewalConfirmationResponse");
+        assertThat(confirmation.path("properties").toString()).contains("serviceSupported","registrationVisaCode","studyProgram");
+        assertThat(docs.path("paths").path("/api/students/me/registration").has("get")).isTrue();
+        var notice=docs.path("paths").path("/api/students/me/stay-expiration-notice/claim").path("post");
+        assertThat(notice.has("requestBody")).isFalse();
+        assertThat(notice.path("responses").path("403").toString()).contains("ONBOARDING_REQUIRED");
+    }
+
+    @ParameterizedTest @ValueSource(booleans={false,true})
+    void unsupportedVisaPublishesAllVerifiedInformationOnlyAtFinalConfirmation(boolean usePdf) throws Exception {
+        documents(); oldBadge(); var before=snapshot(); var originals=jdbc.queryForList("select * from student_enrollment_document where user_id=?",user);
+        when(ocr.recognize(any(),anyString(),eq(true))).thenReturn(mapper.createObjectNode()
+            .put("name","UPDATED NAME").put("nationality","KR").put("visaCode","D-10")
+            .put("registrationNumber",NUMBER).put("issueDate","2020-01-01"));
+        if (usePdf) { backExpiry(today.minusDays(1)); }
+        UUID id=front(); assertThat(back(id).statusCode()).isEqualTo(200);
+        if (usePdf) { assertThat(document(id).statusCode()).isEqualTo(200); }
+        assertThat(snapshot()).isEqualTo(before);
+        var pending=mapper.readTree(send("GET","/api/students/me/registration",user).body());
+        assertThat(pending.path("registrationVisaCode").asString()).isEqualTo("D-2");
+        assertThat(pending.path("name").asString()).isEqualTo("학생");
+        var response=confirm(id); assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        var result=mapper.readTree(response.body());
+        assertThat(result.path("name").asString()).isEqualTo("UPDATED NAME");
+        assertThat(result.path("nationalityCode").asString()).isEqualTo("KR");
+        assertThat(result.path("registrationVisaCode").asString()).isEqualTo("D-10");
+        assertThat(result.path("visaCode").asString()).isEqualTo("D-10");
+        assertThat(result.path("studyProgram").asString()).isEqualTo("BACHELOR");
+        assertThat(result.path("serviceSupported").asBoolean()).isFalse();
+        assertThat(result.path("supportMessage").asString()).contains("서비스 지원 대상");
+        assertThat(issued()).isEqualTo(Instant.parse("2020-01-01T00:00:00Z"));
+        assertThat(jdbc.queryForMap("select nationality,visa_code from student_profile where id=?",user))
+            .containsEntry("nationality","KR").containsEntry("visa_code","D-10");
+        assertThat(jdbc.queryForObject("select visa_code from student_registration_verification where user_id=?",String.class,user)).isEqualTo("D-10");
+        assertThat(jdbc.queryForList("select * from student_enrollment_document where user_id=?",user)).isEqualTo(originals);
+        assertThat(mapper.readTree(send("GET","/api/students/me/profile",user).body()).path("visaCode").asString()).isEqualTo("D-10");
+        assertThat(mapper.readTree(send("GET","/api/students/me/registration",user).body())).isEqualTo(result);
+        verify(apick,times(1)).verify(NUMBER,LocalDate.of(2020,1,1),SERIAL);
+    }
+
+    @Test void returningToD2UsesSavedProgramAndCanReissueWithExistingDocuments() throws Exception {
+        documents(); oldBadge();
+        jdbc.update("update student_registration_verification set visa_code='D-10' where user_id=?",user);
+        jdbc.update("update student_profile set visa_code='D-10',study_program_id=(select id from study_program where program_name='석사') where id=?",user);
+        var id=front(); back(id);
+        var response=confirm(id); assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        var result=mapper.readTree(response.body());
+        assertThat(result.path("visaCode").asString()).isEqualTo("D-2-3");
+        assertThat(result.path("registrationVisaCode").asString()).isEqualTo("D-2");
+        assertThat(result.path("studyProgram").asString()).isEqualTo("MASTER");
+        assertThat(result.path("serviceSupported").asBoolean()).isTrue();
+        assertThat(result.path("active").asBoolean()).isTrue();
+        assertThat(jdbc.queryForObject("select name from user_account where id=?",String.class,user)).isEqualTo("LIN MAI");
+        assertThat(issued()).isAfter(Instant.parse("2020-01-01T00:00:00Z"));
+    }
+
+    @Test void missingSavedProgramDoesNotInventDetailedVisaOrIssueNewBadge() throws Exception {
+        documents();
+        jdbc.update("update student_profile set study_program_id=null where id=?",user);
+        var id=front(); back(id); var response=confirm(id);
+        assertThat(response.statusCode()).isEqualTo(200);
+        var result=mapper.readTree(response.body());
+        assertThat(result.path("visaCode").asString()).isEqualTo("D-2");
+        assertThat(result.path("serviceSupported").asBoolean()).isFalse();
+        assertThat(issued()).isNull();
+    }
+
+    @ParameterizedTest @ValueSource(ints={31,30,29,1,0,-1})
+    void expiryNoticeUsesActualRemainingDaysAndOnlyClaimsOnce(int remaining) throws Exception {
+        var expiry=today.plusDays(remaining);
+        jdbc.update("update student_registration_verification set stay_expires_on=? where user_id=?",expiry,user);
+        var before=snapshot();
+        var first=notice(user); boolean eligible=remaining>=0 && remaining<=30;
+        assertThat(first.path("show").asBoolean()).isEqualTo(eligible);
+        assertThat(first.path("remainingDays").asLong()).isEqualTo(remaining);
+        assertThat(first.path("stayExpirationDate").asString()).isEqualTo(expiry.toString());
+        if (eligible) {
+            assertThat(first.path("message").asString()).isEqualTo(remaining==0?"오늘 체류기간이 만료돼요":"체류기간 만료까지 "+remaining+"일 남았어요.");
+        } else { assertThat(first.path("message").isNull()).isTrue(); }
+        assertThat(notice(user).path("show").asBoolean()).isFalse();
+        assertThat(snapshot()).isEqualTo(before);
+        assertThat(jdbc.queryForObject("select jsonb_array_length(expiry_notice_dates) from student_registration_verification where user_id=?",Integer.class,user)).isEqualTo(eligible?1:0);
+        verifyNoInteractions(ocr,apick,academic,enrollment,storage);
+    }
+
+    @Test void noticeRemembersEachExpiryAcrossSuccessfulRenewalsAndReturningToAnOldDate() throws Exception {
+        jdbc.update("update student_registration_verification set stay_expires_on=? where user_id=?",today.plusDays(20),user);
+        assertThat(notice(user).path("show").asBoolean()).isTrue();
+        for (int day:List.of(20,21,20)) {
+            backExpiry(today.plusDays(day)); var id=front(); back(id);
+            assertThat(notice(user).path("show").asBoolean()).isFalse();
+            assertThat(confirm(id).statusCode()).isEqualTo(200);
+            assertThat(notice(user).path("show").asBoolean()).isEqualTo(day==21);
+        }
+        assertThat(jdbc.queryForObject("select jsonb_array_length(expiry_notice_dates) from student_registration_verification where user_id=?",Integer.class,user)).isEqualTo(2);
+    }
+
+    @Test void concurrentNoticeRequestsOnlyGrantOneDisplay() throws Exception {
+        jdbc.update("update student_registration_verification set stay_expires_on=? where user_id=?",today.plusDays(29),user);
+        var request=request("POST","/api/students/me/stay-expiration-notice/claim",user);
+        var one=client.sendAsync(request,HttpResponse.BodyHandlers.ofString());
+        var two=client.sendAsync(request,HttpResponse.BodyHandlers.ofString());
+        var responses=List.of(one.get(20,TimeUnit.SECONDS),two.get(20,TimeUnit.SECONDS));
+        assertThat(responses).allSatisfy(response->assertThat(response.statusCode()).as(response.body()).isEqualTo(200));
+        assertThat(responses.stream().filter(response->mapper.readTree(response.body()).path("show").asBoolean()).count()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select jsonb_array_length(expiry_notice_dates) from student_registration_verification where user_id=?",Integer.class,user)).isEqualTo(1);
+    }
+
+    @Test void failedNoticeSaveDoesNotConsumeDisplay() throws Exception {
+        jdbc.update("update student_registration_verification set stay_expires_on=? where user_id=?",today,user);
+        jdbc.execute("CREATE FUNCTION fail_notice() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test rollback'; END $$");
+        jdbc.execute("CREATE TRIGGER fail_notice BEFORE UPDATE ON student_registration_verification FOR EACH ROW EXECUTE FUNCTION fail_notice()");
+        try {
+            error(send("POST","/api/students/me/stay-expiration-notice/claim",user),500,"INTERNAL_SERVER_ERROR");
+            assertThat(jdbc.queryForObject("select jsonb_array_length(expiry_notice_dates) from student_registration_verification where user_id=?",Integer.class,user)).isZero();
+        } finally {
+            jdbc.execute("DROP TRIGGER fail_notice ON student_registration_verification");
+            jdbc.execute("DROP FUNCTION fail_notice()");
+        }
+        assertThat(notice(user).path("show").asBoolean()).isTrue();
+    }
+
+    @Test void newRegistrationEndpointsRequireOwnActiveCompletedStudent() throws Exception {
+        String notice="/api/students/me/stay-expiration-notice/claim", current="/api/students/me/registration";
+        error(send("POST",notice,0),401,"UNAUTHORIZED");
+        error(send("GET",current,0),401,"UNAUTHORIZED");
+        long employer=student("EMPLOYER");
+        error(send("POST",notice,employer),403,"FORBIDDEN");
+        error(send("GET",current,employer),403,"FORBIDDEN");
+        jdbc.update("update student_profile set onboarding_completed_at=null where id=?",user);
+        error(send("POST",notice,user),403,"ONBOARDING_REQUIRED");
+        error(send("GET",current,user),403,"ONBOARDING_REQUIRED");
+        jdbc.update("update student_profile set onboarding_completed_at=now() where id=?",user);
+        jdbc.update("update user_account set withdrawn_at=now() where id=?",user);
+        error(send("POST",notice,user),403,"WITHDRAWN_ACCOUNT");
+        error(send("GET",current,user),403,"WITHDRAWN_ACCOUNT");
+        long legacy=student("STUDENT");
+        assertThat(notice(legacy).path("show").asBoolean()).isFalse();
+        error(send("GET",current,legacy),409,"REGISTRATION_REQUIRED");
+    }
+
+    @Test void incompleteLegacyDraftRequiresRecaptureWithoutOverwritingConfirmedValues() throws Exception {
+        var before=snapshot(); var id=front(); back(id);
+        jdbc.update("update student_registration_verification set renewal_payload=null where user_id=?",user);
+        error(confirm(id),409,"REGISTRATION_FRONT_REQUIRED");
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    private tools.jackson.databind.JsonNode notice(long member) throws Exception {
+        var response=send("POST","/api/students/me/stay-expiration-notice/claim",member);
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+        return mapper.readTree(response.body());
     }
 
     private void backExpiry(LocalDate expiry) {
@@ -213,7 +366,8 @@ class StudentRegistrationRenewalIntegrationTest extends PostgreSQLIntegrationTes
     private tools.jackson.databind.JsonNode badge() throws Exception { var response=send("GET","/api/students/me/badge",user); assertThat(response.statusCode()).isEqualTo(200); return mapper.readTree(response.body()); }
     private Map<String,Object> snapshot() {
         return Map.of("registration",jdbc.queryForMap("select nationality,visa_code,stay_expires_on,card_verified_at,document_verified_at,registered_at,birth_date from student_registration_verification where user_id=?",user),
-            "profile",jdbc.queryForMap("select * from student_profile where id=?",user));
+            "profile",jdbc.queryForMap("select * from student_profile where id=?",user),
+            "account",jdbc.queryForMap("select * from user_account where id=?",user));
     }
     private UUID front() throws Exception { var response=upload(PATH+"/front",user,false); assertThat(response.statusCode()).as(response.body()).isEqualTo(200); return UUID.fromString(mapper.readTree(response.body()).path("renewalId").asString()); }
     private HttpResponse<String> back(UUID id) throws Exception { return upload(PATH+"/"+id+"/back",user,false); }
@@ -233,6 +387,8 @@ class StudentRegistrationRenewalIntegrationTest extends PostgreSQLIntegrationTes
     private long student(String role) {
         long id=jdbc.queryForObject("insert into user_account(email,role,name) values (?,?,'학생') returning id",Long.class,UUID.randomUUID()+"@example.com",role);
         jdbc.update("insert into student_profile(id,birth_date,nationality,current_region,korean_level,visa_code,stay_expiration_date,onboarding_completed_at) values (?,'2000-01-01','VN','서울','BEGINNER','D-2-2',?,now())",id,originalExpiry);
+        jdbc.update("update student_profile set study_program_id=(select id from study_program where program_name='학사') where id=?",id);
+        jdbc.update("update user_account set phone_number=?,phone_verified_at=now() where id=?",String.format(java.util.Locale.ROOT,"010%08d",id),id);
         return id;
     }
     private void verification(long id,LocalDate expiry) {
