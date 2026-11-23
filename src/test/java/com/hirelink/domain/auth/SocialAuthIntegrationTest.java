@@ -195,18 +195,34 @@ class SocialAuthIntegrationTest extends PostgreSQLIntegrationTest {
 	void socialLoginRefreshAndLogoutRemainAvailableWithLocalAuthDisabled(String provider) throws Exception {
 		socialMember(provider, "member", "member@example.com", MemberRole.STUDENT);
 		authenticate(provider, "STUDENT", "member", "member@example.com", "valid");
-		assertThat(result().statusCode()).isEqualTo(200);
+		var signedIn = result();
+        assertThat(signedIn.statusCode()).isEqualTo(200);
+        String originalAccess = JSON.readTree(signedIn.body()).path("login").path("accessToken").asString();
+        String sessionId = jwtDecoder.decode(originalAccess).getClaimAsString("sid");
+        var accountsBefore = jdbc.queryForList("select * from auth_account");
+        var userBefore = jdbc.queryForList("select * from user_account");
 		assertError(postJson("/api/auth/login",
 				"{\"email\":\"member@example.com\",\"password\":\"password123\"}"), 403, "FORBIDDEN");
 		HttpResponse<String> refreshed = postWithCsrf("/api/auth/refresh");
 		assertThat(refreshed.statusCode()).isEqualTo(200);
-		assertThat(JSON.readTree(refreshed.body()).path("accessToken").asString()).isNotBlank();
+		String refreshedAccess = JSON.readTree(refreshed.body()).path("accessToken").asString();
+        assertThat(jwtDecoder.decode(refreshedAccess).getClaimAsString("sid")).isEqualTo(sessionId);
 		HttpResponse<String> logout = postWithCsrf("/api/auth/logout");
 		assertThat(logout.statusCode()).isEqualTo(200);
 		assertThat(logout.headers().allValues("Set-Cookie"))
 				.anyMatch(value -> value.startsWith("refreshToken=") && value.contains("Max-Age=0"));
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM refresh_token", Long.class)).isZero();
 		assertError(postWithCsrf("/api/auth/refresh"), 401, "INVALID_REFRESH_TOKEN");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> jwtDecoder.decode(originalAccess)).isInstanceOf(org.springframework.security.oauth2.jwt.JwtException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> jwtDecoder.decode(refreshedAccess)).isInstanceOf(org.springframework.security.oauth2.jwt.JwtException.class);
+        assertThat(jdbc.queryForList("select * from auth_account")).isEqualTo(accountsBefore);
+        assertThat(jdbc.queryForList("select * from user_account")).isEqualTo(userBefore);
+        authenticate(provider, "STUDENT", "member", "member@example.com", "valid");
+        var again = result();
+        assertThat(again.statusCode()).isEqualTo(200);
+        String newAccess = JSON.readTree(again.body()).path("login").path("accessToken").asString();
+        assertThat(jwtDecoder.decode(newAccess).getClaimAsString("sid")).isNotEqualTo(sessionId);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> jwtDecoder.decode(originalAccess)).isInstanceOf(org.springframework.security.oauth2.jwt.JwtException.class);
 	}
 
 	@Test
