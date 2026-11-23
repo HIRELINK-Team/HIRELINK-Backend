@@ -19,6 +19,7 @@ public record TermAgreementResponse(
 			@Schema(description = "동의 시각 (ISO-8601). false이면 null, true를 반복 전송하면 기존 동의 시각 유지",
 					example = "2026-11-01T01:00:00Z", type = "string", format = "date-time",
 					requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
-			Instant agreedAt) {
+			Instant agreedAt,
+			@Schema(description = "해당 동의 기록의 본문 버전. 버전을 기록하지 않은 기존 데이터는 null", nullable = true, requiredMode = Schema.RequiredMode.REQUIRED) String agreedVersion) {
 	}
 }

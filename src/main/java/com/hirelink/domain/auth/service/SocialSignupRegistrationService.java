@@ -197,7 +197,7 @@ public class SocialSignupRegistrationService {
 		for (TermType term : terms.signupTerms(session)) {
 			identityTermFound |= term.isStudentRegistration();
 			if (term.isRequired() && session.getAgreements().stream().noneMatch(agreement ->
-					agreement.getTermTypeId().equals(term.getId()) && agreement.isAgreed() && agreement.getAgreedAt() != null)) {
+					agreement.getTermTypeId().equals(term.getId()) && agreement.isAgreed() && agreement.getAgreedAt() != null && agreement.getTermVersion() != null)) {
 				throw new SocialAuthException(HttpStatus.BAD_REQUEST, "REQUIRED_TERMS_NOT_AGREED", "고유식별정보 동의를 포함한 필수 약관에 모두 동의해주세요.");
 			}
 		}

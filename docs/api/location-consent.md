@@ -9,7 +9,7 @@
 성공은 `200 application/json`, `Cache-Control: no-store`다. 약관 ID는 응답 값을 사용하며 예시의 `9`를 고정하지 않는다.
 
 ```json
-{"termTypeId":9,"termTypeName":"위치기반 서비스 이용약관","isAgreed":false,"agreedAt":null}
+{"termTypeId":9,"termTypeName":"위치기반 서비스 이용약관","isAgreed":false,"agreedAt":null,"currentVersion":"example-v1","agreedVersion":null}
 ```
 
 처음 조회하면 미동의 `false/null`이며 조회만으로 동의 행을 생성하지 않는다. 기존 동의가 있으면 `true`와 동의 시각을 반환한다. 회원 본인만 조회하며 가입 진행 쿠키만으로는 호출할 수 없다. 유학생·사업주·LOCAL 회원 모두 사용할 수 있고 온보딩 완료·등록증 인증을 요구하지 않는다.
@@ -23,21 +23,21 @@
 
 ## 저장
 
-기존 `PUT /api/users/me/term-agreements`를 그대로 사용한다. 아래 ID는 조회 응답에서 받은 값이다.
+기존 `PUT /api/users/me/term-agreements`를 그대로 사용한다. ID는 조회 응답에서 받은 값이고 version은 실제 표시한 본문의 버전이다. 예시 버전을 그대로 사용하지 않는다.
 
 ```json
-{"agreements":[{"termTypeId":9,"isAgreed":true}]}
+{"agreements":[{"termTypeId":9,"version":"example-v1","isAgreed":true}]}
 ```
 
 성공은 `200 application/json`, `Cache-Control: no-store`다.
 
 ```json
-{"agreements":[{"termTypeId":9,"isAgreed":true,"agreedAt":"2026-11-20T05:00:00Z"}]}
+{"agreements":[{"termTypeId":9,"isAgreed":true,"agreedAt":"2026-11-20T05:00:00Z","agreedVersion":"example-v1"}]}
 ```
 
-- 동의 시각은 서버가 기록한다. 반복 또는 동시 `true` 요청은 최초 동의 시각을 유지하며 동의 행을 중복 생성하지 않는다.
+- 동의 시각은 서버가 기록한다. 같은 버전의 반복 또는 동시 `true` 요청은 최초 동의 시각을 유지하며 동의 행을 중복 생성하지 않는다.
 - 전송하지 않은 다른 약관은 유지한다. 기존 저장 API로 기록된 위치 동의도 새 조회 API에 바로 반영된다.
-- 기존 계약대로 `false`는 미동의로 바꾸고 `agreedAt=null`로 정리한다. 이후 다시 동의하면 새 시각을 기록한다. 별도의 과거 동의 이력 테이블을 추가하지 않는다.
+- 같은 현재 버전 내에서 기존 계약대로 `false`는 미동의로 바꾸고 `agreedAt=null`로 정리한다. 이후 다시 동의하면 새 시각을 기록한다. 별도의 과거 동의 이력 테이블을 추가하지 않는다.
 - 저장 오류는 기존 약관 API와 같다. 잘못된 입력·중복 ID는 400, 인증 없음은 401, 탈퇴는 403, 없는 약관 ID는 404다. 실패하면 요청 전체를 반영하지 않는다.
 - 이 기록은 회원정보이므로 가입 임시 세션의 30분 만료를 적용하지 않는다. V27은 약관 항목만 추가하며 기존 회원을 일괄 동의 처리하지 않는다. 해당 항목은 전체 가입 필수 동의 및 소셜 가입 약관 목록에 포함하지 않는다.
 
@@ -50,3 +50,5 @@
 5. 기기 위치 권한 거절은 약관 철회와 별개다. 기기 권한을 거절했다는 이유로 약관을 자동 `false`로 덮어쓰지 않는다.
 
 약관 본문·번역·지도 SDK·GPS·동의창은 프론트에서 구현한다. 백엔드는 이 API로 좌표를 받거나 저장하지 않으며, 위치 좌표가 GPS에서 왔는지 직접 선택에서 왔는지를 판별하지 않는다. 기존 거주지역·희망 근무지 저장 계약은 유지한다.
+
+현재 버전 미설정은 `503 TERM_VERSION_UNAVAILABLE`, 요청 버전 불일치는 `409 TERM_VERSION_MISMATCH`다. 기존 true 기록을 다른 버전으로 바꾸는 재동의는 `409 TERM_RECONSENT_NOT_SUPPORTED`로 차단한다. 버전 미기록인 기존 true도 그대로 유지한다. [버전 저장·배포 계약](term-agreement-versions.md)을 참고한다.

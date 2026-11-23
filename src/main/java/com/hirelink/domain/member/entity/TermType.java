@@ -30,6 +30,11 @@ public class TermType {
 	@Column(name = "is_student_registration", nullable = false)
 	private boolean studentRegistration;
 
+	@Column(name = "current_version", length = 64)
+	private String currentVersion;
+
+	public String getCurrentVersion() { return currentVersion; }
+
 	protected TermType() {
 	}
 

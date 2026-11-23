@@ -19,6 +19,7 @@ import com.hirelink.domain.auth.entity.SocialAuthSession;
 import com.hirelink.domain.auth.entity.SocialSignupAgreement;
 import com.hirelink.domain.member.entity.TermType;
 import com.hirelink.domain.member.entity.MemberRole;
+import com.hirelink.domain.member.service.TermVersionPolicy;
 import com.hirelink.domain.member.repository.TermTypeRepository;
 import com.hirelink.global.exception.DuplicateTermTypeException;
 import com.hirelink.global.exception.SocialAuthException;
@@ -49,6 +50,7 @@ public class SocialSignupTermsService {
 		List<TermType> terms = signupTerms(session);
 		Set<Long> termIds = terms.stream().map(TermType::getId).collect(Collectors.toSet());
 		Map<Long, Boolean> requested = new HashMap<>();
+		Map<Long, String> versions = new HashMap<>();
 		for (SocialSignupTermsRequest.Agreement agreement : request.agreements()) {
 			if (requested.putIfAbsent(agreement.termTypeId(), agreement.isAgreed()) != null) {
 				throw new DuplicateTermTypeException();
@@ -56,6 +58,9 @@ public class SocialSignupTermsService {
 			if (!termIds.contains(agreement.termTypeId())) {
 				throw new TermTypeNotFoundException();
 			}
+			var term = terms.stream().filter(value -> value.getId().equals(agreement.termTypeId())).findFirst().orElseThrow();
+			TermVersionPolicy.requireCurrent(term, agreement.version());
+			versions.put(agreement.termTypeId(), agreement.version());
 		}
 		for (TermType term : terms) {
 			if (term.isRequired() && !Boolean.TRUE.equals(requested.get(term.getId()))) {
@@ -64,7 +69,7 @@ public class SocialSignupTermsService {
 		}
 		Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
 		for (TermType term : terms) {
-			session.saveAgreement(term.getId(), requested.getOrDefault(term.getId(), false), now);
+			session.saveAgreement(term.getId(), requested.getOrDefault(term.getId(), false), now, versions.get(term.getId()));
 		}
 		return response(terms, session);
 	}
@@ -82,7 +87,7 @@ public class SocialSignupTermsService {
 		return new SocialSignupTermsResponse(terms.stream().map(term -> {
 			SocialSignupAgreement agreement = agreements.get(term.getId());
 			return new SocialSignupTermsResponse.Term(term.getId(), term.getTermTypeName(), term.isRequired(),
-					agreement != null && agreement.isAgreed(), agreement == null ? null : agreement.getAgreedAt());
+					agreement != null && agreement.isAgreed(), agreement == null ? null : agreement.getAgreedAt(), term.getCurrentVersion(), agreement == null ? null : agreement.getTermVersion());
 		}).toList());
 	}
 }

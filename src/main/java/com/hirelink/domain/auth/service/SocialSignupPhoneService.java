@@ -162,7 +162,7 @@ public class SocialSignupPhoneService {
 		for (TermType term : signupTerms) {
 			SocialSignupAgreement consent = saved.get(term.getId());
 			UserTermAgreement agreement = new UserTermAgreement(new UserTermAgreementId(user.getId(), term.getId()));
-			agreement.updateAgreement(consent != null && consent.isAgreed(), consent == null ? null : consent.getAgreedAt());
+			agreement.updateAgreement(consent != null && consent.isAgreed(), consent == null ? null : consent.getAgreedAt(), consent == null ? null : consent.getTermVersion());
 			agreements.save(agreement);
 		}
 		attempts.transferSignupAttempts(socialAuthService.signupIdentity(session), user.getId());
@@ -184,7 +184,7 @@ public class SocialSignupPhoneService {
 		Map<Long, SocialSignupAgreement> saved = agreementMap(session);
 		for (TermType term : signupTerms) {
 			SocialSignupAgreement consent = saved.get(term.getId());
-			if (term.isRequired() && (consent == null || !consent.isAgreed() || consent.getAgreedAt() == null)) {
+			if (term.isRequired() && (consent == null || !consent.isAgreed() || consent.getAgreedAt() == null || consent.getTermVersion() == null)) {
 				throw new SocialAuthException(HttpStatus.BAD_REQUEST, "REQUIRED_TERMS_NOT_AGREED", "필수 약관에 모두 동의해주세요.");
 			}
 		}

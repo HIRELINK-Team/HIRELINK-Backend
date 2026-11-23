@@ -6,11 +6,13 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(description = "소셜 가입 중 약관 동의 저장. GET /api/auth/social/terms에서 받은 ID를 사용한다.",
-		example = "{\"agreements\":[{\"termTypeId\":4,\"isAgreed\":true},{\"termTypeId\":5,\"isAgreed\":true},{\"termTypeId\":6,\"isAgreed\":true},{\"termTypeId\":7,\"isAgreed\":false}]}")
+		example = "{\"agreements\":[{\"termTypeId\":4,\"version\":\"example-v1\",\"isAgreed\":true},{\"termTypeId\":5,\"version\":\"example-v1\",\"isAgreed\":true},{\"termTypeId\":6,\"version\":\"example-v1\",\"isAgreed\":true},{\"termTypeId\":7,\"version\":\"example-v1\",\"isAgreed\":false}]}")
 public record SocialSignupTermsRequest(
 		@NotEmpty(message = "약관 동의 목록을 입력해주세요.")
 		@Valid
@@ -26,6 +28,10 @@ public record SocialSignupTermsRequest(
 			Long termTypeId,
 			@NotNull(message = "약관 동의 여부를 입력해주세요.")
 			@Schema(description = "해당 약관 동의 여부", example = "true", requiredMode = Schema.RequiredMode.REQUIRED)
-			Boolean isAgreed) {
+			Boolean isAgreed,
+			@NotBlank(message = "표시한 약관 버전을 입력해주세요.")
+			@Pattern(regexp = "[A-Za-z0-9][A-Za-z0-9._-]{0,63}", message = "약관 버전 형식이 올바르지 않습니다.")
+			@Schema(description = "프론트가 실제 표시한 본문의 버전. 현재 버전과 정확히 일치해야 하며 서버가 자동으로 채우지 않는다", example = "v1", requiredMode = Schema.RequiredMode.REQUIRED)
+			String version) {
 	}
 }

@@ -17,8 +17,13 @@ public class UserTermAgreement {
 	@Column(name = "is_agreed", nullable = false)
 	private boolean isAgreed;
 
+	@Column(name = "term_version", length = 64)
+	private String termVersion;
+
 	@Column(name = "agreed_at")
 	private Instant agreedAt;
+
+	public String getTermVersion() { return termVersion; }
 
 	protected UserTermAgreement() {
 	}
@@ -27,7 +32,8 @@ public class UserTermAgreement {
 		this.id = id;
 	}
 
-	public void updateAgreement(boolean agreed, Instant now) {
+	public void updateAgreement(boolean agreed, Instant now, String version) {
+		termVersion = version;
 		if (!agreed) {
 			agreedAt = null;
 		} else if (!isAgreed) {

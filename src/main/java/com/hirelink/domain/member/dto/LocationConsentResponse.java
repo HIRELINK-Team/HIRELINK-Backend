@@ -13,4 +13,6 @@ public record LocationConsentResponse(
 		boolean isAgreed,
 		@Schema(description = "현재 동의 시각. 미동의는 null, true 반복 저장은 기존 시각 유지, 철회 후 재동의하면 새 시각",
 				type = "string", format = "date-time", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
-		Instant agreedAt) { }
+		Instant agreedAt,
+		@Schema(description = "현재 위치 약관 본문 버전. 미설정이면 null", nullable = true, requiredMode = Schema.RequiredMode.REQUIRED) String currentVersion,
+		@Schema(description = "동의 당시 버전. 기존 버전 미기록은 null", nullable = true, requiredMode = Schema.RequiredMode.REQUIRED) String agreedVersion) { }
