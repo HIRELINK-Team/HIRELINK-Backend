@@ -193,7 +193,7 @@ class StudentDocumentCompletionIntegrationTest extends PostgreSQLIntegrationTest
     }
     private long student(String role) {
         long id=jdbc.queryForObject("insert into user_account(email,role,name) values (?,?,'학생') returning id",Long.class,UUID.randomUUID()+"@example.com",role);
-        jdbc.update("insert into student_profile(id,birth_date,nationality,current_region,korean_level) values (?,'2000-01-01','VN','서울','BEGINNER')",id);
+        jdbc.update("insert into student_profile(id,birth_date,nationality,current_region,korean_level,onboarding_completed_at) values (?,'2000-01-01','VN','서울','BEGINNER',now())",id);
         return id;
     }
     private void verification(long id,LocalDate expiry) { jdbc.update("insert into student_registration_verification(user_id,nationality,visa_code,stay_expires_on,card_verified_at,registered_at) values (?,'VN','D-2',?,now(),now())",id,expiry); }

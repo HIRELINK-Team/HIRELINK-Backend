@@ -232,7 +232,7 @@ class StudentRegistrationRenewalIntegrationTest extends PostgreSQLIntegrationTes
     }
     private long student(String role) {
         long id=jdbc.queryForObject("insert into user_account(email,role,name) values (?,?,'학생') returning id",Long.class,UUID.randomUUID()+"@example.com",role);
-        jdbc.update("insert into student_profile(id,birth_date,nationality,current_region,korean_level,visa_code,stay_expiration_date) values (?,'2000-01-01','VN','서울','BEGINNER','D-2-2',?)",id,originalExpiry);
+        jdbc.update("insert into student_profile(id,birth_date,nationality,current_region,korean_level,visa_code,stay_expiration_date,onboarding_completed_at) values (?,'2000-01-01','VN','서울','BEGINNER','D-2-2',?,now())",id,originalExpiry);
         return id;
     }
     private void verification(long id,LocalDate expiry) {

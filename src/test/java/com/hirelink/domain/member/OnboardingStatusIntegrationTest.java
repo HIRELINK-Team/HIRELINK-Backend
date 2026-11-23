@@ -83,17 +83,17 @@ class OnboardingStatusIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
-	void preservedBirthDateRestartsAtCurrentRegionAndCompletesWithoutResubmittingDate() throws Exception {
+	void legacyBirthDateStillRestartsAtBasicInformationAndUsesFinalInput() throws Exception {
 		long user = verifiedStudent(30);
 		jdbc.update("update student_registration_verification set birth_date = '2000-05-14', registered_at = now() - interval '2 days' where user_id = ?", user);
 		List<List<Map<String, Object>>> before = snapshot(user);
-		assertStatus(get(user), user, "STUDENT", "REQUIRED", "CURRENT_REGION", null);
+		assertStatus(get(user), user, "STUDENT", "REQUIRED", "BASIC_INFORMATION", null);
 		assertThat(snapshot(user)).isEqualTo(before);
 		var request = (tools.jackson.databind.node.ObjectNode) mapper.readTree(COMPLETE_REQUEST);
-		request.remove("birthDate");
+		request.put("birthDate", "1999-02-03");
 		HttpResponse<String> completion = send("POST", "/api/students/me/onboarding", token(user, "STUDENT"), request.toString());
 		assertThat(completion.statusCode()).as(completion.body()).isEqualTo(200);
-		assertThat(jdbc.queryForObject("select birth_date from student_profile where id = ?", LocalDate.class, user)).isEqualTo(LocalDate.of(2000, 5, 14));
+		assertThat(jdbc.queryForObject("select birth_date from student_profile where id = ?", LocalDate.class, user)).isEqualTo(LocalDate.of(1999, 2, 3));
 		assertStatus(get(user), user, "STUDENT", "COMPLETED", "NONE", Instant.parse(mapper.readTree(completion.body()).path("completedAt").asString()));
 	}
 
@@ -199,9 +199,68 @@ class OnboardingStatusIntegrationTest extends PostgreSQLIntegrationTest {
 		JsonNode schema = document.path("components").path("schemas").path("OnboardingStatusResponse");
 		assertThat(schema.path("required").toString()).contains("userId", "role", "status", "nextStep", "completedAt");
 		assertThat(schema.path("properties").path("status").toString()).contains("REQUIRED", "COMPLETED", "NOT_APPLICABLE");
-		assertThat(schema.path("properties").path("nextStep").toString()).contains("CURRENT_REGION", "BASIC_INFORMATION", "NONE", "EXISTING_FLOW");
+		assertThat(schema.path("properties").path("nextStep").toString()).contains("BASIC_INFORMATION", "NONE", "EXISTING_FLOW").doesNotContain("CURRENT_REGION");
 		assertThat(schema.path("properties").path("completedAt").toString()).contains("null");
 		assertThat(document.path("paths").path("/api/students/me/onboarding").has("post")).isTrue();
+	}
+
+	@Test
+	void blocksStudentServicesUntilFinalCompletionWithoutSavingDrafts() throws Exception {
+		long user = verifiedStudent(30);
+		String accessToken = token(user, "STUDENT");
+		var before = snapshot(user);
+		for (String path : List.of("/profile", "/matching-preferences", "/documents/completion",
+				"/documents/enrollment", "/documents/transcript", "/documents/topik", "/badge", "/working-conditions")) {
+			assertError(send("GET", "/api/students/me" + path, accessToken, null), 403, "ONBOARDING_REQUIRED");
+		}
+		for (String path : List.of("/profile", "/careers", "/documents/enrollment/1/confirm",
+				"/documents/transcript/1/confirm", "/documents/topik/1/confirm", "/registration-renewals/1/confirm")) {
+			assertError(send("POST", "/api/students/me" + path, accessToken, "{}"), 403, "ONBOARDING_REQUIRED");
+		}
+		assertError(send("PATCH", "/api/students/me/matching-preferences", accessToken, "{}"), 403, "ONBOARDING_REQUIRED");
+		assertError(send("PATCH", "/api/students/me/profile", accessToken, "{}"), 403, "ONBOARDING_REQUIRED");
+		assertError(send("DELETE", "/api/students/me/careers/1", accessToken, null), 403, "ONBOARDING_REQUIRED");
+		assertThat(snapshot(user)).isEqualTo(before);
+		assertStatus(get(user), user, "STUDENT", "REQUIRED", "BASIC_INFORMATION", null);
+		assertThat(send("GET", "/api/users/me/term-agreements/location", accessToken, null).statusCode()).isEqualTo(200);
+
+		var invalid = (tools.jackson.databind.node.ObjectNode) mapper.readTree(COMPLETE_REQUEST);
+		invalid.put("birthDate", LocalDate.now(ZoneId.of("Asia/Seoul")).minusYears(17).toString());
+		assertError(send("POST", "/api/students/me/onboarding", accessToken, invalid.toString()), 400, "INVALID_INPUT");
+		assertThat(snapshot(user)).isEqualTo(before);
+		assertError(send("GET", "/api/students/me/profile", accessToken, null), 403, "ONBOARDING_REQUIRED");
+
+		assertThat(send("POST", "/api/students/me/onboarding", accessToken, COMPLETE_REQUEST).statusCode()).isEqualTo(200);
+		for (String path : List.of("/profile", "/matching-preferences", "/documents/completion", "/badge")) {
+			var response = send("GET", "/api/students/me" + path, accessToken, null);
+			assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		}
+	}
+
+	@Test
+	void accessCheckUsesStoredCompletionAndPreservesLegacyFlow() throws Exception {
+		long user = verifiedStudent(30);
+		createProfile(user);
+		assertError(send("GET", "/api/students/me/profile", token(user, "EMPLOYER"), null), 403, "ONBOARDING_REQUIRED");
+		long legacy = user("STUDENT", "LOCAL");
+		createProfile(legacy);
+		assertThat(send("GET", "/api/students/me/profile", token(legacy, "STUDENT"), null).statusCode()).isEqualTo(200);
+		assertError(send("GET", "/api/students/me/profile", null, null), 401, "UNAUTHORIZED");
+		jdbc.update("update user_account set withdrawn_at = now() where id = ?", user);
+		assertError(send("GET", "/api/students/me/profile", token(user, "STUDENT"), null), 403, "WITHDRAWN_ACCOUNT");
+	}
+
+	@Test
+	void documentsScopedOnboardingRestrictionWithoutChangingOtherApis() throws Exception {
+		JsonNode paths = mapper.readTree(send("GET", "/v3/api-docs", null, null).body()).path("paths");
+		for (String path : List.of("/api/students/me/profile", "/api/students/me/matching-preferences",
+				"/api/students/me/documents/completion", "/api/students/me/badge", "/api/students/me/working-conditions")) {
+			assertThat(paths.path(path).path("get").path("responses").path("403").toString()).contains("ONBOARDING_REQUIRED");
+		}
+		for (String path : List.of(PATH, "/api/students/me/onboarding", "/api/recommendations", "/api/applications",
+				"/api/offers", "/api/matches", "/api/students/me/withdrawal")) {
+			assertThat(paths.path(path).toString()).doesNotContain("ONBOARDING_REQUIRED");
+		}
 	}
 
 	private long user(String role, String provider) {
