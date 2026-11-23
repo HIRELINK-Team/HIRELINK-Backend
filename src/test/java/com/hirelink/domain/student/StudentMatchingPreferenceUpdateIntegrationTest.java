@@ -78,7 +78,6 @@ class StudentMatchingPreferenceUpdateIntegrationTest extends PostgreSQLIntegrati
 			    {"dayOfWeek":"MON","startTime":"13:00","endTime":"15:00"}
 			  ],
 			  "preferredLocation":{"locationName":"강남역","latitude":37.4979123,"longitude":127.0276123,"radiusM":500},
-			  "minimumHourlyWage":12000,
 			  "priorities":[
 			    {"criterionId":1,"priorityOrder":1},{"criterionId":2,"priorityOrder":2},
 			    {"criterionId":3,"priorityOrder":3},{"criterionId":4,"priorityOrder":4}
@@ -97,7 +96,7 @@ class StudentMatchingPreferenceUpdateIntegrationTest extends PostgreSQLIntegrati
 		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
 		assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
 		JsonNode body = mapper.readTree(response.body());
-		assertThat(body.size()).isEqualTo(6);
+		assertThat(body.size()).isEqualTo(5);
 		assertThat(body.path("preferredJobs")).isEqualTo(mapper.readTree("""
 				[{"businessTypeId":1,"businessTypeName":"FOOD_CAFE","otherJobName":null},
 				 {"businessTypeId":8,"businessTypeName":"OTHER","otherJobName":"영화관"}]
@@ -108,9 +107,13 @@ class StudentMatchingPreferenceUpdateIntegrationTest extends PostgreSQLIntegrati
 				 {"dayOfWeek":"SUN","startTime":"22:00","endTime":"00:00"}]
 				"""));
 		assertThat(body.path("preferredLocation")).isEqualTo(mapper.readTree(FULL_REQUEST).path("preferredLocation"));
-		assertThat(body.path("minimumHourlyWage").asInt()).isEqualTo(12000);
+		assertThat(body.has("minimumHourlyWage")).isFalse();
 		assertThat(body.path("priorities").size()).isEqualTo(4);
-		assertThat(body.path("priorities").get(0).path("criterionName").asString()).isEqualTo("WORK_TIME");
+		for (int i = 0; i < 4; i++) {
+			assertThat(body.path("priorities").get(i).path("criterionName").asString())
+					.isEqualTo(List.of("WORK_TIME", "WAGE", "DISTANCE", "BUSINESS_TYPE").get(i));
+			assertThat(body.path("priorities").get(i).path("priorityOrder").asInt()).isEqualTo(i + 1);
+		}
 		assertThat(body.path("priorities").get(0).has("weight")).isFalse();
 		assertThat(jdbc.queryForObject("select count(*) from student_priority where user_id = ? and weight is null", Integer.class, userId)).isEqualTo(4);
 		assertThat(mapper.readTree(get(PATH, token).body())).isEqualTo(body);
@@ -125,16 +128,10 @@ class StudentMatchingPreferenceUpdateIntegrationTest extends PostgreSQLIntegrati
 		String token = token(userId, "STUDENT");
 		assertThat(patch(FULL_REQUEST, token).statusCode()).isEqualTo(200);
 		List<List<Map<String, Object>>> before = snapshot(userId);
-		HttpResponse<String> wage = patch("{\"minimumHourlyWage\":13000}", token);
-		assertThat(wage.statusCode()).isEqualTo(200);
-		assertThat(mapper.readTree(wage.body()).path("minimumHourlyWage").asInt()).isEqualTo(13000);
-		assertThat(snapshot(userId).subList(0, 4)).isEqualTo(before.subList(0, 4));
-		assertThat(patch("{\"minimumHourlyWage\":null,\"preferredWorkTimes\":[]}", token).statusCode()).isEqualTo(200);
-		JsonNode cleared = mapper.readTree(get(PATH, token).body());
-		assertThat(cleared.path("minimumHourlyWage").isNull()).isTrue();
-		assertThat(cleared.path("preferredWorkTimes").isEmpty()).isTrue();
-		assertThat(cleared.path("preferredJobs").size()).isEqualTo(2);
-		assertThat(cleared.path("preferredLocation").path("locationName").asString()).isEqualTo("강남역");
+		assertError(patch("{\"minimumHourlyWage\":13000}", token), 400, "INVALID_INPUT");
+		assertError(patch("{\"minimumHourlyWage\":null}", token), 400, "INVALID_INPUT");
+		assertError(patch("{\"preferredWorkTimes\":[]}", token), 400, "INVALID_INPUT");
+		assertThat(snapshot(userId)).isEqualTo(before);
 		assertThat(patch("{\"businessTypeFlexible\":false,\"preferredJobs\":[{\"businessTypeId\":5}]}", token).statusCode()).isEqualTo(200);
 		assertThat(jdbc.queryForList("select business_type_id from student_preferred_job where user_id = ?", Long.class, userId)).containsExactly(5L);
 		assertThat(patch("{\"businessTypeFlexible\":true,\"preferredJobs\":[]}", token).statusCode()).isEqualTo(200);
@@ -213,7 +210,6 @@ class StudentMatchingPreferenceUpdateIntegrationTest extends PostgreSQLIntegrati
 		assertThat(patch(adjacent, token).statusCode()).isEqualTo(200);
 		List<List<Map<String, Object>>> before = snapshot(userId);
 		for (String item : List.of(
-				"{\"dayOfWeek\":\"MON\",\"startTime\":\"22:00\",\"endTime\":\"02:00\"}",
 				"{\"dayOfWeek\":\"MON\",\"startTime\":\"00:00\",\"endTime\":\"00:00\"}",
 				"{\"dayOfWeek\":\"MON\",\"startTime\":\"13:00\",\"endTime\":\"13:00\"}",
 				"{\"dayOfWeek\":\"MON\",\"startTime\":\"9:00\",\"endTime\":\"12:00\"}",
@@ -247,7 +243,7 @@ class StudentMatchingPreferenceUpdateIntegrationTest extends PostgreSQLIntegrati
 				"{\"locationName\":\"" + "가".repeat(151) + "\",\"latitude\":37,\"longitude\":127,\"radiusM\":500}")) {
 			assertError(patch("{\"preferredLocation\":" + location + "}", token), 400, "INVALID_INPUT");
 		}
-		for (String wage : List.of("0", "-1", "1.5", "\"12000\"", "2147483648", "true")) {
+		for (String wage : List.of("12000", "null", "0", "-1", "1.5", "\"12000\"", "2147483648", "true")) {
 			assertError(patch("{\"minimumHourlyWage\":" + wage + "}", token), 400, "INVALID_INPUT");
 		}
 		assertThat(snapshot(userId)).isEqualTo(before);
@@ -278,7 +274,7 @@ class StudentMatchingPreferenceUpdateIntegrationTest extends PostgreSQLIntegrati
 		for (String radius : List.of("-100", "0", "1", "99", "101", "150", "750", "999", "1001", "1100", "5000",
 				"2147483648", "100.0", "100.5", "\"100\"", "null", "true", "[]", "{}")) {
 			String body = FULL_REQUEST.replace("\"radiusM\":500", "\"radiusM\":" + radius)
-					.replace("12000", "15000").replace("강남역", "새 지역");
+					.replace("강남역", "새 지역");
 			assertError(patch(body, token), 400, "INVALID_INPUT");
 			assertThat(snapshot(userId)).as("radiusM=%s", radius).isEqualTo(before);
 		}
@@ -294,7 +290,7 @@ class StudentMatchingPreferenceUpdateIntegrationTest extends PostgreSQLIntegrati
 		for (int radius : List.of(750, 5000)) {
 			jdbc.update("update student_preferred_location set radius_m = ? where user_id = ?", radius, userId);
 			List<Map<String, Object>> location = snapshot(userId).get(2);
-			HttpResponse<String> response = patch("{\"minimumHourlyWage\":13000}", token);
+			HttpResponse<String> response = patch("{\"businessTypeFlexible\":true,\"preferredJobs\":[]}", token);
 			assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
 			assertThat(mapper.readTree(response.body()).path("preferredLocation").path("radiusM").asInt()).isEqualTo(radius);
 			assertThat(snapshot(userId).get(2)).isEqualTo(location);
@@ -369,7 +365,7 @@ class StudentMatchingPreferenceUpdateIntegrationTest extends PostgreSQLIntegrati
 		List<List<Map<String, Object>>> before = snapshot(userId);
 		jdbc.execute("alter table student_priority add constraint test_priority_write_failure check (priority_order <> 4) not valid");
 		try {
-			HttpResponse<String> response = patch(FULL_REQUEST.replace("12000", "14000").replace("강남역", "새 지역")
+			HttpResponse<String> response = patch(FULL_REQUEST.replace("강남역", "새 지역")
 					.replace("영화관", "새 업종명").replace("22:00", "23:00"), token);
 			assertError(response, 500, "INTERNAL_SERVER_ERROR");
 			assertThat(mapper.readTree(response.body()).path("message").asString()).isEqualTo("서버 오류가 발생했습니다.");
@@ -392,7 +388,7 @@ class StudentMatchingPreferenceUpdateIntegrationTest extends PostgreSQLIntegrati
 				statement.executeQuery().close();
 			}
 			try {
-				first = client.sendAsync(request("PATCH", PATH, token, "{\"minimumHourlyWage\":12000}"), HttpResponse.BodyHandlers.ofString());
+				first = client.sendAsync(request("PATCH", PATH, token, "{\"preferredWorkTimes\":[{\"dayOfWeek\":\"MON\",\"startTime\":\"09:00\",\"endTime\":\"10:00\"}]}"), HttpResponse.BodyHandlers.ofString());
 				second = client.sendAsync(request("PATCH", PATH, token, "{\"businessTypeFlexible\":true,\"preferredJobs\":[]}"), HttpResponse.BodyHandlers.ofString());
 				await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(jdbc.queryForObject("""
 						select count(*) from pg_stat_activity where datname = current_database()
@@ -407,8 +403,82 @@ class StudentMatchingPreferenceUpdateIntegrationTest extends PostgreSQLIntegrati
 		}
 		JsonNode body = mapper.readTree(get(PATH, token).body());
 		assertThat(body.path("businessTypeFlexible").asBoolean()).isTrue();
-		assertThat(body.path("minimumHourlyWage").asInt()).isEqualTo(12000);
+		assertThat(body.path("preferredWorkTimes").size()).isEqualTo(1);
+		assertThat(body.has("minimumHourlyWage")).isFalse();
 		assertThat(jdbc.queryForObject("select count(*) from student_job_preference where user_id = ?", Integer.class, userId)).isEqualTo(1);
+	}
+
+	@Test
+	void requiresOneContinuousHourAndPreservesAllFieldsOnFailure() throws Exception {
+		long userId = createUser("STUDENT", true);
+		String token = token(userId, "STUDENT");
+		assertThat(patch(FULL_REQUEST, token).statusCode()).isEqualTo(200);
+		List<List<Map<String, Object>>> before = snapshot(userId);
+		for (String times : List.of("[]",
+				"[{\"dayOfWeek\":\"MON\",\"startTime\":\"09:00\",\"endTime\":\"09:30\"}]",
+				"[{\"dayOfWeek\":\"MON\",\"startTime\":\"09:00\",\"endTime\":\"09:30\"},{\"dayOfWeek\":\"MON\",\"startTime\":\"10:00\",\"endTime\":\"10:30\"}]",
+				"[{\"dayOfWeek\":\"MON\",\"startTime\":\"09:00\",\"endTime\":\"09:30\"},{\"dayOfWeek\":\"TUE\",\"startTime\":\"09:30\",\"endTime\":\"10:00\"}]")) {
+			var request = (tools.jackson.databind.node.ObjectNode) mapper.readTree(FULL_REQUEST);
+			request.set("preferredWorkTimes", mapper.readTree(times));
+			request.put("businessTypeFlexible", true);
+			request.putArray("preferredJobs");
+			assertError(patch(request.toString(), token), 400, "INVALID_INPUT");
+			assertThat(snapshot(userId)).isEqualTo(before);
+		}
+		for (String times : List.of(
+				"[{\"dayOfWeek\":\"MON\",\"startTime\":\"09:00\",\"endTime\":\"09:30\"},{\"dayOfWeek\":\"MON\",\"startTime\":\"09:30\",\"endTime\":\"10:00\"}]",
+				"[{\"dayOfWeek\":\"SUN\",\"startTime\":\"23:30\",\"endTime\":\"00:00\"},{\"dayOfWeek\":\"MON\",\"startTime\":\"00:00\",\"endTime\":\"00:30\"}]",
+				"[{\"dayOfWeek\":\"MON\",\"startTime\":\"09:00\",\"endTime\":\"10:00\"},{\"dayOfWeek\":\"WED\",\"startTime\":\"22:00\",\"endTime\":\"22:30\"}]")) {
+			HttpResponse<String> response = patch("{\"preferredWorkTimes\":" + times + "}", token);
+			assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		}
+	}
+
+	@Test
+	void storesOvernightOnStartingDayAndRejectsNextDayAndWeekBoundaryOverlaps() throws Exception {
+		long userId = createUser("STUDENT", true);
+		String token = token(userId, "STUDENT");
+		for (String day : List.of("MON", "SUN")) {
+			String nextDay = day.equals("MON") ? "TUE" : "MON";
+			String overnight = """
+					{"preferredWorkTimes":[{"dayOfWeek":"%s","startTime":"22:00","endTime":"02:00"}]}
+					""".formatted(day);
+			HttpResponse<String> response = patch(overnight, token);
+			assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+			assertThat(mapper.readTree(response.body()).path("preferredWorkTimes"))
+					.isEqualTo(mapper.readTree(overnight).path("preferredWorkTimes"));
+			assertThat(mapper.readTree(get(PATH, token).body()).path("preferredWorkTimes"))
+					.isEqualTo(mapper.readTree(overnight).path("preferredWorkTimes"));
+			assertThat(jdbc.queryForMap("select day_of_week, start_time, end_time from student_preferred_work_time where user_id = ?", userId))
+					.containsEntry("day_of_week", day)
+					.containsEntry("start_time", java.sql.Time.valueOf("22:00:00"))
+					.containsEntry("end_time", java.sql.Time.valueOf("02:00:00"));
+			List<List<Map<String, Object>>> before = snapshot(userId);
+			String overlapping = overnight.replace("}]}", """
+					},{"dayOfWeek":"%s","startTime":"01:30","endTime":"02:30"}]}
+					""".formatted(nextDay).strip());
+			assertError(patch(overlapping, token), 400, "INVALID_INPUT");
+			assertThat(snapshot(userId)).isEqualTo(before);
+		}
+	}
+
+	@Test
+	void keepsLegacyWageWhileUpdatingPreferencesAndNeverExposesIt() throws Exception {
+		long userId = createUser("STUDENT", true);
+		String token = token(userId, "STUDENT");
+		jdbc.update("insert into student_job_preference(user_id, minimum_hourly_wage, business_type_flexible) values (?, 12345, true)", userId);
+		HttpResponse<String> response = patch(FULL_REQUEST, token);
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		assertThat(mapper.readTree(response.body()).has("minimumHourlyWage")).isFalse();
+		assertThat(mapper.readTree(get(PATH, token).body()).has("minimumHourlyWage")).isFalse();
+		assertThat(jdbc.queryForObject("select minimum_hourly_wage from student_job_preference where user_id = ?", Integer.class, userId)).isEqualTo(12345);
+		List<List<Map<String, Object>>> before = snapshot(userId);
+		for (String value : List.of("15000", "null")) {
+			String rejected = FULL_REQUEST.replace("\"businessTypeFlexible\":false",
+					"\"minimumHourlyWage\":" + value + ",\"businessTypeFlexible\":false");
+			assertError(patch(rejected, token), 400, "INVALID_INPUT");
+			assertThat(snapshot(userId)).isEqualTo(before);
+		}
 	}
 
 	private List<List<Map<String, Object>>> snapshot(long userId) {

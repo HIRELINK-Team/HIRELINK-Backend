@@ -96,7 +96,7 @@ class StudentMatchingPreferenceReadIntegrationTest extends PostgreSQLIntegration
 			assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
 			assertThat(mapper.readTree(response.body())).isEqualTo(mapper.readTree("""
 					{"businessTypeFlexible":false,"preferredJobs":[],"preferredWorkTimes":[],
-					 "preferredLocation":null,"minimumHourlyWage":null,"priorities":[]}
+					 "preferredLocation":null,"priorities":[]}
 					"""));
 		}
 		for (String table : List.of("student_preferred_job", "student_preferred_work_time", "student_preferred_location",
@@ -109,7 +109,7 @@ class StudentMatchingPreferenceReadIntegrationTest extends PostgreSQLIntegration
 		assertThat(mapper.readTree(partial.body())).isEqualTo(mapper.readTree("""
 				{"businessTypeFlexible":false,"preferredJobs":[],
 				 "preferredWorkTimes":[{"dayOfWeek":"FRI","startTime":"09:30","endTime":"12:00"}],
-				 "preferredLocation":null,"minimumHourlyWage":null,"priorities":[]}
+				 "preferredLocation":null,"priorities":[]}
 				"""));
 		assertThat(jdbc.queryForObject("select count(*) from student_job_preference", Integer.class)).isZero();
 		assertThat(jdbc.queryForMap("select * from student_profile where id = ?", userId)).isEqualTo(profileBefore);
@@ -156,7 +156,6 @@ class StudentMatchingPreferenceReadIntegrationTest extends PostgreSQLIntegration
 				    {"dayOfWeek":"SUN","startTime":"10:00","endTime":"12:00"}
 				  ],
 				  "preferredLocation": {"locationName":"강남역","latitude":37.4979123,"longitude":127.0276123,"radiusM":500},
-				  "minimumHourlyWage":12000,
 				  "priorities": [
 				    {"criterionId":2,"criterionName":"WAGE","priorityOrder":1},
 				    {"criterionId":4,"criterionName":"BUSINESS_TYPE","priorityOrder":2},
@@ -194,7 +193,7 @@ class StudentMatchingPreferenceReadIntegrationTest extends PostgreSQLIntegration
 		assertThat(response.statusCode()).isEqualTo(200);
 		assertThat(mapper.readTree(response.body())).isEqualTo(mapper.readTree("""
 				{"businessTypeFlexible":true,"preferredJobs":[],"preferredWorkTimes":[],
-				 "preferredLocation":null,"minimumHourlyWage":null,"priorities":[]}
+				 "preferredLocation":null,"priorities":[]}
 				"""));
 		assertThat(jdbc.queryForObject("select count(*) from student_preferred_job where user_id = ?", Integer.class, userId)).isEqualTo(1);
 	}
