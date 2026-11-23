@@ -26,4 +26,13 @@ class EnrollmentExtractionTest {
 					.isInstanceOf(StudentDocumentException.class).extracting("code").isEqualTo("UNREADABLE_ENROLLMENT");
 		}
 	}
+	@Test void identifiesMissingSchoolAndGradeWithoutTreatingAbsentCampusAsRequired() {
+		assertThatThrownBy(() -> new EnrollmentExtraction(null, null, 2, null).supportedGrade())
+				.hasMessageContaining("대학교명을 확인하지 못했습니다.");
+		assertThatThrownBy(() -> new EnrollmentExtraction("대학교", null, null, null).supportedGrade())
+				.hasMessageContaining("학년 또는 학기 수를 확인하지 못했습니다.");
+		assertThatThrownBy(() -> new EnrollmentExtraction(" ", null, null, null).supportedGrade())
+				.hasMessageContaining("대학교명과 학년 또는 학기 수를 확인하지 못했습니다.");
+		assertThat(new EnrollmentExtraction("대학교", null, null, 3).supportedGrade()).isEqualTo((short) 2);
+	}
 }

@@ -31,6 +31,13 @@ class AcademicOcrClientTest {
             }
             status[0]=422;
             assertThatThrownBy(()->client.recognize("TRANSCRIPT",data,"application/pdf")).isInstanceOf(StudentDocumentException.class).extracting("code").isEqualTo("UNREADABLE_STUDENT_DOCUMENT");
+            body[0]="{\"code\":\"OCR_REQUIRED_FIELDS_UNREADABLE\",\"fields\":[\"latestSemesterAverageGpa\"]}";
+            assertThatThrownBy(()->client.recognize("TRANSCRIPT",data,"application/pdf")).hasMessageContaining("직전 학기 평균 학점을 확인하지 못했습니다.");
+            assertThatThrownBy(()->client.recognize("TOPIK",data,"application/pdf")).hasMessage("서류 정보를 확인하지 못했습니다. 다시 촬영하거나 업로드해주세요.");
+            body[0]="{\"code\":\"OCR_REQUIRED_FIELDS_UNREADABLE\",\"fields\":[\"topikLevel\"]}";
+            assertThatThrownBy(()->client.recognize("TOPIK",data,"application/pdf")).hasMessageContaining("TOPIK 등급을 확인하지 못했습니다.");
+            body[0]="{\"code\":\"OCR_REQUIRED_FIELDS_UNREADABLE\",\"fields\":[\"topikLevel\"],\"raw\":\"private document\"}";
+            assertThatThrownBy(()->client.recognize("TOPIK",data,"application/pdf")).hasMessage("서류 정보를 확인하지 못했습니다. 다시 촬영하거나 업로드해주세요.");
             status[0]=503;
             assertThatThrownBy(()->client.recognize("TRANSCRIPT",data,"application/pdf")).isInstanceOf(StudentDocumentException.class).extracting("code").isEqualTo("STUDENT_DOCUMENT_OCR_FAILED");
             assertThatThrownBy(()->new AcademicOcrClient("https://example.com").recognize("TOPIK",data,"application/pdf")).isInstanceOf(StudentDocumentException.class);
