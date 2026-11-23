@@ -75,6 +75,6 @@
 - 기존 `REGISTRATION_VERIFICATION_ENABLED`, `REGISTRATION_ENCRYPTION_KEY`, `APICK_API_KEY` 및 OCR 설정을 사용한다. 신규 비밀키는 없다. 현재 정보·안내 조회에는 외부 OCR/진위 호출이 없다.
 - Flyway V33은 기존 갱신 임시 컬럼과 만료 인덱스를 유지한다.
 - V36은 인증 기록에 `expiry_notice_dates` JSONB 배열을 추가한다. 기존 회원은 빈 이력으로 시작하며 기존 확정값은 변경하지 않는다.
-- V36은 `student_profile.visa_code`의 `fk_student_profile_visa`만 제거한다. 지원 대상 코드만 들어 있는 기준표에 없는 정상 인증 체류자격도 저장하기 위해서다. 기준표 및 기존 값·다른 FK는 유지하며 신규 가입·직접 입력 검증은 그대로 적용한다.
+- V36은 프로필의 `fk_student_profile_visa`와 인증 기록의 `student_registration_verification_visa_code_fkey`를 제거한다. 지원 대상 코드만 들어 있는 기준표에 없는 정상 인증 체류자격도 저장하기 위해서다. 기준표 및 기존 값·다른 FK는 유지하며 신규 가입·직접 입력 검증은 그대로 적용한다.
 - 검증 범위: 카드/PDF 갱신, 최종 확인 전 보존, 전체 정보 갱신과 롤백, 지원 대상 전환과 학업과정 유지, 안내 날짜 경계·동시 요청·롤백·권한, 기존 데이터 보존 마이그레이션, 신규 가입 제한 회귀.
 - 실제 서류 OCR 인식 품질과 운영 진위 API 연결은 운영 환경에서 별도 확인해야 한다.
