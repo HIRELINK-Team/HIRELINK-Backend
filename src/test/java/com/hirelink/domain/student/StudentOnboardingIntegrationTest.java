@@ -425,7 +425,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 	@Test
 	void retiredCareerWritesWaitForTheMemberLockAndReject() throws Exception {
 		long user = verifiedStudent();
-		seedIncomplete(user);
+		assertThat(post(user, FULL_REQUEST).statusCode()).isEqualTo(200);
 		CompletableFuture<HttpResponse<String>> pending;
 		try (Connection connection = dataSource.getConnection()) {
 			connection.setAutoCommit(false);
