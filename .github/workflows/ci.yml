@@ -42,8 +42,39 @@ jobs:
       - name: Verify Gradle Wrapper execution permission
         run: test -x ./gradlew
 
+      - name: Test login sessions and affected member flows
+        run: >-
+          ./gradlew test --no-daemon
+          --tests 'com.hirelink.domain.auth.AuthIntegrationTest'
+          --tests 'com.hirelink.domain.auth.SocialAuthIntegrationTest'
+          --tests 'com.hirelink.domain.auth.PhoneVerificationIntegrationTest'
+          --tests 'com.hirelink.domain.auth.LoginSessionMigrationIntegrationTest'
+          --tests 'com.hirelink.domain.member.TermAgreementIntegrationTest'
+          --tests 'com.hirelink.domain.member.StudentWithdrawalIntegrationTest'
+          --tests 'com.hirelink.domain.student.StudentOnboardingIntegrationTest'
+          --tests 'com.hirelink.domain.student.StudentProfileUpdateIntegrationTest'
+          --tests 'com.hirelink.domain.application.ApplicationCreateIntegrationTest'
+
       - name: Build and test
         run: ./gradlew build --no-daemon
+
+      - name: Summarize Java test results
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          totals = dict.fromkeys(('tests', 'failures', 'errors', 'skipped'), 0)
+          reports = sorted(Path('build/test-results/test').glob('TEST-*.xml'))
+          for report in reports:
+              suite = ET.parse(report).getroot()
+              for key in totals:
+                  totals[key] += int(suite.get(key, 0))
+              for case in suite.findall('testcase'):
+                  for problem in list(case.findall('failure')) + list(case.findall('error')):
+                      print(f"{case.get('classname')}.{case.get('name')}: {problem.text}")
+          print(f"Java test reports: {len(reports)}; {totals}")
+          PY
 
       - name: Test deployment smoke validation
         run: ./deploy/test/smoke-test-test.sh
