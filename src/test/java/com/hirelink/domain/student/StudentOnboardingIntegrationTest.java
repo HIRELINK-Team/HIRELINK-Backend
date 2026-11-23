@@ -115,6 +115,44 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
+	void completesWithStartingDayOvernightAndPreservesLegacyWage() throws Exception {
+		long user = verifiedStudent();
+		seedIncomplete(user);
+		jdbc.update("update student_job_preference set minimum_hourly_wage = 12345 where user_id = ?", user);
+		ObjectNode request = body();
+		preferences(request).set("preferredWorkTimes", mapper.readTree("""
+				[{"dayOfWeek":"MON","startTime":"22:00","endTime":"02:00"}]
+				"""));
+		HttpResponse<String> response = post(user, request.toString());
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		assertThat(count("student_preferred_work_time", user)).isEqualTo(1);
+		JsonNode read = mapper.readTree(send("GET", "/api/students/me/matching-preferences", token(user, "STUDENT"), null).body());
+		assertThat(read.path("preferredWorkTimes")).isEqualTo(preferences(request).path("preferredWorkTimes"));
+		assertThat(read.has("minimumHourlyWage")).isFalse();
+		assertThat(jdbc.queryForObject("select minimum_hourly_wage from student_job_preference where user_id = ?", Integer.class, user)).isEqualTo(12345);
+	}
+
+	@Test
+	void rejectsMinimumWageAndDisconnectedHalfHoursWithoutReplacingOnboardingData() throws Exception {
+		long user = verifiedStudent();
+		seedIncomplete(user);
+		List<List<Map<String, Object>>> before = snapshot(user);
+		for (String value : List.of("12000", "null")) {
+			ObjectNode request = body();
+			preferences(request).set("minimumHourlyWage", mapper.readTree(value));
+			assertError(post(user, request.toString()), 400, "INVALID_INPUT");
+			assertThat(snapshot(user)).isEqualTo(before);
+		}
+		ObjectNode request = body();
+		preferences(request).set("preferredWorkTimes", mapper.readTree("""
+				[{"dayOfWeek":"MON","startTime":"09:00","endTime":"09:30"},
+				 {"dayOfWeek":"MON","startTime":"10:00","endTime":"10:30"}]
+				"""));
+		assertError(post(user, request.toString()), 400, "INVALID_INPUT");
+		assertThat(snapshot(user)).isEqualTo(before);
+	}
+
+	@Test
 	void acceptsEveryHundredMeterRadiusAtOnboardingCompletion() throws Exception {
 		for (int radius = 100; radius <= 1000; radius += 100) {
 			long user = verifiedStudent();
@@ -205,9 +243,9 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
-	void rejectsEmptyTimesInvalidNightRangeOverlapAndIncompletePriorities() throws Exception {
+	void rejectsEmptyTimesShortIntervalsOverlapAndIncompletePriorities() throws Exception {
 		long user = verifiedStudent();
-		for (String times : List.of("[]", "[{\"dayOfWeek\":\"MON\",\"startTime\":\"22:00\",\"endTime\":\"02:00\"}]",
+		for (String times : List.of("[]", "[{\"dayOfWeek\":\"MON\",\"startTime\":\"22:00\",\"endTime\":\"22:30\"}]",
 				"[{\"dayOfWeek\":\"MON\",\"startTime\":\"22:15\",\"endTime\":\"00:00\"}]",
 				"[{\"dayOfWeek\":\"MON\",\"startTime\":\"22:00\",\"endTime\":\"00:00\"},{\"dayOfWeek\":\"MON\",\"startTime\":\"23:00\",\"endTime\":\"00:00\"}]")) {
 			ObjectNode request = body();

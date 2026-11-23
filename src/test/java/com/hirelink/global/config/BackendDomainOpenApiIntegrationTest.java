@@ -265,7 +265,8 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 		JsonNode outputJob = resolve(document, response.path("properties").path("preferredJobs").path("items"));
 		assertThat(inputJob.path("properties").propertyNames()).containsExactlyInAnyOrder("businessTypeId", "otherJobName");
 		assertThat(outputJob.path("properties").propertyNames()).containsExactlyInAnyOrder("businessTypeId", "businessTypeName", "otherJobName");
-		assertThat(nullable(request.path("properties").path("minimumHourlyWage"))).isTrue();
+		assertThat(request.path("properties").has("minimumHourlyWage")).isFalse();
+		assertThat(response.path("properties").has("minimumHourlyWage")).isFalse();
 		JsonNode outputLocation = resolve(document, response.path("properties").path("preferredLocation"));
 		assertThat(nullable(outputLocation)).isTrue();
 		assertType(outputLocation, "object");
@@ -283,6 +284,7 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 		JsonNode document = openApiDocument();
 		for (String name : List.of("StudentMatchingPreferenceUpdateRequest", "StudentOnboardingMatchingPreferenceRequest")) {
 			JsonNode request = schema(document, name);
+			assertThat(request.path("properties").has("minimumHourlyWage")).isFalse();
 			JsonNode location = resolve(document, request.path("properties").path("preferredLocation"));
 			JsonNode radius = location.path("properties").path("radiusM");
 			assertType(radius, "integer");

@@ -12,6 +12,6 @@ public class StudentOnboardingMatchingPreferenceRequest extends StudentMatchingP
 	@Override
 	@NotNull
 	@Size(min = 1)
-	@Schema(description = "최소 1개 희망 근무시간. 자정을 넘는 구간은 요일별로 나눠 전송한다", requiredMode = Schema.RequiredMode.REQUIRED)
+	@Schema(description = "연속 1시간 이상인 구간을 최소 하나 포함한다. 자정을 넘는 구간도 시작 요일 하나로 전송한다", requiredMode = Schema.RequiredMode.REQUIRED)
 	public List<PreferredWorkTime> getPreferredWorkTimes() { return super.getPreferredWorkTimes(); }
 }
