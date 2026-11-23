@@ -1,5 +1,6 @@
 package com.hirelink.domain.workplace;
 
+import com.hirelink.domain.auth.support.LoginSessionFixtures;
 import com.hirelink.support.PostgreSQLIntegrationTest;
 
 import java.math.BigDecimal;
@@ -289,7 +290,7 @@ class WorkplaceUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private String token(long userId, String role) {
 		Instant now = Instant.now();
-		JwtClaimsSet claims = JwtClaimsSet.builder().issuer("hirelink").subject(Long.toString(userId))
+		JwtClaimsSet claims = JwtClaimsSet.builder().claim("sid", LoginSessionFixtures.create(jdbc, userId)).issuer("hirelink").subject(Long.toString(userId))
 				.issuedAt(now).notBefore(now).expiresAt(now.plusSeconds(3600)).id(UUID.randomUUID().toString())
 				.claim("role", role).claim("token_type", "access").build();
 		return jwtEncoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();

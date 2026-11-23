@@ -1,5 +1,7 @@
 package com.hirelink.domain.auth;
 
+import com.hirelink.domain.auth.support.LoginSessionFixtures;
+
 import com.hirelink.support.PostgreSQLIntegrationTest;
 
 import java.net.URI;
@@ -132,6 +134,7 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 		String token = createUser("STUDENT");
 		jdbc.update("update user_account set withdrawn_at = now()");
 		assertError(request(token, PHONE), 403, "WITHDRAWN_ACCOUNT");
+		jdbc.update("delete from refresh_token");
 		jdbc.update("delete from user_account");
 		assertError(request(token, PHONE), 401, "UNAUTHORIZED");
 	}
@@ -398,7 +401,7 @@ class PhoneVerificationIntegrationTest extends PostgreSQLIntegrationTest {
 		Long userId = jdbc.queryForObject("insert into user_account(email, role) values (?, ?) returning id",
 				Long.class, UUID.randomUUID() + "@example.com", role);
 		Instant now = Instant.now();
-		JwtClaimsSet claims = JwtClaimsSet.builder().issuer("hirelink").subject(userId.toString())
+		JwtClaimsSet claims = JwtClaimsSet.builder().claim("sid", LoginSessionFixtures.create(jdbc, userId)).issuer("hirelink").subject(userId.toString())
 				.issuedAt(now).notBefore(now).expiresAt(now.plusSeconds(3600)).id(UUID.randomUUID().toString())
 				.claim("role", role).claim("token_type", "access").build();
 		return jwtEncoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();

@@ -1,5 +1,7 @@
 package com.hirelink.domain.student;
 
+import com.hirelink.domain.auth.support.LoginSessionFixtures;
+
 import com.hirelink.support.PostgreSQLIntegrationTest;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -399,6 +401,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 	@Test
 	void simultaneousCompletionRequestsSaveOnlyOneSet() throws Exception {
 		long user = verifiedStudent();
+		String accessToken = token(user, "STUDENT");
 		CompletableFuture<HttpResponse<String>> first;
 		CompletableFuture<HttpResponse<String>> second;
 		try (Connection connection = dataSource.getConnection()) {
@@ -408,8 +411,8 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 				statement.executeQuery().close();
 			}
 			try {
-				first = client.sendAsync(request("POST", PATH, token(user, "STUDENT"), FULL_REQUEST), HttpResponse.BodyHandlers.ofString());
-				second = client.sendAsync(request("POST", PATH, token(user, "STUDENT"), FULL_REQUEST), HttpResponse.BodyHandlers.ofString());
+				first = client.sendAsync(request("POST", PATH, accessToken, FULL_REQUEST), HttpResponse.BodyHandlers.ofString());
+				second = client.sendAsync(request("POST", PATH, accessToken, FULL_REQUEST), HttpResponse.BodyHandlers.ofString());
 				await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(jdbc.queryForObject("""
 						select count(*) from pg_stat_activity where datname = current_database()
 						and wait_event_type = 'Lock' and query like '%user_account%'
@@ -426,6 +429,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 	void retiredCareerWritesWaitForTheMemberLockAndReject() throws Exception {
 		long user = verifiedStudent();
 		assertThat(post(user, FULL_REQUEST).statusCode()).isEqualTo(200);
+		String accessToken = token(user, "STUDENT");
 		CompletableFuture<HttpResponse<String>> pending;
 		try (Connection connection = dataSource.getConnection()) {
 			connection.setAutoCommit(false);
@@ -434,7 +438,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 				statement.executeQuery().close();
 			}
 			try {
-				pending = client.sendAsync(request("POST", "/api/students/me/careers", token(user, "STUDENT"), body().path("careers").get(0).toString()), HttpResponse.BodyHandlers.ofString());
+				pending = client.sendAsync(request("POST", "/api/students/me/careers", accessToken, body().path("careers").get(0).toString()), HttpResponse.BodyHandlers.ofString());
 				await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(jdbc.queryForObject("""
 						select count(*) from pg_stat_activity where datname = current_database()
 						and wait_event_type = 'Lock' and query like '%user_account%'
@@ -603,7 +607,7 @@ class StudentOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private String token(long user, String role) {
 		Instant now = Instant.now();
-		JwtClaimsSet claims = JwtClaimsSet.builder().issuer("hirelink").subject(Long.toString(user))
+		JwtClaimsSet claims = JwtClaimsSet.builder().claim("sid", LoginSessionFixtures.create(jdbc, user)).issuer("hirelink").subject(Long.toString(user))
 				.issuedAt(now).notBefore(now).expiresAt(now.plusSeconds(3600)).id(UUID.randomUUID().toString())
 				.claim("role", role).claim("token_type", "access").build();
 		return jwtEncoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();

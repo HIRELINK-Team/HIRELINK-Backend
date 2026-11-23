@@ -16,6 +16,8 @@ import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
@@ -86,7 +88,7 @@ class AuthIntegrationTest extends PostgreSQLIntegrationTest {
 	@Autowired
 	private PasswordEncoder passwordEncoder;
 
-	@Autowired
+	@MockitoSpyBean
 	private JwtEncoder jwtEncoder;
 
 	@MockitoSpyBean
@@ -388,8 +390,9 @@ class AuthIntegrationTest extends PostgreSQLIntegrationTest {
 	@ParameterizedTest
 	@ValueSource(strings = {"expired", "future", "wrongIssuer", "wrongRole", "wrongSubject", "missingExpiry", "missingIssuedAt", "missingType"})
 	void signedTokenWithInvalidClaimsIsRejected(String scenario) throws Exception {
-		Instant now = Instant.now();
-		JwtClaimsSet.Builder claims = JwtClaimsSet.builder().issuer("hirelink").subject("1")
+        String session = tokenClaims(refreshCookieValue(signup("member@example.com", "password123", "STUDENT"))).path("sid").asString();
+        Instant now = Instant.now();
+		JwtClaimsSet.Builder claims = JwtClaimsSet.builder().issuer("hirelink").subject("1").claim("sid", session)
 				.claim("role", "STUDENT").claim("token_type", "access")
 				.issuedAt(now.minusSeconds(7200)).notBefore(now.minusSeconds(7200));
 		if (!scenario.equals("missingExpiry")) {
@@ -454,6 +457,7 @@ class AuthIntegrationTest extends PostgreSQLIntegrationTest {
 					.isNotEqualTo(objectMapper.readTree(loginResponse.body()).path("accessToken").asString());
 			JsonNode claims = tokenClaims(accessToken);
 			assertThat(claims.path("exp").asLong() - claims.path("iat").asLong()).isEqualTo(3600);
+            assertThat(claims.path("sid").asString()).isEqualTo(tokenClaims(refreshCookieValue(loginResponse)).path("sid").asString());
 			HttpResponse<String> authenticated = authenticatedRequest(accessToken, "GET");
 			assertThat(authenticated.statusCode()).isEqualTo(200);
 			JsonNode currentUser = objectMapper.readTree(authenticated.body());
@@ -516,9 +520,9 @@ class AuthIntegrationTest extends PostgreSQLIntegrationTest {
 	@ValueSource(strings = {"expired", "future", "wrongIssuer", "wrongRole", "wrongSubject",
 			"missingExpiry", "missingIssuedAt", "missingType", "accessToken"})
 	void refreshRejectsInvalidJwtEvenWhenItsHashIsStored(String scenario) throws Exception {
-		signup("member@example.com", "password123", "STUDENT");
+        String session = tokenClaims(refreshCookieValue(signup("member@example.com", "password123", "STUDENT"))).path("sid").asString();
 		Instant now = Instant.now();
-		JwtClaimsSet.Builder claims = JwtClaimsSet.builder().issuer("hirelink").subject("1")
+		JwtClaimsSet.Builder claims = JwtClaimsSet.builder().issuer("hirelink").subject("1").claim("sid", session)
 				.claim("role", "STUDENT").claim("token_type", "refresh")
 				.issuedAt(now.minusSeconds(7200)).notBefore(now.minusSeconds(7200));
 		if (!scenario.equals("missingExpiry")) {
@@ -584,6 +588,7 @@ class AuthIntegrationTest extends PostgreSQLIntegrationTest {
 		String refreshToken = refreshCookieValue(signup("member@example.com", "password123", "STUDENT"));
 		Instant now = Instant.now();
 		JwtClaimsSet claims = JwtClaimsSet.builder().issuer("hirelink").subject("1")
+				.claim("sid", tokenClaims(refreshToken).path("sid").asString())
 				.claim("role", "STUDENT").claim("token_type", "access")
 				.issuedAt(now.minusSeconds(7200)).expiresAt(now.minusSeconds(1)).build();
 		String expired = jwtEncoder.encode(JwtEncoderParameters.from(
@@ -628,27 +633,38 @@ class AuthIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(jdbcTemplate.queryForList("SELECT * FROM refresh_token")).isEqualTo(existing);
 	}
 
-	@ParameterizedTest
-	@ValueSource(strings = {"STUDENT", "EMPLOYER"})
-	void logoutRevokesOnlyCurrentLoginAndExpiresCookie(String role) throws Exception {
-		HttpResponse<String> first = signup("member@example.com", "password123", role);
-		HttpResponse<String> second = login("member@example.com", "password123");
-		String firstToken = refreshCookieValue(first);
-		String secondToken = refreshCookieValue(second);
-		Map<String, Object> otherLogin = jdbcTemplate.queryForMap(
-				"SELECT * FROM refresh_token WHERE token_hash = ?", tokenHash(secondToken));
+    @ParameterizedTest
+    @ValueSource(strings = {"STUDENT", "EMPLOYER"})
+    void logoutRevokesOnlyCurrentLoginAndExpiresCookie(String role) throws Exception {
+        HttpResponse<String> first = signup("member@example.com", "password123", role);
+        HttpResponse<String> second = login("member@example.com", "password123");
+        String firstToken = refreshCookieValue(first);
+        String secondToken = refreshCookieValue(second);
+        String oldAccess = objectMapper.readTree(first.body()).path("accessToken").asString();
+        String otherAccess = objectMapper.readTree(second.body()).path("accessToken").asString();
+        String refreshedAccess = objectMapper.readTree(refresh(firstToken).body()).path("accessToken").asString();
+        String refreshedAgain = objectMapper.readTree(refresh(firstToken).body()).path("accessToken").asString();
+        assertThat(tokenClaims(firstToken).path("sid").asString()).isNotEqualTo(tokenClaims(secondToken).path("sid").asString());
+        for (String access : List.of(oldAccess, refreshedAccess, refreshedAgain, otherAccess)) {
+            assertThat(authenticatedRequest(access, "GET").statusCode()).isEqualTo(200);
+        }
+        Map<String, Object> otherLogin = jdbcTemplate.queryForMap(
+                "SELECT * FROM refresh_token WHERE token_hash = ?", tokenHash(secondToken));
 
-		assertLogoutSuccess(logout(firstToken));
-		assertThat(refreshTokenCount()).isEqualTo(1);
-		assertThat(jdbcTemplate.queryForMap("SELECT * FROM refresh_token")).isEqualTo(otherLogin);
-		assertError(refresh(firstToken), 401, "INVALID_REFRESH_TOKEN");
-		assertThat(refresh(secondToken).statusCode()).isEqualTo(200);
-		assertLogoutSuccess(logout(firstToken));
-		assertThat(refreshTokenCount()).isEqualTo(1);
-		String existingAccessToken = objectMapper.readTree(first.body()).path("accessToken").asString();
-		assertThat(authenticatedRequest(existingAccessToken, "GET").statusCode()).isEqualTo(200);
-		assertAccountCounts(1, 1);
-	}
+        assertLogoutSuccess(logout(firstToken));
+        assertThat(refreshTokenCount()).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForMap("SELECT * FROM refresh_token")).isEqualTo(otherLogin);
+        assertError(refresh(firstToken), 401, "INVALID_REFRESH_TOKEN");
+        for (String access : List.of(oldAccess, refreshedAccess, refreshedAgain)) {
+            assertError(authenticatedRequest(access, "GET"), 401, "UNAUTHORIZED");
+            assertError(authenticatedRequest(access, "POST"), 401, "UNAUTHORIZED");
+        }
+        assertThat(authenticatedRequest(otherAccess, "GET").statusCode()).isEqualTo(200);
+        assertThat(refresh(secondToken).statusCode()).isEqualTo(200);
+        assertLogoutSuccess(logout(firstToken));
+        assertThat(refreshTokenCount()).isEqualTo(1);
+        assertAccountCounts(1, 1);
+    }
 
 	@ParameterizedTest
 	@NullAndEmptySource
@@ -688,7 +704,9 @@ class AuthIntegrationTest extends PostgreSQLIntegrationTest {
 
 	@Test
 	void logoutDatabaseFailureKeepsCookieAndLoginRecord() throws Exception {
-		String token = refreshCookieValue(signup("member@example.com", "password123", "STUDENT"));
+        var login = signup("member@example.com", "password123", "STUDENT");
+        String access = objectMapper.readTree(login.body()).path("accessToken").asString();
+        String token = refreshCookieValue(login);
 		Map<String, Object> existing = jdbcTemplate.queryForMap("SELECT * FROM refresh_token");
 		doThrow(new IllegalStateException("token storage unavailable"))
 				.when(refreshTokenRepository).deleteByTokenHash(anyString());
@@ -697,9 +715,102 @@ class AuthIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(response.headers().allValues("Set-Cookie")).isEmpty();
 		assertThat(response.body()).doesNotContain("token storage unavailable", token, "Exception");
 		assertThat(jdbcTemplate.queryForMap("SELECT * FROM refresh_token")).isEqualTo(existing);
+        assertThat(authenticatedRequest(access, "GET").statusCode()).isEqualTo(200);
 	}
 
-	private void assertLogoutSuccess(HttpResponse<String> response) throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"missing", "empty", "malformed", "numeric", "array", "unknown", "differentUser", "deleted", "expired"})
+    void accessTokenRequiresItsOwnActiveLoginSession(String scenario) throws Exception {
+        var login = signup("member@example.com", "password123", "STUDENT");
+        String access = objectMapper.readTree(login.body()).path("accessToken").asString();
+        String session = tokenClaims(access).path("sid").asString();
+        var now = Instant.now();
+        var claims = JwtClaimsSet.builder().issuer("hirelink").subject("1").claim("role", "STUDENT")
+                .claim("token_type", "access").claim("account_version", 0).claim("sid", session)
+                .issuedAt(now).notBefore(now).expiresAt(now.plusSeconds(3600));
+        switch (scenario) {
+            case "missing" -> claims.claims(values -> values.remove("sid"));
+            case "empty" -> claims.claim("sid", "");
+            case "malformed" -> claims.claim("sid", "not-a-session");
+            case "numeric" -> claims.claim("sid", 123);
+            case "array" -> claims.claim("sid", List.of(session));
+            case "unknown" -> claims.claim("sid", UUID.randomUUID().toString());
+            case "differentUser" -> {
+                var other = signup("other@example.com", "password123", "STUDENT");
+                claims.claim("sid", tokenClaims(refreshCookieValue(other)).path("sid").asString());
+            }
+            case "deleted" -> jdbcTemplate.update("delete from refresh_token");
+            case "expired" -> jdbcTemplate.update("update refresh_token set expires_at=now()-interval '1 second'");
+            default -> throw new IllegalArgumentException(scenario);
+        }
+        String signed = jwtEncoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims.build())).getTokenValue();
+        assertError(authenticatedRequest(signed, "GET"), 401, "UNAUTHORIZED");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"missing", "different"})
+    void refreshRejectsMissingOrMismatchedSessionEvenWithStoredHash(String scenario) throws Exception {
+        String refresh = refreshCookieValue(signup("member@example.com", "password123", "STUDENT"));
+        Instant now = Instant.now();
+        var claims = JwtClaimsSet.builder().issuer("hirelink").subject("1").claim("role", "STUDENT")
+                .claim("token_type", "refresh").issuedAt(now).expiresAt(now.plusSeconds(3600));
+        if (scenario.equals("different")) claims.claim("sid", UUID.randomUUID().toString());
+        String signed = jwtEncoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims.build())).getTokenValue();
+        jdbcTemplate.update("update refresh_token set token_hash=? where token_hash=?", tokenHash(signed), tokenHash(refresh));
+        assertError(refresh(signed), 401, "INVALID_REFRESH_TOKEN");
+    }
+
+    @Test
+    void refreshedAccessCannotOutliveItsLoginRecord() throws Exception {
+        String refresh = refreshCookieValue(signup("member@example.com", "password123", "STUDENT"));
+        Instant deadline = Instant.now().plusSeconds(300).truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        jdbcTemplate.update("update refresh_token set expires_at=?", java.sql.Timestamp.from(deadline));
+        var response = refresh(refresh);
+        assertThat(response.statusCode()).isEqualTo(200);
+        var body = objectMapper.readTree(response.body());
+        var claims = tokenClaims(body.path("accessToken").asString());
+        assertThat(claims.path("exp").asLong()).isEqualTo(deadline.getEpochSecond());
+        assertThat(body.path("expiresIn").asLong()).isEqualTo(deadline.getEpochSecond()-claims.path("iat").asLong());
+        assertThat(body.path("expiresIn").asLong()).isBetween(1L, 300L);
+    }
+
+    @Test
+    void accessIssuedDuringLogoutCannotRestoreTheDeletedSession() throws Exception {
+        String refresh = refreshCookieValue(signup("member@example.com", "password123", "STUDENT"));
+        var ready = new CountDownLatch(1);
+        var resume = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            ready.countDown();
+            if (!resume.await(20, TimeUnit.SECONDS)) throw new IllegalStateException("refresh wait timed out");
+            return invocation.callRealMethod();
+        }).when(jwtEncoder).encode(any(JwtEncoderParameters.class));
+        var request = refreshRequest(refresh, csrf()).build();
+        var pending = httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+        try {
+            assertThat(ready.await(20, TimeUnit.SECONDS)).isTrue();
+            assertLogoutSuccess(logout(refresh));
+        } finally {
+            resume.countDown();
+        }
+        var response = pending.get(20, TimeUnit.SECONDS);
+        assertThat(response.statusCode()).isEqualTo(200);
+        String access = objectMapper.readTree(response.body()).path("accessToken").asString();
+        assertError(authenticatedRequest(access, "GET"), 401, "UNAUTHORIZED");
+        assertThat(refreshTokenCount()).isZero();
+    }
+
+    @Test
+    void logoutOpenApiDescribesImmediateCurrentSessionRevocation() throws Exception {
+        var request = HttpRequest.newBuilder(URI.create("http://localhost:"+port+"/v3/api-docs")).GET().build();
+        var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(200);
+        String description = objectMapper.readTree(response.body()).path("paths").path("/api/auth/logout")
+                .path("post").path("description").asString();
+        assertThat(description).contains("sid", "즉시 차단", "다른 로그인 세션", "소셜 연결");
+        assertThat(description).doesNotContain("만료 전까지 유효");
+    }
+
+    private void assertLogoutSuccess(HttpResponse<String> response) throws Exception {
 		assertThat(response.statusCode()).isEqualTo(200);
 		JsonNode body = objectMapper.readTree(response.body());
 		assertThat(body.size()).isEqualTo(1);
@@ -721,6 +832,8 @@ class AuthIntegrationTest extends PostgreSQLIntegrationTest {
 		JsonNode refreshClaims = tokenClaims(refreshToken);
 		assertThat(accessClaims.path("token_type").asString()).isEqualTo("access");
 		assertThat(refreshClaims.path("token_type").asString()).isEqualTo("refresh");
+        assertThat(accessClaims.path("sid").asString()).isEqualTo(refreshClaims.path("sid").asString());
+        assertThat(UUID.fromString(accessClaims.path("sid").asString())).isEqualTo(stored.get("session_id"));
 		assertThat(accessClaims.has("email")).isFalse();
 		assertThat(refreshClaims.has("email")).isFalse();
 		assertThat(accessClaims.path("exp").asLong() - accessClaims.path("iat").asLong()).isEqualTo(3600);

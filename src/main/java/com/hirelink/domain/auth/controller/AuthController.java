@@ -166,7 +166,7 @@ public class AuthController {
 	}
 
 	@Operation(summary = "Access Token 재발급",
-			description = "GET /api/auth/csrf에서 받은 token을 X-XSRF-TOKEN 헤더에 넣고, 같은 브라우저의 XSRF-TOKEN 쿠키와 함께 요청한다. Access Token은 필요 없으며 요청 본문은 없다. refreshToken 쿠키가 필수다. Access Token만 새로 발급하고 Refresh Token과 14일 만료 시각은 갱신하지 않는다.")
+			description = "기존 로그인 식별값(sid)을 유지한다. 새 접근 토큰의 유효시간은 최대 3600초이며 로그인 기록의 남은 기간보다 길지 않다. GET /api/auth/csrf에서 받은 token을 X-XSRF-TOKEN 헤더에 넣고, 같은 브라우저의 XSRF-TOKEN 쿠키와 함께 요청한다. Access Token은 필요 없으며 요청 본문은 없다. refreshToken 쿠키가 필수다. Access Token만 새로 발급하고 Refresh Token과 14일 만료 시각은 갱신하지 않는다.")
 	@SecurityRequirements
 	@Parameter(name = "X-XSRF-TOKEN", in = ParameterIn.HEADER, required = true,
 			description = "GET /api/auth/csrf 응답의 token", schema = @Schema(type = "string"))
@@ -203,7 +203,7 @@ public class AuthController {
 	}
 
 	@Operation(summary = "로그아웃",
-			description = "GET /api/auth/csrf에서 받은 token을 X-XSRF-TOKEN 헤더에 넣고, 같은 브라우저의 XSRF-TOKEN 쿠키와 함께 요청한다. Access Token은 필요 없으며 요청 본문은 없다. 현재 refreshToken을 무효화하고 해당 쿠키를 Max-Age=0으로 지운다. CSRF 검사를 통과하면 Refresh Token이 없거나 이미 무효여도 200이다. 다른 로그인 세션은 유지되며, 발급된 Access Token은 만료 전까지 유효하므로 클라이언트에서도 삭제한다.")
+			description = "GET /api/auth/csrf에서 받은 token을 X-XSRF-TOKEN 헤더에 넣고, 같은 브라우저의 XSRF-TOKEN 쿠키와 함께 요청한다. Access Token은 필요 없으며 요청 본문은 없다. 현재 refreshToken을 무효화하고 해당 쿠키를 Max-Age=0으로 지운다. CSRF 검사를 통과하면 Refresh Token이 없거나 이미 무효여도 200이다. 삭제한 로그인 식별값(sid)에서 발급·재발급된 모든 Access Token은 이후 요청부터 즉시 차단한다. 다른 로그인 세션과 계정·서류·소셜 연결은 유지한다. 프론트는 성공 후 보관한 Access Token을 삭제하고 로그인 화면으로 이동한다.")
 	@SecurityRequirements
 	@Parameter(name = "X-XSRF-TOKEN", in = ParameterIn.HEADER, required = true,
 			description = "GET /api/auth/csrf 응답의 token", schema = @Schema(type = "string"))
