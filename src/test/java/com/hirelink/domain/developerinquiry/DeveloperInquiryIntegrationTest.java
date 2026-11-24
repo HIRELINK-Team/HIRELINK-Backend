@@ -68,7 +68,8 @@ class DeveloperInquiryIntegrationTest extends PostgreSQLIntegrationTest {
 		long student = createUser("student@example.com", "STUDENT", false);
 
 		HttpResponse<String> response = create(token(student, "STUDENT"),
-				Map.of("inquiryType", "  사용 방법  ", "title", "  제안 확인 문의  ",
+				Map.of("replyEmail", "student-reply@example.com", "inquiryType", "  사용 방법  ",
+						"title", "  제안 확인 문의  ",
 						"content", "  채용 제안을 어디서 확인하나요?  "));
 
 		assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
@@ -80,7 +81,7 @@ class DeveloperInquiryIntegrationTest extends PostgreSQLIntegrationTest {
 				body.path("inquiryId").asLong());
 		assertThat(saved).containsEntry("author_user_id", student)
 				.containsEntry("user_role", "STUDENT")
-				.containsEntry("reply_email", "student@example.com")
+				.containsEntry("reply_email", "student-reply@example.com")
 				.containsEntry("inquiry_type", "사용 방법")
 				.containsEntry("title", "제안 확인 문의")
 				.containsEntry("content", "채용 제안을 어디서 확인하나요?");
@@ -97,7 +98,7 @@ class DeveloperInquiryIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(jdbc.queryForMap("select author_user_id, user_role, reply_email from developer_inquiry"))
 				.containsEntry("author_user_id", employer)
 				.containsEntry("user_role", "EMPLOYER")
-				.containsEntry("reply_email", "employer@example.com");
+				.containsEntry("reply_email", "contact@example.com");
 	}
 
 	@Test
@@ -105,15 +106,27 @@ class DeveloperInquiryIntegrationTest extends PostgreSQLIntegrationTest {
 		long student = createUser("student@example.com", "STUDENT", false);
 		String accessToken = token(student, "STUDENT");
 
-		assertError(create(accessToken, Map.of("title", "제목", "content", "내용")),
+		assertError(create(accessToken, Map.of("inquiryType", "사용 방법", "title", "제목", "content", "내용")),
 				400, "INVALID_INPUT");
-		assertError(create(accessToken, Map.of("inquiryType", "   ", "title", "제목", "content", "내용")),
+		assertError(create(accessToken, Map.of("replyEmail", "   ", "inquiryType", "사용 방법",
+				"title", "제목", "content", "내용")),
 				400, "INVALID_INPUT");
-		assertError(create(accessToken, Map.of("inquiryType", "사용 방법", "title", " ", "content", "내용")),
+		assertError(create(accessToken, Map.of("replyEmail", "invalid email", "inquiryType", "사용 방법",
+				"title", "제목", "content", "내용")),
 				400, "INVALID_INPUT");
-		assertError(create(accessToken, Map.of("inquiryType", "사용 방법", "title", "제목", "content", " ")),
+		assertError(create(accessToken, Map.of("replyEmail", "reply@example.com", "title", "제목", "content", "내용")),
 				400, "INVALID_INPUT");
-		assertError(create(accessToken, Map.of("inquiryType", "사용 방법", "title", "제목", "content", "a".repeat(5001))),
+		assertError(create(accessToken, Map.of("replyEmail", "reply@example.com", "inquiryType", "   ",
+				"title", "제목", "content", "내용")),
+				400, "INVALID_INPUT");
+		assertError(create(accessToken, Map.of("replyEmail", "reply@example.com", "inquiryType", "사용 방법",
+				"title", " ", "content", "내용")),
+				400, "INVALID_INPUT");
+		assertError(create(accessToken, Map.of("replyEmail", "reply@example.com", "inquiryType", "사용 방법",
+				"title", "제목", "content", " ")),
+				400, "INVALID_INPUT");
+		assertError(create(accessToken, Map.of("replyEmail", "reply@example.com", "inquiryType", "사용 방법",
+				"title", "제목", "content", "a".repeat(5001))),
 				400, "INVALID_INPUT");
 		assertThat(inquiryCount()).isZero();
 	}
@@ -129,12 +142,14 @@ class DeveloperInquiryIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
-	void rejectsAccountWithoutReplyEmailInsteadOfSubstitutingAValue() throws Exception {
+	void accountWithoutEmailCanUseReplyEmailFromRequest() throws Exception {
 		long student = createUser(null, "STUDENT", false);
 
-		assertError(create(token(student, "STUDENT"), validRequest()),
-				409, "INQUIRY_REPLY_EMAIL_REQUIRED");
-		assertThat(inquiryCount()).isZero();
+		HttpResponse<String> response = create(token(student, "STUDENT"), validRequest());
+
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
+		assertThat(jdbc.queryForObject("select reply_email from developer_inquiry", String.class))
+				.isEqualTo("contact@example.com");
 	}
 
 	@Test
@@ -146,20 +161,24 @@ class DeveloperInquiryIntegrationTest extends PostgreSQLIntegrationTest {
 		JsonNode operation = mapper.readTree(response.body()).path("paths")
 				.path("/api/developer-inquiries").path("post");
 		assertThat(operation.path("summary").asString()).isEqualTo("개발자 문의 접수");
-		assertThat(operation.path("responses").propertyNames()).contains("201", "400", "401", "403", "409");
+		assertThat(operation.path("responses").propertyNames()).contains("201", "400", "401", "403");
+		assertThat(operation.path("responses").has("409")).isFalse();
 		assertThat(operation.path("requestBody").path("content").path("application/json")
 				.path("schema").path("$ref").asString())
 				.isEqualTo("#/components/schemas/DeveloperInquiryCreateRequest");
 		JsonNode requestSchema = mapper.readTree(response.body()).path("components").path("schemas")
 				.path("DeveloperInquiryCreateRequest");
-		assertThat(requestSchema.path("required")).hasSize(3);
+		assertThat(requestSchema.path("required")).hasSize(4);
+		assertThat(requestSchema.path("properties").path("replyEmail").path("format").asString())
+				.isEqualTo("email");
 		assertThat(requestSchema.path("properties").path("inquiryType").path("example").asString())
 				.isEqualTo("사용 방법");
 		assertThat(requestSchema.path("properties").path("inquiryType").has("enum")).isFalse();
 	}
 
 	private Map<String, String> validRequest() {
-		return Map.of("inquiryType", "사용 방법", "title", "사용 방법 문의", "content", "문의 내용입니다.");
+		return Map.of("replyEmail", "contact@example.com", "inquiryType", "사용 방법",
+				"title", "사용 방법 문의", "content", "문의 내용입니다.");
 	}
 
 	private long createUser(String email, String role, boolean withdrawn) {
