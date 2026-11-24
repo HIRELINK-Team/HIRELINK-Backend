@@ -119,7 +119,7 @@ public class EmployerOnboardingService {
 
     @Scheduled(fixedDelay = 60000, initialDelay = 60000)
     public void deleteExpiredAttempts() {
-        jdbc.update("delete from employer_onboarding_attempt where expires_at <= ?", Timestamp.from(Instant.now()));
+        jdbc.update("delete from employer_onboarding_attempt a where expires_at <= ? or not exists (select 1 from user_account u where u.id=a.user_id)", Timestamp.from(Instant.now()));
     }
 
     private UserAccount employer(Long userId, boolean lock) {

@@ -4,7 +4,8 @@ UPDATE employer_profile p SET onboarding_completed_at = CURRENT_TIMESTAMP
 WHERE EXISTS (SELECT 1 FROM workplace w WHERE w.employer_user_id = p.id);
 
 CREATE TABLE employer_onboarding_attempt (
-    user_id BIGINT PRIMARY KEY REFERENCES user_account(id) ON DELETE CASCADE,
+    -- Short-lived receipts are validated against the live account and login session by the service.
+    user_id BIGINT PRIMARY KEY,
     attempt_id UUID NOT NULL UNIQUE,
     login_session_id VARCHAR(64) NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,

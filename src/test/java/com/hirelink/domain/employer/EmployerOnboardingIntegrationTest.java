@@ -187,6 +187,28 @@ class EmployerOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
         assertThat(jdbc.queryForObject("select workplace_address from workplace where id=?", String.class, workplace)).isEqualTo("서울시 테스트로 10 3층");
     }
 
+    @Test void migrationPreservesExistingAddressesAndMarksOnlyPreviouslyCompleteEmployers() throws Exception {
+        jdbc.update("insert into employer_profile(id, position) values (?,?)", userId, "대표");
+        var old = post("/api/workplaces", null, payload("1234567890").get("workplace"));
+        assertThat(old.statusCode()).as(old.body()).isEqualTo(201);
+        jdbc.update("update workplace set workplace_address='기존 전체 주소 502호', workplace_base_address=null, workplace_address_detail=null");
+        var before = jdbc.queryForMap("select * from workplace");
+        var partial = users.saveAndFlush(new UserAccount("partial@example.com", MemberRole.EMPLOYER));
+        jdbc.update("insert into employer_profile(id) values (?)", partial.getId());
+        String migration;
+        try (var input = getClass().getResourceAsStream("/db/migration/V44__employer_onboarding_and_split_address.sql")) {
+            migration = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        int start = migration.indexOf("UPDATE employer_profile");
+        jdbc.execute(migration.substring(start, migration.indexOf(';', start) + 1));
+        assertThat(body(get(PATH)).path("status").asString()).isEqualTo("COMPLETED");
+        assertThat(jdbc.queryForMap("select * from workplace")).isEqualTo(before);
+        assertThat(jdbc.queryForObject("select onboarding_completed_at from employer_profile where id=?", java.sql.Timestamp.class, partial.getId())).isNull();
+        var detail = body(get("/api/workplaces/" + body(old).path("workplaceId").asLong()));
+        assertThat(detail.path("workplaceAddress").asString()).isEqualTo("기존 전체 주소 502호");
+        assertThat(detail.path("workplaceAddressDetail").isNull()).isTrue();
+    }
+
     @Test void openApiDescribesBearerAttemptAndAtomicSave() throws Exception {
         var doc = body(get("/v3/api-docs"));
         var operation = doc.path("paths").path(PATH).path("post");
