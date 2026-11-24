@@ -32,8 +32,11 @@ public class WageScoreCalculator {
 		return !"MONTHLY".equals(wageType) || WorkTimeNormalizer.allValid(requiredWorkTimes);
 	}
 
-	private BigDecimal hourlyWage(String wageType, Integer wageAmount,
+	public BigDecimal hourlyWage(String wageType, Integer wageAmount,
 			List<RecommendationTimeRange> requiredWorkTimes) {
+		if (!isValidWage(wageType, wageAmount, requiredWorkTimes)) {
+			throw new IllegalArgumentException("급여 계산 데이터가 유효하지 않습니다.");
+		}
 		if ("HOURLY".equals(wageType)) {
 			return BigDecimal.valueOf(wageAmount);
 		}

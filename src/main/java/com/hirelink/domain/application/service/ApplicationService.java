@@ -420,7 +420,7 @@ public class ApplicationService {
 
 	private boolean koreanLevelMatched(Map<String, Object> student, Map<String, Object> posting) {
 		String requiredLevel = stringValue(posting, "requiredKoreanLevel");
-		if (requiredLevel == null) {
+		if (requiredLevel == null || "NONE".equals(requiredLevel)) {
 			return true;
 		}
 		Integer studentLevel = koreanLevelRank(stringValue(student, "koreanLevel"));

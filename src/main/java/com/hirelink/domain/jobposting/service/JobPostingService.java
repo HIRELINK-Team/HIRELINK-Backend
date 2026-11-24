@@ -1,5 +1,6 @@
 package com.hirelink.domain.jobposting.service;
 
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -20,6 +21,8 @@ import com.hirelink.domain.application.repository.ApplicationRepository;
 import com.hirelink.domain.employmentoffer.entity.EmploymentOffer;
 import com.hirelink.domain.employmentoffer.entity.EmploymentOfferStatus;
 import com.hirelink.domain.employmentoffer.repository.EmploymentOfferRepository;
+import com.hirelink.domain.recommendation.service.RecommendationTimeRange;
+import com.hirelink.domain.recommendation.service.WageScoreCalculator;
 import com.hirelink.domain.jobposting.dto.JobPostingCloseResponse;
 import com.hirelink.domain.jobposting.dto.JobPostingCreateRequest;
 import com.hirelink.domain.jobposting.dto.JobPostingCreateResponse;
@@ -62,11 +65,12 @@ public class JobPostingService {
 	private final BusinessTypeRepository businessTypeRepository;
 	private final ApplicationRepository applicationRepository;
 	private final EmploymentOfferRepository employmentOfferRepository;
+	private final WageScoreCalculator wageCalculator;
 
 	public JobPostingService(UserAccountRepository userAccountRepository, JobPostingRepository jobPostingRepository,
 			JobPostingWorkTimeRepository workTimeRepository, WorkplaceRepository workplaceRepository,
 			BusinessTypeRepository businessTypeRepository, ApplicationRepository applicationRepository,
-			EmploymentOfferRepository employmentOfferRepository) {
+			EmploymentOfferRepository employmentOfferRepository, WageScoreCalculator wageCalculator) {
 		this.userAccountRepository = userAccountRepository;
 		this.jobPostingRepository = jobPostingRepository;
 		this.workTimeRepository = workTimeRepository;
@@ -74,6 +78,7 @@ public class JobPostingService {
 		this.businessTypeRepository = businessTypeRepository;
 		this.applicationRepository = applicationRepository;
 		this.employmentOfferRepository = employmentOfferRepository;
+		this.wageCalculator = wageCalculator;
 	}
 
 	@Transactional
@@ -95,7 +100,8 @@ public class JobPostingService {
 				createTitle(workplace.getWorkplaceName(), request.getJobRole()), request.getJobRole(),
 				request.getWageType(), request.getWageAmount(),
 				request.getRecruitmentCount() == null ? null : request.getRecruitmentCount().shortValue(),
-				request.getWorkStartDate(), request.getRequiredKoreanLevel(), request.getPreferredExperience(),
+				request.getWorkStartDate(), request.getRequiredKoreanLevel(),
+				request.getPreferredExperience() == null && request.getStatus() == JobPostingStatus.RECRUITING ? "NONE" : request.getPreferredExperience(),
 				request.getWorkTimeNegotiable(), request.getApplicationDeadlineDate());
 		if (posting.getStatus() == JobPostingStatus.RECRUITING) {
 			validateRecruitingConditions(posting, !request.getWorkTimes().isEmpty());
@@ -111,7 +117,7 @@ public class JobPostingService {
 				businessType == null ? null : businessType.getName(), posting.getJobRole(), request.getRecruitmentCount(),
 				posting.getWageType(), posting.getWageAmount(), posting.getWorkStartDate(), posting.getRequiredKoreanLevel(),
 				posting.getPreferredExperience(), posting.getApplicationDeadlineDate(), posting.getWorkTimeNegotiable(),
-				posting.getStatus(), toWorkTimes(workTimes), posting.getCreatedAt());
+				posting.getStatus(), toWorkTimes(workTimes), posting.getCreatedAt(), convertedHourlyWage(posting, workTimes));
 	}
 
 	@Transactional
@@ -152,7 +158,8 @@ public class JobPostingService {
 				request.getRecruitmentCount() != null ? Short.valueOf(request.getRecruitmentCount().shortValue()) : posting.getRecruitmentCount(),
 				request.getWorkStartDate() != null ? request.getWorkStartDate() : posting.getWorkStartDate(),
 				request.getRequiredKoreanLevel() != null ? request.getRequiredKoreanLevel() : posting.getRequiredKoreanLevel(),
-				request.getPreferredExperience() != null ? request.getPreferredExperience() : posting.getPreferredExperience(),
+				request.getPreferredExperience() != null ? request.getPreferredExperience()
+						: posting.getPreferredExperience() == null && status == JobPostingStatus.RECRUITING ? "NONE" : posting.getPreferredExperience(),
 				request.getWorkTimeNegotiable() != null ? request.getWorkTimeNegotiable() : posting.getWorkTimeNegotiable(),
 				request.getApplicationDeadlineDate() != null ? request.getApplicationDeadlineDate() : posting.getApplicationDeadlineDate());
 		if (status == JobPostingStatus.RECRUITING) {
@@ -175,7 +182,7 @@ public class JobPostingService {
 				posting.getRecruitmentCount() == null ? null : posting.getRecruitmentCount().intValue(),
 				posting.getWageType(), posting.getWageAmount(), posting.getWorkStartDate(), posting.getRequiredKoreanLevel(),
 				posting.getPreferredExperience(), posting.getApplicationDeadlineDate(), posting.getWorkTimeNegotiable(),
-				posting.getStatus(), toWorkTimes(workTimes), posting.getUpdatedAt());
+				posting.getStatus(), toWorkTimes(workTimes), posting.getUpdatedAt(), convertedHourlyWage(posting, workTimes));
 	}
 
 	@Transactional
@@ -253,7 +260,18 @@ public class JobPostingService {
 				posting.getJobRole(), posting.getWageType(), posting.getWageAmount(),
 				posting.getRecruitmentCount() == null ? null : posting.getRecruitmentCount().intValue(),
 				posting.getWorkStartDate(), posting.getRequiredKoreanLevel(), posting.getPreferredExperience(),
-				posting.getWorkTimeNegotiable(), posting.getApplicationDeadlineDate(), toWorkTimes(workTimes));
+				posting.getWorkTimeNegotiable(), posting.getApplicationDeadlineDate(), toWorkTimes(workTimes), convertedHourlyWage(posting, workTimes));
+	}
+
+	private Long convertedHourlyWage(JobPosting posting, List<JobPostingWorkTime> workTimes) {
+		if (posting.getWageType() == null || posting.getWageAmount() == null
+				|| "MONTHLY".equals(posting.getWageType()) && workTimes.isEmpty()) {
+			return null;
+		}
+		List<RecommendationTimeRange> ranges = workTimes.stream()
+				.map(time -> new RecommendationTimeRange(time.getDayOfWeek(), time.getStartTime(), time.getEndTime())).toList();
+		return wageCalculator.hourlyWage(posting.getWageType(), posting.getWageAmount(), ranges)
+				.setScale(0, RoundingMode.HALF_UP).longValueExact();
 	}
 
 	private void validateRecruitingConditions(JobPosting posting, boolean hasWorkTimes) {
