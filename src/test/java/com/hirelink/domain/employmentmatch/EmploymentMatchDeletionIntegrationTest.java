@@ -208,6 +208,7 @@ class EmploymentMatchDeletionIntegrationTest extends PostgreSQLIntegrationTest {
 					stay_expires_on, card_verified_at, registered_at)
 					values (?, 'VN', 'D-2', ?, now(), now())
 					""", student, expiry);
+			jdbc.update("update student_profile set onboarding_completed_at = now() where id = ?", student);
 		}
 		return student;
 	}
