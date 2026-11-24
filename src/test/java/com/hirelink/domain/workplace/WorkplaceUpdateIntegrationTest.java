@@ -103,6 +103,7 @@ class WorkplaceUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 				""");
 		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
 		expected.put("workplace_address", "수정된 주소");
+		expected.put("workplace_base_address", "수정된 주소");
 		expected.put("latitude", new BigDecimal("37.7654321"));
 		expected.put("longitude", new BigDecimal("127.1234567"));
 		assertThat(workplace(id)).isEqualTo(expected);
