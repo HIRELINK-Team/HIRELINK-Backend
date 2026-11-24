@@ -57,13 +57,13 @@ class EmployerOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
     private String token;
 
     @BeforeEach void prepare() {
-        jdbc.execute("truncate table user_account, social_auth_session restart identity cascade");
+        jdbc.execute("truncate table employer_onboarding_attempt, user_account, social_auth_session restart identity cascade");
         UserAccount user = new UserAccount("employer@example.com", MemberRole.EMPLOYER);
         user.verifyPhoneNumber("01000000000", Instant.now());
         users.saveAndFlush(user);
         userId = user.getId();
         token = tokens.issueTokens(user).accessToken();
-        when(paddle.recognize(any(), anyString())).thenReturn(new BusinessRegistrationOcrResponse("123-45-67890", null));
+        doReturn(new BusinessRegistrationOcrResponse("123-45-67890", null)).when(paddle).recognize(any(), anyString());
         when(nts.isActiveBusiness(anyString())).thenReturn(true);
     }
 
@@ -130,7 +130,7 @@ class EmployerOnboardingIntegrationTest extends PostgreSQLIntegrationTest {
         when(paddle.recognize(any(), anyString())).thenThrow(new UnreadableBusinessRegistrationException());
         assertError(ocr(attempt), 422, "UNREADABLE_BUSINESS_REGISTRATION");
         assertError(post(PATH, attempt, payload("1234567890")), 409, "BUSINESS_DOCUMENT_REQUIRED");
-        when(paddle.recognize(any(), anyString())).thenReturn(new BusinessRegistrationOcrResponse("123-45-67890", null));
+        doReturn(new BusinessRegistrationOcrResponse("123-45-67890", null)).when(paddle).recognize(any(), anyString());
         assertThat(ocr(attempt).statusCode()).isEqualTo(200);
         assertThat(verifyBusiness(attempt, "1234567890").statusCode()).isEqualTo(200);
         when(nts.isActiveBusiness(anyString())).thenThrow(new BusinessRegistrationLookupException());

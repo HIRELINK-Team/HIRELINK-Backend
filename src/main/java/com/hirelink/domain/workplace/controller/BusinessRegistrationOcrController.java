@@ -40,7 +40,7 @@ public class BusinessRegistrationOcrController {
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = BusinessRegistrationOcrResponse.class),
-						examples = @ExampleObject(name = "success", value = "{\"businessRegistrationNumber\":\"123-45-67890\",\"workplaceAddress\":\"서울특별시 성동구 예시로 10\"}"))),
+						examples = @ExampleObject(name = "success", value = "{\"businessRegistrationNumber\":\"123-45-67890\",\"workplaceAddress\":null}"))),
 		@ApiResponse(responseCode = "400", description = "입력 형식 또는 값 오류",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {
