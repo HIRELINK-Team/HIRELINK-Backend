@@ -4,7 +4,7 @@ from recognition import UnreadableDocument, extract_registration, reading_lines
 
 
 class RegistrationExtractionTest(unittest.TestCase):
-    def test_number_and_multiline_address_exclude_other_fields(self):
+    def test_number_only_excludes_address_and_other_fields(self):
         result = extract_registration([[
             "사업자등록증", "등 록 번 호 : 123 - 45 - 67890",
             "성 명 : 테스트 생년월일 : 2000.01.01",
@@ -13,14 +13,14 @@ class RegistrationExtractionTest(unittest.TestCase):
         ]])
         self.assertEqual(result, {
             "businessRegistrationNumber": "123-45-67890",
-            "workplaceAddress": "테스트시 테스트로 10 2층 (테스트동)",
+            "workplaceAddress": None,
         })
 
     def test_next_line_labels_and_same_line_next_field(self):
         result = extract_registration([[
             "사업자등록번호", "1234567890", "사업장 소재지", "테스트 주소 업태 : 서비스",
         ]])
-        self.assertEqual(result["workplaceAddress"], "테스트 주소")
+        self.assertIsNone(result["workplaceAddress"])
 
     def test_missing_or_conflicting_address_is_optional(self):
         for pages in [

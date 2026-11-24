@@ -46,7 +46,7 @@ public class WorkplaceController {
 	@ApiResponses({
 		@ApiResponse(responseCode = "201", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = WorkplaceDetailResponse.class),
-						examples = @ExampleObject(name = "success", value = "{\"workplaceId\":1,\"workplaceName\":\"예시카페\",\"businessRegistrationNumber\":\"123-45-67890\",\"businessTypeId\":1,\"businessTypeName\":\"FOOD_CAFE\",\"employeeCountRange\":\"UNDER_5\",\"workplaceAddress\":\"서울특별시 성동구 예시로 10\",\"latitude\":37.5665,\"longitude\":126.978}"))),
+						examples = @ExampleObject(name = "success", value = "{\"workplaceId\":1,\"workplaceName\":\"예시카페\",\"businessRegistrationNumber\":\"123-45-67890\",\"businessTypeId\":1,\"businessTypeName\":\"FOOD_CAFE\",\"employeeCountRange\":\"UNDER_5\",\"workplaceAddress\":\"서울특별시 성동구 예시로 10\",\"latitude\":37.5665,\"longitude\":126.978,\"workplaceAddressDetail\":null}"))),
 		@ApiResponse(responseCode = "400", description = "입력 형식 또는 값 오류",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {
@@ -125,7 +125,7 @@ public class WorkplaceController {
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = WorkplaceDetailResponse.class),
-						examples = @ExampleObject(name = "success", value = "{\"workplaceId\":1,\"workplaceName\":\"예시카페\",\"businessRegistrationNumber\":\"123-45-67890\",\"businessTypeId\":1,\"businessTypeName\":\"FOOD_CAFE\",\"employeeCountRange\":\"UNDER_5\",\"workplaceAddress\":\"서울특별시 성동구 예시로 10\",\"latitude\":37.5665,\"longitude\":126.978}"))),
+						examples = @ExampleObject(name = "success", value = "{\"workplaceId\":1,\"workplaceName\":\"예시카페\",\"businessRegistrationNumber\":\"123-45-67890\",\"businessTypeId\":1,\"businessTypeName\":\"FOOD_CAFE\",\"employeeCountRange\":\"UNDER_5\",\"workplaceAddress\":\"서울특별시 성동구 예시로 10\",\"latitude\":37.5665,\"longitude\":126.978,\"workplaceAddressDetail\":null}"))),
 		@ApiResponse(responseCode = "400", description = "입력 형식 또는 값 오류",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {
@@ -165,7 +165,7 @@ public class WorkplaceController {
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = WorkplaceDetailResponse.class),
-						examples = @ExampleObject(name = "success", value = "{\"workplaceId\":1,\"workplaceName\":\"예시카페\",\"businessRegistrationNumber\":\"123-45-67890\",\"businessTypeId\":1,\"businessTypeName\":\"FOOD_CAFE\",\"employeeCountRange\":\"UNDER_5\",\"workplaceAddress\":\"서울특별시 성동구 예시로 10\",\"latitude\":37.5665,\"longitude\":126.978}"))),
+						examples = @ExampleObject(name = "success", value = "{\"workplaceId\":1,\"workplaceName\":\"예시카페\",\"businessRegistrationNumber\":\"123-45-67890\",\"businessTypeId\":1,\"businessTypeName\":\"FOOD_CAFE\",\"employeeCountRange\":\"UNDER_5\",\"workplaceAddress\":\"서울특별시 성동구 예시로 10\",\"latitude\":37.5665,\"longitude\":126.978,\"workplaceAddressDetail\":null}"))),
 		@ApiResponse(responseCode = "400", description = "입력 형식 또는 값 오류",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {

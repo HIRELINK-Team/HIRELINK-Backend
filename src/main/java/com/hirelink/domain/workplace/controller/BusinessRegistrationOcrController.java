@@ -36,11 +36,11 @@ public class BusinessRegistrationOcrController {
 	}
 
 	@Operation(summary = "사업자등록증 OCR",
-			description = "로그인한 사업주가 businessRegistrationFile 파트로 PDF·JPG·PNG 한 개(최대 5MB)를 전송한다. 추가 파일·폼 필드는 허용하지 않는다. 등록번호와 사업장소재지를 추출하며 주소 인식 실패는 null이다. 번호를 읽지 못하면 422, OCR 연결·응답 실패는 502다. OCR 결과는 진위 확인 결과가 아니며 사용자가 확인·수정해야 한다. 원본은 요청 처리 후 보관하지 않는다.")
+			description = "로그인한 사업주가 businessRegistrationFile 파트로 PDF·JPG·PNG 한 개(최대 5MB)를 전송한다. 추가 파일·폼 필드는 허용하지 않는다. 등록번호만 추출한다. workplaceAddress는 이전 응답 호환 필드로 새 OCR에서는 null이며 주소는 별도로 검색·입력한다. 번호를 읽지 못하면 422, OCR 연결·응답 실패는 502다. OCR 결과는 진위 확인 결과가 아니며 사용자가 확인·수정해야 한다. 원본은 요청 처리 후 보관하지 않는다.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = BusinessRegistrationOcrResponse.class),
-						examples = @ExampleObject(name = "success", value = "{\"businessRegistrationNumber\":\"123-45-67890\",\"workplaceAddress\":\"서울특별시 성동구 예시로 10\"}"))),
+						examples = @ExampleObject(name = "success", value = "{\"businessRegistrationNumber\":\"123-45-67890\",\"workplaceAddress\":null}"))),
 		@ApiResponse(responseCode = "400", description = "입력 형식 또는 값 오류",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {

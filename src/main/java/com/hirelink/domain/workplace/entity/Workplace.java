@@ -45,8 +45,14 @@ public class Workplace {
 	@JoinColumn(name = "business_type_id", nullable = false)
 	private BusinessType businessType;
 
-	@Column(name = "workplace_address", nullable = false, length = 500)
-	private String workplaceAddress;
+	@Column(name = "workplace_address", nullable = false, length = 1001)
+    private String workplaceAddress;
+
+    @Column(name = "workplace_base_address", length = 500)
+    private String workplaceBaseAddress;
+
+    @Column(name = "workplace_address_detail", length = 500)
+    private String workplaceAddressDetail;
 
 	@Column(nullable = false, precision = 10, scale = 7)
 	private BigDecimal latitude;
@@ -88,6 +94,15 @@ public class Workplace {
 		this.latitude = latitude;
 		this.longitude = longitude;
 	}
+
+    public void updateSplitAddress(String base, String detail) {
+        workplaceBaseAddress = base;
+        workplaceAddressDetail = detail;
+        workplaceAddress = detail == null || detail.isBlank() ? base : base + " " + detail;
+    }
+
+    public String getWorkplaceBaseAddress() { return workplaceBaseAddress == null ? workplaceAddress : workplaceBaseAddress; }
+    public String getWorkplaceAddressDetail() { return workplaceAddressDetail; }
 
 	public Long getId() {
 		return id;

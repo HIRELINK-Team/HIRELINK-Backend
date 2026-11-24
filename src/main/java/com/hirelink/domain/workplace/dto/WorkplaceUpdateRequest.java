@@ -14,7 +14,7 @@ import tools.jackson.databind.JsonNode;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "보낸 항목만 수정한다. 주소·위도·경도는 함께 전송한다. null·빈 요청·알 수 없는 필드는 400.", example = "{\"workplaceName\":\"예시카페 성수점\"}")
+@Schema(description = "보낸 항목만 수정한다. 기본 주소·위도·경도는 함께 전송한다. 상세 주소만 수정할 수 있다. 기본 주소 변경 시 상세 주소를 생략하면 이전 상세 주소를 지운다. null·빈 요청·알 수 없는 필드는 400.", example = "{\"workplaceName\":\"예시카페 성수점\"}")
 public class WorkplaceUpdateRequest {
 
 	@Size(max = 150, message = "사업장명은 150자 이하여야 합니다.")
@@ -31,6 +31,19 @@ public class WorkplaceUpdateRequest {
 			example = "서울특별시 성동구 예시로 10",
 			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String workplaceAddress;
+    @Size(max = 500, message = "상세 주소는 500자 이하여야 합니다.")
+    @Schema(description = "상세 주소. 생략 가능. 빈 문자열로 삭제. 기본 주소와 분리 저장", maxLength = 500,
+            requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
+    private String workplaceAddressDetail;
+
+    @JsonSetter(nulls = Nulls.FAIL)
+    public void setWorkplaceAddressDetail(JsonNode value) {
+        if (value == null || !value.isString()) { throw new IllegalArgumentException("상세 주소는 문자열이어야 합니다."); }
+        workplaceAddressDetail = value.stringValue().strip();
+    }
+
+    public String getWorkplaceAddressDetail() { return workplaceAddressDetail; }
+
 	@DecimalMin(value = "-90", message = "위도는 -90부터 90까지 입력해주세요.")
 	@DecimalMax(value = "90", message = "위도는 -90부터 90까지 입력해주세요.")
 	@Digits(integer = 3, fraction = 7, message = "좌표는 소수점 이하 7자리까지 입력해주세요.")
@@ -80,7 +93,7 @@ public class WorkplaceUpdateRequest {
 	}
 
 	public boolean hasChanges() {
-		return workplaceName != null || businessTypeId != null || hasLocationChanges();
+		return workplaceName != null || businessTypeId != null || workplaceAddressDetail != null || hasLocationChanges();
 	}
 
 	public boolean hasLocationChanges() {

@@ -85,7 +85,8 @@ class EmployerProfileCreateIntegrationTest extends PostgreSQLIntegrationTest {
 			assertThat(body.path("acquisitionChannel").asString()).isEqualTo(channel);
 			assertThat(body.path("position").isNull()).isTrue();
 			assertThat(jdbc.queryForMap("select * from employer_profile where id = ?", userId))
-					.hasSize(2).containsEntry("id", userId).containsEntry("position", null);
+					.hasSize(3).containsEntry("id", userId).containsEntry("position", null)
+					.containsEntry("onboarding_completed_at", null);
 			assertThat(jdbc.queryForMap("select name, acquisition_channel, phone_number from user_account where id = ?", userId))
 					.containsEntry("name", request.get("name")).containsEntry("acquisition_channel", channel)
 					.containsEntry("phone_number", String.format(java.util.Locale.ROOT, "010%08d", userId));

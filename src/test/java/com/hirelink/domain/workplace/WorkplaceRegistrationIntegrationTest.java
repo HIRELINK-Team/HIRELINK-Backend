@@ -118,7 +118,7 @@ class WorkplaceRegistrationIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
 		JsonNode result = mapper.readTree(response.body());
 		assertThat(result.propertyNames()).containsExactlyInAnyOrder("workplaceId", "workplaceName",
-				"businessRegistrationNumber", "businessTypeId", "businessTypeName", "employeeCountRange", "workplaceAddress", "latitude", "longitude");
+				"businessRegistrationNumber", "businessTypeId", "businessTypeName", "employeeCountRange", "workplaceAddress", "latitude", "longitude", "workplaceAddressDetail");
 		assertThat(result.path("businessRegistrationNumber").asString()).isEqualTo("012-34-56789");
 		assertThat(result.path("workplaceAddress").asString()).isEqualTo("수정한 주소");
 		Map<String, Object> row = jdbc.queryForMap("select * from workplace");

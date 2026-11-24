@@ -25,7 +25,7 @@ public record WorkplaceDetailResponse(
 				example = "UNDER_5",
 				requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 		String employeeCountRange,
-		@Schema(description = "사업장 주소", maxLength = 500, example = "서울특별시 성동구 예시로 10", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
+		@Schema(description = "기본 주소. 분리 전 기존 데이터는 원래 전체 주소를 그대로 반환", maxLength = 500, example = "서울특별시 성동구 예시로 10", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 		String workplaceAddress,
 		@Schema(description = "위도. 소수점 이하 최대 7자리", minimum = "-90", maximum = "90",
 				example = "37.5665",
@@ -34,5 +34,8 @@ public record WorkplaceDetailResponse(
 		@Schema(description = "경도. 소수점 이하 최대 7자리", minimum = "-180", maximum = "180",
 				example = "126.978",
 				requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
-		BigDecimal longitude) {
+		BigDecimal longitude,
+        @Schema(description = "상세 주소. 기존 데이터 또는 미입력은 null", maxLength = 500,
+                requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
+        String workplaceAddressDetail) {
 }

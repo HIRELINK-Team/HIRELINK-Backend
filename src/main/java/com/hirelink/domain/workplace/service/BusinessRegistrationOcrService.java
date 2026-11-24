@@ -41,6 +41,10 @@ public class BusinessRegistrationOcrService {
 		if (user.getRole() != MemberRole.EMPLOYER) {
 			throw new AccessDeniedException("사업주 계정만 사업자등록증을 확인할 수 있습니다.");
 		}
+		return recognizeFile(file);
+	}
+
+	public BusinessRegistrationOcrResponse recognizeFile(MultipartFile file) {
 		if (file.isEmpty()) {
 			throw new InvalidWorkplaceException("사업자등록증 파일을 첨부해주세요.");
 		}
