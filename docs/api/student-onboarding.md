@@ -63,9 +63,14 @@
   - `/api/students/me/badge`, `/api/students/me/working-conditions`
   - `/api/students/me/registration-renewals/**`
   - `/api/students/me/registration`, `/api/students/me/stay-expiration-notice/**`
-- 로그인·토큰 처리, 온보딩 상태 조회·최종 저장, 위치 약관 동의, 탈퇴 API는 이 차단 목록에 포함하지 않는다. 각 API의 기존 인증·검증은 유지한다.
+- 매칭 서비스는 아래 유학생용 API를 추가로 차단한다. 같은 경로 영역의 사업주용 지원 거절·채용 제안 생성·지원자 조회·채용 관리 API는 차단하지 않는다.
+  - 추천 생성 `POST /api/recommendations`, 갱신 `POST /api/recommendations/refresh`, 목록 `GET /api/recommendations`, 상세 `GET /api/recommendations/{id}`
+  - 지원 생성 `POST /api/applications`, 내 목록 `GET /api/applications/me`, 상세 `GET /api/applications/{id}`, 취소 `PATCH /api/applications/{applicationId}/withdraw`
+  - 채용 제안 수락·거절 `PATCH /api/offers/{offerId}/accept`, `PATCH /api/offers/{offerId}/reject`
+  - 채용 완료 목록 `GET /api/matches/me`, 상세 `GET /api/matches/{id}`. 사업주가 같은 API를 호출할 때는 기존 동작을 유지한다.
+- 로그인·토큰 처리, 온보딩 상태 조회·최종 저장, 위치 약관 동의, 탈퇴, 개발자 문의 API는 이 차단 목록에 포함하지 않는다. 각 API의 기존 인증·검증은 유지한다.
 - 최종 저장이 성공하면 같은 액세스 토큰으로 위 API를 사용할 수 있다. 실패하면 계정·가입 인증은 유지되며 서비스 접근은 계속 차단한다.
-- 프론트는 홈·매칭·지원내역·마이페이지 진입을 막고 생년월일 화면으로 안내한다. 추천·지원 등 위 목록 밖 API에는 이번 차단 규칙을 적용하지 않는다.
+- 프론트는 홈·매칭·지원내역·마이페이지 진입을 막고 생년월일 화면으로 안내한다. 위에 명시한 유학생용 API 밖에는 이번 차단 규칙을 적용하지 않는다.
 
 ## 입력 및 저장
 
