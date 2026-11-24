@@ -26,6 +26,12 @@ public class EmployerProfile {
 	@Column(length = 50)
 	private String position;
 
+    @Column(name = "onboarding_completed_at")
+    private java.time.Instant onboardingCompletedAt;
+
+    public java.time.Instant getOnboardingCompletedAt() { return onboardingCompletedAt; }
+    public void completeOnboarding(java.time.Instant now) { onboardingCompletedAt = now; }
+
 	protected EmployerProfile() {
 	}
 

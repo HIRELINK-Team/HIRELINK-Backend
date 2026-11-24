@@ -17,7 +17,7 @@ import tools.jackson.databind.JsonNode;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "OCR 결과를 사용자가 확인·수정한 뒤 보내는 JSON. 모든 필드 필수. 원본 파일·대표자명은 받지 않는다.")
+@Schema(description = "사업자번호를 확인·수정한 뒤 보내는 JSON. 상세 주소를 제외한 필드 필수. 원본 파일·대표자명은 받지 않는다.")
 public class WorkplaceCreateRequest {
 
 	@NotBlank(message = "사업장명을 입력해주세요.")
@@ -44,8 +44,21 @@ public class WorkplaceCreateRequest {
 	private String employeeCountRange;
 	@NotBlank(message = "사업장 주소를 입력해주세요.")
 	@Size(max = 500, message = "주소는 500자 이하여야 합니다.")
-	@Schema(description = "사업장 주소", maxLength = 500, example = "서울특별시 성동구 예시로 10", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
+	@Schema(description = "검색한 기본 주소. 상세 주소와 분리 저장", maxLength = 500, example = "서울특별시 성동구 예시로 10", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
 	private String workplaceAddress;
+    @Size(max = 500, message = "상세 주소는 500자 이하여야 합니다.")
+    @Schema(description = "상세 주소. 생략 가능. 빈 문자열로 삭제. 기본 주소와 분리 저장", maxLength = 500,
+            requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
+    private String workplaceAddressDetail;
+
+    @JsonSetter(nulls = Nulls.FAIL)
+    public void setWorkplaceAddressDetail(JsonNode value) {
+        if (value == null || !value.isString()) { throw new IllegalArgumentException("상세 주소는 문자열이어야 합니다."); }
+        workplaceAddressDetail = value.stringValue().strip();
+    }
+
+    public String getWorkplaceAddressDetail() { return workplaceAddressDetail; }
+
 	@NotNull(message = "위도를 입력해주세요.")
 	@DecimalMin(value = "-90", message = "위도는 -90부터 90까지 입력해주세요.")
 	@DecimalMax(value = "90", message = "위도는 -90부터 90까지 입력해주세요.")

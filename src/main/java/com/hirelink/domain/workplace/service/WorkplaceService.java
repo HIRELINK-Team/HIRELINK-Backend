@@ -59,6 +59,7 @@ public class WorkplaceService {
 		Workplace workplace = new Workplace(user, request.getWorkplaceName(), null,
 				null, number, businessType, request.getWorkplaceAddress(), request.getLatitude(), request.getLongitude(),
 				request.getEmployeeCountRange());
+		workplace.updateSplitAddress(request.getWorkplaceAddress(), request.getWorkplaceAddressDetail());
 		try {
 			workplaceRepository.saveAndFlush(workplace);
 		} catch (DataIntegrityViolationException exception) {
@@ -120,9 +121,17 @@ public class WorkplaceService {
 		if (businessType != null) {
 			workplace.updateBusinessType(businessType);
 		}
+        String oldBase = workplace.getWorkplaceBaseAddress();
+        String oldDetail = workplace.getWorkplaceAddressDetail();
 		if (request.hasLocationChanges()) {
 			workplace.updateLocation(request.getWorkplaceAddress(), request.getLatitude(), request.getLongitude());
 		}
+        if (request.hasLocationChanges() || request.getWorkplaceAddressDetail() != null) {
+            String base = request.hasLocationChanges() ? request.getWorkplaceAddress() : oldBase;
+            String detail = request.getWorkplaceAddressDetail() != null ? request.getWorkplaceAddressDetail()
+                    : base.equals(oldBase) ? oldDetail : null;
+            workplace.updateSplitAddress(base, detail);
+        }
 		return toDetailResponse(workplace);
 	}
 
@@ -142,8 +151,8 @@ public class WorkplaceService {
 		return new WorkplaceDetailResponse(workplace.getId(), workplace.getWorkplaceName(),
 				formatBusinessRegistrationNumber(workplace.getBusinessRegistrationNumber()),
 				workplace.getBusinessType().getId(), workplace.getBusinessType().getName(),
-				workplace.getEmployeeCountRange(), workplace.getWorkplaceAddress(),
-				workplace.getLatitude(), workplace.getLongitude());
+				workplace.getEmployeeCountRange(), workplace.getWorkplaceBaseAddress(),
+				workplace.getLatitude(), workplace.getLongitude(), workplace.getWorkplaceAddressDetail());
 	}
 
 	private String formatBusinessRegistrationNumber(String number) {
