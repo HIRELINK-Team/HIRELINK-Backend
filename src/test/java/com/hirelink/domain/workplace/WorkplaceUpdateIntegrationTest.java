@@ -86,7 +86,7 @@ class WorkplaceUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 		JsonNode body = mapper.readTree(response.body());
 		assertThat(body.propertyNames()).containsExactlyInAnyOrder("workplaceId", "workplaceName",
 				"businessRegistrationNumber", "businessTypeId", "businessTypeName", "employeeCountRange",
-				"workplaceAddress", "latitude", "longitude");
+				"workplaceAddress", "latitude", "longitude", "workplaceAddressDetail");
 		assertThat(body.path("workplaceId").asLong()).isEqualTo(id);
 		assertThat(body.path("workplaceName").asString()).isEqualTo("수정된 사업장");
 		assertThat(body.path("businessRegistrationNumber").asString()).isEqualTo("012-34-56789");

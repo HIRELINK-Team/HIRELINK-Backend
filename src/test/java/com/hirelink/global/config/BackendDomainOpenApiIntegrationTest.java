@@ -225,7 +225,7 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(employer.path("properties").propertyNames()).containsExactlyInAnyOrder("name", "position");
 		assertThat(nullable(employer.path("properties").path("position"))).isTrue();
 		assertThat(schema(document, "WorkplaceUpdateRequest").path("properties").propertyNames())
-				.containsExactlyInAnyOrder("workplaceName", "businessTypeId", "workplaceAddress", "latitude", "longitude");
+				.containsExactlyInAnyOrder("workplaceName", "businessTypeId", "workplaceAddress", "latitude", "longitude", "workplaceAddressDetail");
 	}
 
 	@Test
