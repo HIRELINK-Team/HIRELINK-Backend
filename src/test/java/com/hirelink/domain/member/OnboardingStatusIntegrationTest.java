@@ -44,6 +44,20 @@ class OnboardingStatusIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private static final String PATH = "/api/users/me/onboarding";
 	private static final String JWT_SECRET = signingKey();
+	private static final List<ServiceRequest> MATCHING_SERVICE_REQUESTS = List.of(
+			new ServiceRequest("POST", "/api/recommendations", null),
+			new ServiceRequest("POST", "/api/recommendations/refresh", null),
+			new ServiceRequest("GET", "/api/recommendations", null),
+			new ServiceRequest("GET", "/api/recommendations/1", null),
+			new ServiceRequest("POST", "/api/applications", "{}"),
+			new ServiceRequest("GET", "/api/applications/me", null),
+			new ServiceRequest("GET", "/api/applications/1", null),
+			new ServiceRequest("PATCH", "/api/applications/1/withdraw", null),
+			new ServiceRequest("PATCH", "/api/offers/1/accept", null),
+			new ServiceRequest("PATCH", "/api/offers/1/reject", null),
+			new ServiceRequest("GET", "/api/matches/me", null),
+			new ServiceRequest("GET", "/api/matches/1", null)
+	);
 	private static final String COMPLETE_REQUEST = """
 			{
 			  "birthDate":"2000-05-14","currentRegion":"서울 마포구","koreanLevel":"INTERMEDIATE",
@@ -240,6 +254,54 @@ class OnboardingStatusIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
+	void blocksMatchingServiceApisUntilOnboardingCompletion() throws Exception {
+		long user = verifiedStudent(30);
+		String accessToken = token(user, "STUDENT");
+
+		for (ServiceRequest request : MATCHING_SERVICE_REQUESTS) {
+			assertError(send(request.method(), request.path(), accessToken, request.body()),
+					403, "ONBOARDING_REQUIRED");
+		}
+	}
+
+	@Test
+	void allowsMatchingServiceApisWithTheSameTokenImmediatelyAfterCompletion() throws Exception {
+		long user = verifiedStudent(30);
+		String accessToken = token(user, "STUDENT");
+		assertError(send("GET", "/api/recommendations", accessToken, null), 403, "ONBOARDING_REQUIRED");
+
+		assertThat(send("POST", "/api/students/me/onboarding", accessToken, COMPLETE_REQUEST).statusCode()).isEqualTo(200);
+
+		for (ServiceRequest request : MATCHING_SERVICE_REQUESTS) {
+			assertNotOnboardingRequired(send(request.method(), request.path(), accessToken, request.body()));
+		}
+	}
+
+	@Test
+	void preservesEmployerAndNotApplicableAccountBehavior() throws Exception {
+		long employer = user("EMPLOYER", "GOOGLE");
+		String employerToken = token(employer, "EMPLOYER");
+		for (ServiceRequest request : MATCHING_SERVICE_REQUESTS) {
+			assertNotOnboardingRequired(send(request.method(), request.path(), employerToken, request.body()));
+		}
+		for (ServiceRequest request : List.of(
+				new ServiceRequest("PATCH", "/api/applications/1/reject", null),
+				new ServiceRequest("POST", "/api/applications/1/offers", null),
+				new ServiceRequest("GET", "/api/employer/applications/1", null),
+				new ServiceRequest("GET", "/api/job-postings/1/applications", null),
+				new ServiceRequest("DELETE", "/api/job-postings/1/matches", "{\"matchIds\":[1]}"),
+				new ServiceRequest("DELETE", "/api/job-postings/1/matches/all", null))) {
+			assertNotOnboardingRequired(send(request.method(), request.path(), employerToken, request.body()));
+		}
+
+		long legacyStudent = user("STUDENT", "LOCAL");
+		String legacyToken = token(legacyStudent, "STUDENT");
+		for (ServiceRequest request : MATCHING_SERVICE_REQUESTS) {
+			assertNotOnboardingRequired(send(request.method(), request.path(), legacyToken, request.body()));
+		}
+	}
+
+	@Test
 	void accessCheckUsesStoredCompletionAndPreservesLegacyFlow() throws Exception {
 		long user = verifiedStudent(30);
 		createProfile(user);
@@ -259,8 +321,34 @@ class OnboardingStatusIntegrationTest extends PostgreSQLIntegrationTest {
 				"/api/students/me/documents/completion", "/api/students/me/badge", "/api/students/me/working-conditions")) {
 			assertThat(paths.path(path).path("get").path("responses").path("403").toString()).contains("ONBOARDING_REQUIRED");
 		}
-		for (String path : List.of(PATH, "/api/students/me/onboarding", "/api/recommendations", "/api/applications",
-				"/api/offers", "/api/matches", "/api/students/me/withdrawal")) {
+		for (ServiceRequest request : List.of(
+				new ServiceRequest("POST", "/api/recommendations", null),
+				new ServiceRequest("POST", "/api/recommendations/refresh", null),
+				new ServiceRequest("GET", "/api/recommendations", null),
+				new ServiceRequest("GET", "/api/recommendations/{id}", null),
+				new ServiceRequest("POST", "/api/applications", null),
+				new ServiceRequest("GET", "/api/applications/me", null),
+				new ServiceRequest("GET", "/api/applications/{id}", null),
+				new ServiceRequest("PATCH", "/api/applications/{applicationId}/withdraw", null),
+				new ServiceRequest("PATCH", "/api/offers/{offerId}/accept", null),
+				new ServiceRequest("PATCH", "/api/offers/{offerId}/reject", null),
+				new ServiceRequest("GET", "/api/matches/me", null),
+				new ServiceRequest("GET", "/api/matches/{id}", null))) {
+			assertThat(paths.path(request.path()).path(request.method().toLowerCase()).path("responses")
+					.path("403").toString()).contains("ONBOARDING_REQUIRED");
+		}
+		for (ServiceRequest request : List.of(
+				new ServiceRequest("PATCH", "/api/applications/{applicationId}/reject", null),
+				new ServiceRequest("POST", "/api/applications/{applicationId}/offers", null),
+				new ServiceRequest("GET", "/api/employer/applications/{id}", null),
+				new ServiceRequest("GET", "/api/job-postings/{jobId}/applications", null),
+				new ServiceRequest("DELETE", "/api/job-postings/{jobPostingId}/matches", null),
+				new ServiceRequest("DELETE", "/api/job-postings/{jobPostingId}/matches/all", null))) {
+			assertThat(paths.path(request.path()).path(request.method().toLowerCase()).toString())
+					.doesNotContain("ONBOARDING_REQUIRED");
+		}
+		for (String path : List.of(PATH, "/api/students/me/onboarding", "/api/users/me/term-agreements/location",
+				"/api/students/me/withdrawal", "/api/developer-inquiries")) {
 			assertThat(paths.path(path).toString()).doesNotContain("ONBOARDING_REQUIRED");
 		}
 	}
@@ -324,6 +412,11 @@ class OnboardingStatusIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(body.size()).isEqualTo(2);
 	}
 
+	private void assertNotOnboardingRequired(HttpResponse<String> response) {
+		if (response.body() == null || response.body().isBlank()) { return; }
+		assertThat(mapper.readTree(response.body()).path("code").asString()).isNotEqualTo("ONBOARDING_REQUIRED");
+	}
+
 	private String token(long user, String role) {
 		Instant now = Instant.now();
 		JwtClaimsSet claims = JwtClaimsSet.builder().claim("sid", LoginSessionFixtures.create(jdbc, user)).issuer("hirelink").subject(Long.toString(user))
@@ -336,5 +429,8 @@ class OnboardingStatusIntegrationTest extends PostgreSQLIntegrationTest {
 		byte[] bytes = new byte[32];
 		new SecureRandom().nextBytes(bytes);
 		return Base64.getEncoder().encodeToString(bytes);
+	}
+
+	private record ServiceRequest(String method, String path, String body) {
 	}
 }

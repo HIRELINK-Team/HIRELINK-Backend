@@ -1,12 +1,18 @@
 package com.hirelink.global.config;
 
-import java.util.Arrays;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.util.AntPathMatcher;
+import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -21,13 +27,28 @@ import io.swagger.v3.oas.models.responses.ApiResponse;
 @Configuration
 public class StudentOnboardingAccessConfig implements WebMvcConfigurer {
 
-	private static final String[] PROTECTED_PATHS = {
+	private static final String[] EXISTING_PROTECTED_PATHS = {
 			"/api/students/me/profile", "/api/students/me/profile/**",
 			"/api/students/me/careers", "/api/students/me/careers/**",
 			"/api/students/me/matching-preferences",
 			"/api/students/me/documents/**", "/api/students/me/badge",
 			"/api/students/me/working-conditions", "/api/students/me/registration", "/api/students/me/stay-expiration-notice/**", "/api/students/me/registration-renewals/**"
 	};
+	private static final List<ProtectedRoute> MATCHING_SERVICE_PROTECTED_ROUTES = List.of(
+			new ProtectedRoute(HttpMethod.POST, "/api/recommendations"),
+			new ProtectedRoute(HttpMethod.POST, "/api/recommendations/refresh"),
+			new ProtectedRoute(HttpMethod.GET, "/api/recommendations"),
+			new ProtectedRoute(HttpMethod.GET, "/api/recommendations/{id}"),
+			new ProtectedRoute(HttpMethod.POST, "/api/applications"),
+			new ProtectedRoute(HttpMethod.GET, "/api/applications/me"),
+			new ProtectedRoute(HttpMethod.GET, "/api/applications/{id}"),
+			new ProtectedRoute(HttpMethod.PATCH, "/api/applications/{applicationId}/withdraw"),
+			new ProtectedRoute(HttpMethod.PATCH, "/api/offers/{offerId}/accept"),
+			new ProtectedRoute(HttpMethod.PATCH, "/api/offers/{offerId}/reject"),
+			new ProtectedRoute(HttpMethod.GET, "/api/matches/me"),
+			new ProtectedRoute(HttpMethod.GET, "/api/matches/{id}")
+	);
+	private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
 	private final StudentOnboardingInterceptor interceptor;
 
 	public StudentOnboardingAccessConfig(StudentOnboardingInterceptor interceptor) {
@@ -36,17 +57,26 @@ public class StudentOnboardingAccessConfig implements WebMvcConfigurer {
 
 	@Override
 	public void addInterceptors(InterceptorRegistry registry) {
-		registry.addInterceptor(interceptor).addPathPatterns(PROTECTED_PATHS);
+		var registeredPaths = new LinkedHashSet<>(List.of(EXISTING_PROTECTED_PATHS));
+		MATCHING_SERVICE_PROTECTED_ROUTES.stream().map(ProtectedRoute::path).forEach(registeredPaths::add);
+		registry.addInterceptor(new HandlerInterceptor() {
+			@Override
+			public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+				if (isProtected(request.getMethod(), request.getRequestURI())) {
+					return interceptor.preHandle(request, response, handler);
+				}
+				return true;
+			}
+		}).addPathPatterns(registeredPaths.toArray(String[]::new));
 	}
 
 	@Bean
 	public OpenApiCustomizer studentOnboardingAccessDocumentation() {
 		return api -> {
 			if (api.getPaths() == null) { return; }
-			var matcher = new AntPathMatcher();
 			api.getPaths().forEach((path, item) -> {
-				if (Arrays.stream(PROTECTED_PATHS).noneMatch(pattern -> matcher.match(pattern, path))) { return; }
-				item.readOperations().forEach(operation -> {
+				item.readOperationsMap().forEach((method, operation) -> {
+					if (!isProtected(method.name(), path)) { return; }
 					var responses = operation.getResponses();
 					ApiResponse forbidden = responses.get("403");
 					if (forbidden == null) {
@@ -66,5 +96,16 @@ public class StudentOnboardingAccessConfig implements WebMvcConfigurer {
 				});
 			});
 		};
+	}
+
+	private static boolean isProtected(String method, String path) {
+		if (List.of(EXISTING_PROTECTED_PATHS).stream().anyMatch(pattern -> PATH_MATCHER.match(pattern, path))) {
+			return true;
+		}
+		return MATCHING_SERVICE_PROTECTED_ROUTES.stream().anyMatch(route ->
+				route.method().matches(method) && PATH_MATCHER.match(route.path(), path));
+	}
+
+	private record ProtectedRoute(HttpMethod method, String path) {
 	}
 }
