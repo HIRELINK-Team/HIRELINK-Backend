@@ -317,13 +317,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 				.body(new ErrorResponse("WITHDRAWN_ACCOUNT", exception.getMessage()));
 	}
 
-	@ExceptionHandler(InquiryReplyEmailRequiredException.class)
-	public ResponseEntity<ErrorResponse> handleInquiryReplyEmailRequired(
-			InquiryReplyEmailRequiredException exception) {
-		return ResponseEntity.status(HttpStatus.CONFLICT)
-				.body(new ErrorResponse("INQUIRY_REPLY_EMAIL_REQUIRED", exception.getMessage()));
-	}
-
 	@ExceptionHandler(DuplicateEmailException.class)
 	public ResponseEntity<ErrorResponse> handleDuplicateEmail(DuplicateEmailException exception) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)

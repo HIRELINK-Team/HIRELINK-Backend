@@ -1,5 +1,6 @@
 package com.hirelink.domain.developerinquiry.dto;
 
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -7,6 +8,12 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(description = "개발자 문의 접수 요청")
 public record DeveloperInquiryCreateRequest(
+		@NotBlank(message = "답변을 받을 이메일을 입력해주세요.")
+		@Email(message = "이메일 형식이 올바르지 않습니다.")
+		@Size(max = 255, message = "이메일은 255자 이하여야 합니다.")
+		@Schema(description = "답변을 받을 이메일", example = "reply@example.com", format = "email",
+				maxLength = 255, requiredMode = Schema.RequiredMode.REQUIRED)
+		String replyEmail,
 		@NotBlank(message = "문의 유형을 입력해주세요.")
 		@Size(max = 50, message = "문의 유형은 50자 이하여야 합니다.")
 		@Schema(description = "문의 유형. 전체 선택지는 미확정이며 현재 확인된 화면 표시값은 '사용 방법'",

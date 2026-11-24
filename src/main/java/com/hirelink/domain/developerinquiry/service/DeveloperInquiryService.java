@@ -14,7 +14,6 @@ import com.hirelink.domain.developerinquiry.entity.DeveloperInquiry;
 import com.hirelink.domain.developerinquiry.repository.DeveloperInquiryRepository;
 import com.hirelink.domain.member.entity.UserAccount;
 import com.hirelink.domain.member.repository.UserAccountRepository;
-import com.hirelink.global.exception.InquiryReplyEmailRequiredException;
 import com.hirelink.global.exception.WithdrawnAccountException;
 
 @Service
@@ -37,12 +36,9 @@ public class DeveloperInquiryService {
 		if (user.isWithdrawn()) {
 			throw new WithdrawnAccountException();
 		}
-		String email = user.getEmail();
-		if (email == null || email.isBlank()) {
-			throw new InquiryReplyEmailRequiredException();
-		}
 		Instant submittedAt = Instant.now(clock).truncatedTo(ChronoUnit.MICROS);
-		DeveloperInquiry inquiry = inquiries.save(new DeveloperInquiry(user.getId(), user.getRole(), email,
+		DeveloperInquiry inquiry = inquiries.save(new DeveloperInquiry(user.getId(), user.getRole(),
+				request.replyEmail().trim(),
 				request.inquiryType().trim(), request.title().trim(), request.content().trim(), submittedAt));
 		return new DeveloperInquiryCreateResponse(inquiry.getId(), inquiry.getSubmittedAt());
 	}

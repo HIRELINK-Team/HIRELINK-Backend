@@ -39,22 +39,19 @@ public class DeveloperInquiryController {
 
 	@PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
 	@Operation(summary = "개발자 문의 접수",
-			description = "로그인한 유학생 또는 사업주가 문의를 접수합니다. 작성자·회원 유형·답변 이메일은 현재 인증된 계정에서 가져옵니다.")
+			description = "로그인한 유학생 또는 사업주가 문의를 접수합니다. 작성자·회원 유형은 현재 인증된 계정에서 가져오고, 답변 이메일은 요청으로 받습니다.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "201", description = "문의 접수 성공",
 				content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
 						schema = @Schema(implementation = DeveloperInquiryCreateResponse.class),
 						examples = @ExampleObject(value = "{\"inquiryId\":101,\"submittedAt\":\"2026-11-24T03:00:00Z\"}"))),
-		@ApiResponse(responseCode = "400", description = "문의 유형·제목·내용이 누락되었거나 길이 제한을 초과함",
+		@ApiResponse(responseCode = "400", description = "답변 이메일·문의 유형·제목·내용이 유효하지 않음",
 				content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
 						schema = @Schema(implementation = ErrorResponse.class))),
 		@ApiResponse(responseCode = "401", description = "Access Token이 없거나 유효하지 않음",
 				content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
 						schema = @Schema(implementation = ErrorResponse.class))),
 		@ApiResponse(responseCode = "403", description = "탈퇴한 계정",
-				content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
-						schema = @Schema(implementation = ErrorResponse.class))),
-		@ApiResponse(responseCode = "409", description = "계정에 답변을 받을 이메일이 등록되어 있지 않음",
 				content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
 						schema = @Schema(implementation = ErrorResponse.class)))
 	})
