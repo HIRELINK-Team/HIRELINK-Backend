@@ -88,6 +88,7 @@ class JobPostingCreateIntegrationTest extends PostgreSQLIntegrationTest {
 		expected.put("businessTypeName", "RETAIL");
 		expected.put("createdAt", body.path("createdAt").asString());
 		expected.put("workTimes", sortedTimes);
+		expected.put("convertedHourlyWage", 13000);
 		assertThat(body).isEqualTo(mapper.readTree(mapper.writeValueAsString(expected)));
 
 		Map<String, Object> saved = jdbc.queryForMap("select * from job_posting where id = ?", posting);
@@ -169,6 +170,7 @@ class JobPostingCreateIntegrationTest extends PostgreSQLIntegrationTest {
 		String accessToken = token(owner, "EMPLOYER");
 		Map<String, Object> complete = recruitingRequest(workplace);
 		for (String field : complete.keySet()) {
+			if (field.equals("preferredExperience")) { continue; }
 			Map<String, Object> missing = new LinkedHashMap<>(complete);
 			missing.remove(field);
 			assertError(create(accessToken, missing), 400, "INVALID_INPUT");
@@ -308,6 +310,34 @@ class JobPostingCreateIntegrationTest extends PostgreSQLIntegrationTest {
 				body.path("jobPostingId").asLong())).isEqualTo(200);
 		assertThat(jdbc.queryForObject("select job_role from job_posting where id = ?", String.class,
 				body.path("jobPostingId").asLong())).isEqualTo(jobRole);
+	}
+
+	@Test
+	void createsPostingWithoutExperienceAndReturnsMonthlyConversionForNoKoreanRequirement() throws Exception {
+		long owner = createUser("EMPLOYER");
+		long workplace = createWorkplace(owner, "월급 사업장");
+		String token = token(owner, "EMPLOYER");
+		Map<String, Object> request = recruitingRequest(workplace);
+		request.remove("preferredExperience");
+		request.put("requiredKoreanLevel", "NONE");
+		request.put("wageType", "MONTHLY");
+		request.put("wageAmount", 1_000_000);
+		request.put("workTimes", List.of(time("MON", "22:00", "00:00"), time("TUE", "00:00", "04:00"),
+				time("WED", "22:00", "00:00"), time("THU", "00:00", "04:00"),
+				time("FRI", "22:00", "00:00"), time("SAT", "00:00", "04:00")));
+		var response = create(token, request);
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
+		var body = mapper.readTree(response.body());
+		assertThat(body.path("requiredKoreanLevel").asString()).isEqualTo("NONE");
+		assertThat(body.path("preferredExperience").asString()).isEqualTo("NONE");
+		assertThat(body.path("convertedHourlyWage").asLong()).isEqualTo(12786L);
+		long id = body.path("jobPostingId").asLong();
+		var detail = mapper.readTree(send("GET", "/api/job-postings/" + id, token, null).body());
+		assertThat(detail.path("convertedHourlyWage").asLong()).isEqualTo(12786L);
+		assertThat(jdbc.queryForMap("select required_korean_level, preferred_experience from job_posting where id=?", id))
+				.containsEntry("required_korean_level", "NONE").containsEntry("preferred_experience", "NONE");
+		request.put("preferredExperience", null);
+		assertThat(create(token, request).statusCode()).isEqualTo(201);
 	}
 
 	private Map<String, Object> draftRequest(long workplaceId) {

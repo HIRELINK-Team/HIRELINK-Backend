@@ -133,6 +133,13 @@ class ApplicationQueryIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(matchResult.path("experienceMatched").asBoolean()).isFalse();
 		assertThat(matchResult.path("koreanLevelMatched").asBoolean()).isFalse();
 		assertThat(matchResult.has("businessTypeMatched")).isFalse();
+		String noRequirement = snapshot.replace("\"requiredKoreanLevel\":\"ADVANCED\"", "\"requiredKoreanLevel\":\"NONE\"")
+				.replace("\"koreanLevel\":\"BEGINNER\"", "\"koreanLevel\":null");
+		jdbc.update("update application set application_snapshot = cast(? as jsonb) where id = ?",
+				noRequirement, fixture.applicationId());
+		var detail = body(get(token(employer, "EMPLOYER"), "/api/employer/applications/" + fixture.applicationId()), 200);
+		assertThat(detail.path("matchResult").path("koreanLevelMatched").asBoolean()).isTrue();
+		assertThat(detail.path("matchResult").path("experienceMatched").asBoolean()).isFalse();
 	}
 
 	@Test

@@ -80,7 +80,7 @@ class JobPostingDetailIntegrationTest extends PostgreSQLIntegrationTest {
 				  "workplaceId": %d, "workplaceName": "테스트 사업장", "workplaceAddress": "테스트 주소",
 				  "latitude": 37.1234567, "longitude": 126.1234567,
 				  "businessTypeId": 2, "businessTypeName": "RETAIL", "jobRole": "매장 관리",
-				  "wageType": "HOURLY", "wageAmount": 13000, "recruitmentCount": 2,
+				  "wageType": "HOURLY", "wageAmount": 13000, "convertedHourlyWage": 13000, "recruitmentCount": 2,
 				  "workStartDate": "2026-10-01", "requiredKoreanLevel": "INTERMEDIATE",
 				  "preferredExperience": "NONE", "workTimeNegotiable": false,
 				  "applicationDeadlineDate": "2026-10-01",
@@ -117,7 +117,7 @@ class JobPostingDetailIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(body.path("workplaceId").asLong()).isEqualTo(workplace);
 		for (String field : List.of("title", "businessTypeId", "businessTypeName", "jobRole", "wageType", "wageAmount",
 				"recruitmentCount", "workStartDate", "requiredKoreanLevel", "preferredExperience", "workTimeNegotiable",
-				"applicationDeadlineDate")) {
+				"applicationDeadlineDate", "convertedHourlyWage")) {
 			assertThat(body.path(field).isNull()).as(field).isTrue();
 		}
 		assertThat(body.path("workTimes").isArray()).isTrue();

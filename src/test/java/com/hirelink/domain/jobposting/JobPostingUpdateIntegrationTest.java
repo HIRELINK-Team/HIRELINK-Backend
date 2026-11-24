@@ -126,6 +126,7 @@ class JobPostingUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 		expected.put("title", "테스트 사업장 매장 관리 모집");
 		expected.put("businessTypeName", "RETAIL");
 		expected.put("updatedAt", body.path("updatedAt").asString());
+		expected.put("convertedHourlyWage", 13000);
 		assertThat(body).isEqualTo(mapper.readTree(mapper.writeValueAsString(expected)));
 		JsonNode detail = mapper.readTree(send("GET", "/api/job-postings/" + posting, accessToken, null).body());
 		for (String field : completeConditions().keySet()) {
@@ -142,7 +143,7 @@ class JobPostingUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 		Map<String, Object> complete = completeConditions();
 		Map<String, List<Map<String, Object>>> before = snapshot();
 		for (String field : complete.keySet()) {
-			if (field.equals("status")) {
+			if (field.equals("status") || field.equals("preferredExperience")) {
 				continue;
 			}
 			Map<String, Object> missing = new LinkedHashMap<>(complete);
@@ -300,6 +301,42 @@ class JobPostingUpdateIntegrationTest extends PostgreSQLIntegrationTest {
 		} finally {
 			jdbc.execute("alter table job_posting_work_time drop constraint test_reject_tuesday");
 		}
+	}
+
+	@Test
+	void publishesWithoutExperienceAndRecalculatesRoundedWageAfterEdits() throws Exception {
+		var request = completeConditions();
+		request.remove("preferredExperience");
+		request.put("requiredKoreanLevel", "NONE");
+		request.put("wageType", "MONTHLY");
+		request.put("wageAmount", 869);
+		request.put("workTimes", List.of(time("MON", "09:00", "17:00"), time("TUE", "09:00", "17:00")));
+		var response = patch(request);
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		var body = mapper.readTree(response.body());
+		assertThat(body.path("requiredKoreanLevel").asString()).isEqualTo("NONE");
+		assertThat(body.path("preferredExperience").asString()).isEqualTo("NONE");
+		assertThat(body.path("convertedHourlyWage").asLong()).isEqualTo(13L);
+		response = patch(Map.of("workTimes", List.of(time("MON", "09:00", "17:00"))));
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		assertThat(mapper.readTree(response.body()).path("convertedHourlyWage").asLong()).isEqualTo(25L);
+		response = patch(Map.of("wageType", "HOURLY", "wageAmount", 12000));
+		assertThat(mapper.readTree(response.body()).path("convertedHourlyWage").asLong()).isEqualTo(12000L);
+		var detail = send("GET", "/api/job-postings/" + posting, accessToken, null);
+		assertThat(mapper.readTree(detail.body()).path("convertedHourlyWage").asLong()).isEqualTo(12000L);
+	}
+
+	@Test
+	void partialDraftConversionIsNullAndHiddenLegacyExperienceIsPreserved() throws Exception {
+		var response = patch(Map.of("wageType", "MONTHLY", "wageAmount", 1_000_000));
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		assertThat(mapper.readTree(response.body()).path("convertedHourlyWage").isNull()).isTrue();
+		jdbc.update("update job_posting set preferred_experience='ONE_YEAR_OR_MORE' where id=?", posting);
+		var request = completeConditions();
+		request.remove("preferredExperience");
+		response = patch(request);
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		assertThat(mapper.readTree(response.body()).path("preferredExperience").asString()).isEqualTo("ONE_YEAR_OR_MORE");
 	}
 
 	private Map<String, Object> completeConditions() {

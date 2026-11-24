@@ -337,6 +337,15 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 		JsonNode detail = schema(document, "JobPostingDetailResponse");
 		assertThat(nullable(detail.path("properties").path("businessTypeId"))).isTrue();
 		assertThat(nullable(detail.path("properties").path("workTimes"))).isFalse();
+		assertThat(request.path("properties").path("requiredKoreanLevel").path("pattern").asString()).contains("NONE");
+		assertThat(contains(update.path("properties").path("requiredKoreanLevel").path("enum"), "NONE")).isTrue();
+		assertThat(request.path("properties").path("preferredExperience").path("description").asString()).contains("생략", "NONE");
+		for (String responseName : List.of("JobPostingCreateResponse", "JobPostingUpdateResponse", "JobPostingDetailResponse")) {
+			var converted = schema(document, responseName).path("properties").path("convertedHourlyWage");
+			assertType(converted, "integer");
+			assertThat(nullable(converted)).isTrue();
+			assertThat(converted.path("description").asString()).contains("4.345", "반올림");
+		}
 		JsonNode list = operation(document, "/api/employers/me/job-postings", "get");
 		JsonNode status = parameter(list, "status").path("schema").path("enum");
 		assertThat(status.size()).isEqualTo(2);
