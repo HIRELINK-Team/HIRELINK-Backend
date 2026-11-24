@@ -6,6 +6,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class WageScoreCalculatorTest {
 
@@ -30,6 +31,16 @@ class WageScoreCalculatorTest {
 	@Test
 	void returnsOneHundredWhenMinimumHourlyWageIsUnset() {
 		assertThat(calculator.calculate("HOURLY", 1, null, fortyHours)).isEqualByComparingTo("100.0");
+	}
+
+	@Test
+	void exposesUnroundedConversionWithoutChangingRecommendationScorePrecision() {
+		var sixteenHours = List.of(time("MON"), time("TUE"));
+		assertThat(calculator.hourlyWage("MONTHLY", 869, sixteenHours)).isEqualByComparingTo("12.5000000000");
+		assertThat(calculator.calculate("MONTHLY", 869, 20, sixteenHours)).isEqualByComparingTo("62.5");
+		assertThat(calculator.hourlyWage("HOURLY", 12000, List.of())).isEqualByComparingTo("12000");
+		assertThatThrownBy(() -> calculator.hourlyWage("MONTHLY", 1000000, List.of()))
+				.isInstanceOf(IllegalArgumentException.class);
 	}
 
 	private RecommendationTimeRange time(String day) {

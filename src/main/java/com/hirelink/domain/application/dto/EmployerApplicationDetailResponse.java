@@ -83,7 +83,7 @@ public record EmployerApplicationDetailResponse(
 			List<WorkTime> workTimes,
 			@Schema(description = "급여 금액(원)", example = "12000", requiredMode = Schema.RequiredMode.REQUIRED)
 			Integer wageAmount,
-			@Schema(description = "요구 한국어 수준. 제한이 없으면 null", example = "INTERMEDIATE", allowableValues = {"BEGINNER", "INTERMEDIATE", "ADVANCED"}, nullable = true)
+			@Schema(description = "요구 한국어 수준. NONE은 무관, 기존 제한 없는 데이터는 null", example = "INTERMEDIATE", allowableValues = {"BEGINNER", "INTERMEDIATE", "ADVANCED", "NONE"}, nullable = true)
 			String requiredKoreanLevel) {
 	}
 

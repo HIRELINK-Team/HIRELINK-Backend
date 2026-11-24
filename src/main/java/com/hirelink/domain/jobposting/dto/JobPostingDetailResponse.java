@@ -62,8 +62,8 @@ public record JobPostingDetailResponse(
 				example = "2027-03-01", type = "string", format = "date",
 				requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
 		LocalDate workStartDate,
-		@Schema(description = "요구 한국어 수준. 임시저장 중 미입력은 null. 값: BEGINNER / INTERMEDIATE / ADVANCED",
-				pattern = "^(BEGINNER|INTERMEDIATE|ADVANCED)$",
+		@Schema(description = "요구 한국어 수준. 임시저장 중 미입력은 null. 값: BEGINNER / INTERMEDIATE / ADVANCED / NONE(무관)",
+				pattern = "^(BEGINNER|INTERMEDIATE|ADVANCED|NONE)$",
 				example = "INTERMEDIATE",
 				requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
 		String requiredKoreanLevel,
@@ -79,5 +79,8 @@ public record JobPostingDetailResponse(
 				requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
 		LocalDate applicationDeadlineDate,
 		@Schema(description = "근무시간 목록. 월~일, 시작 시간 오름차순. 없으면 []", requiredMode = Schema.RequiredMode.REQUIRED, nullable = false)
-		List<JobPostingWorkTimeResponse> workTimes) {
+		List<JobPostingWorkTimeResponse> workTimes,
+		@Schema(description = "표시용 환산 시급(원). 월급 / (주간 근무시간 × 4.345)를 원 단위 반올림. 시급은 입력 금액 그대로. 계산할 정보가 부족한 임시저장은 null",
+				example = "12786", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
+		Long convertedHourlyWage) {
 }

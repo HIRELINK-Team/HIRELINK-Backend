@@ -19,7 +19,7 @@ import com.hirelink.domain.jobposting.entity.JobPostingStatus;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "DRAFT는 workplaceId·status만 필수이고 나머지는 생략·null 허용. RECRUITING은 모든 근무조건과 1개 이상의 근무시간 필수.",
+@Schema(description = "DRAFT는 workplaceId·status만 필수이고 나머지는 생략·null 허용. RECRUITING은 우대 경력을 제외한 모든 근무조건과 1개 이상의 근무시간 필수.",
 		example = "{\"workplaceId\":1,\"status\":\"DRAFT\"}")
 public class JobPostingCreateRequest {
 
@@ -58,14 +58,14 @@ public class JobPostingCreateRequest {
 			example = "2027-03-01", type = "string", format = "date",
 			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = true)
 	private LocalDate workStartDate;
-	@Pattern(regexp = "BEGINNER|INTERMEDIATE|ADVANCED", message = "올바른 한국어 수준을 선택해주세요.")
-	@Schema(description = "요구 한국어 수준 (DRAFT에서는 선택, RECRUITING에서는 필수). 값: BEGINNER / INTERMEDIATE / ADVANCED",
-			pattern = "^(BEGINNER|INTERMEDIATE|ADVANCED)$",
+	@Pattern(regexp = "BEGINNER|INTERMEDIATE|ADVANCED|NONE", message = "올바른 한국어 수준을 선택해주세요.")
+	@Schema(description = "요구 한국어 수준 (DRAFT에서는 선택, RECRUITING에서는 필수). 값: BEGINNER / INTERMEDIATE / ADVANCED / NONE(무관)",
+			pattern = "^(BEGINNER|INTERMEDIATE|ADVANCED|NONE)$",
 			example = "INTERMEDIATE",
 			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = true)
 	private String requiredKoreanLevel;
 	@Pattern(regexp = "NONE|SIX_MONTHS_OR_MORE|ONE_YEAR_OR_MORE", message = "올바른 우대 경력을 선택해주세요.")
-	@Schema(description = "우대 경력 (DRAFT에서는 선택, RECRUITING에서는 필수). 값: NONE / SIX_MONTHS_OR_MORE / ONE_YEAR_OR_MORE",
+	@Schema(description = "이전 클라이언트 호환용 우대 경력. 새 화면에서는 보내지 않는다. 모집 시작 시 생략·null은 NONE. 값: NONE / SIX_MONTHS_OR_MORE / ONE_YEAR_OR_MORE",
 			pattern = "^(NONE|SIX_MONTHS_OR_MORE|ONE_YEAR_OR_MORE)$",
 			example = "NONE",
 			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = true)

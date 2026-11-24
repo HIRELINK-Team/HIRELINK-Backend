@@ -53,14 +53,14 @@ public class JobPostingUpdateRequest {
 			example = "2027-03-01", type = "string", format = "date",
 			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private LocalDate workStartDate;
-	@Pattern(regexp = "BEGINNER|INTERMEDIATE|ADVANCED", message = "올바른 한국어 수준을 선택해주세요.")
-	@Schema(description = "요구 한국어 수준. 생략하면 기존 값 유지, null 불가",
-			allowableValues = {"BEGINNER", "INTERMEDIATE", "ADVANCED"},
+	@Pattern(regexp = "BEGINNER|INTERMEDIATE|ADVANCED|NONE", message = "올바른 한국어 수준을 선택해주세요.")
+	@Schema(description = "요구 한국어 수준. NONE은 무관. 생략하면 기존 값 유지, null 불가",
+			allowableValues = {"BEGINNER", "INTERMEDIATE", "ADVANCED", "NONE"},
 			example = "INTERMEDIATE",
 			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)
 	private String requiredKoreanLevel;
 	@Pattern(regexp = "NONE|SIX_MONTHS_OR_MORE|ONE_YEAR_OR_MORE", message = "올바른 우대 경력을 선택해주세요.")
-	@Schema(description = "우대 경력. 생략하면 기존 값 유지, null 불가",
+	@Schema(description = "이전 클라이언트 호환용 우대 경력. 새 화면에서는 보내지 않는다. 생략하면 기존 값 유지, 미입력 임시저장의 모집 시작 시 NONE. null 불가",
 			allowableValues = {"NONE", "SIX_MONTHS_OR_MORE", "ONE_YEAR_OR_MORE"},
 			example = "NONE",
 			requiredMode = Schema.RequiredMode.NOT_REQUIRED, nullable = false)

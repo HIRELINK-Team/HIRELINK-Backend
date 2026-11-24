@@ -46,7 +46,7 @@ public class JobPostingController {
 	}
 
 	@Operation(summary = "채용공고 등록·임시저장",
-			description = "사업주가 본인 사업장에 새 공고를 생성한다. DRAFT는 workplaceId·status만 필수다. RECRUITING은 모든 근무조건과 근무시간이 필수이며 두 날짜는 한국 기준 오늘부터 허용한다. 임시저장은 과거 날짜도 저장한다. 제목은 사업장명 + 직무 + 모집으로 생성하며 직무 미입력은 null이다. 근무시간은 30분 단위이며 같은 요일의 겹침·중복·동일 시작/종료는 400, 인접한 구간은 허용한다. 종료 00:00은 그 요일의 자정이며 밤을 넘는 근무는 두 요일로 나눠 보낸다. 공고와 시간 목록은 함께 저장된다.",
+			description = "한국어 수준 NONE은 무관이다. 우대 경력은 모집 시작 시 생략·null이면 NONE으로 저장한다. convertedHourlyWage는 서버가 계산한 원 단위 반올림 시급이다. 사업주가 본인 사업장에 새 공고를 생성한다. DRAFT는 workplaceId·status만 필수다. RECRUITING은 우대 경력을 제외한 모든 근무조건과 근무시간이 필수이며 두 날짜는 한국 기준 오늘부터 허용한다. 임시저장은 과거 날짜도 저장한다. 제목은 사업장명 + 직무 + 모집으로 생성하며 직무 미입력은 null이다. 근무시간은 30분 단위이며 같은 요일의 겹침·중복·동일 시작/종료는 400, 인접한 구간은 허용한다. 종료 00:00은 그 요일의 자정이며 밤을 넘는 근무는 두 요일로 나눠 보낸다. 공고와 시간 목록은 함께 저장된다.",
 			requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(required = true,
 					content = @Content(mediaType = "application/json", schema = @Schema(implementation = JobPostingCreateRequest.class),
 							examples = {
@@ -68,7 +68,7 @@ public class JobPostingController {
 	@ApiResponses({
 		@ApiResponse(responseCode = "201", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = JobPostingCreateResponse.class),
-						examples = @ExampleObject(name = "success", value = "{\"jobPostingId\":1,\"workplaceId\":1,\"workplaceName\":\"예시카페\",\"title\":\"예시카페 바리스타 모집\",\"businessTypeId\":1,\"businessTypeName\":\"FOOD_CAFE\",\"jobRole\":\"바리스타\",\"recruitmentCount\":2,\"wageType\":\"HOURLY\",\"wageAmount\":13000,\"workStartDate\":\"2027-03-01\",\"requiredKoreanLevel\":\"INTERMEDIATE\",\"preferredExperience\":\"NONE\",\"applicationDeadlineDate\":\"2027-03-14\",\"workTimeNegotiable\":false,\"status\":\"RECRUITING\",\"workTimes\":[{\"dayOfWeek\":\"MON\",\"startTime\":\"09:00\",\"endTime\":\"13:00\"}],\"createdAt\":\"2026-11-01T01:00:00Z\"}"))),
+						examples = @ExampleObject(name = "success", value = "{\"jobPostingId\":1,\"workplaceId\":1,\"workplaceName\":\"예시카페\",\"title\":\"예시카페 바리스타 모집\",\"businessTypeId\":1,\"businessTypeName\":\"FOOD_CAFE\",\"jobRole\":\"바리스타\",\"recruitmentCount\":2,\"wageType\":\"HOURLY\",\"wageAmount\":13000,\"convertedHourlyWage\":13000,\"workStartDate\":\"2027-03-01\",\"requiredKoreanLevel\":\"INTERMEDIATE\",\"preferredExperience\":\"NONE\",\"applicationDeadlineDate\":\"2027-03-14\",\"workTimeNegotiable\":false,\"status\":\"RECRUITING\",\"workTimes\":[{\"dayOfWeek\":\"MON\",\"startTime\":\"09:00\",\"endTime\":\"13:00\"}],\"createdAt\":\"2026-11-01T01:00:00Z\"}"))),
 		@ApiResponse(responseCode = "400", description = "입력 형식 또는 값 오류",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {
@@ -142,11 +142,11 @@ public class JobPostingController {
 	}
 
 	@Operation(summary = "채용공고 수정",
-			description = "보내지 않은 필드는 유지한다. 빈 요청과 수정 대상이 아닌 필드는 400이다. 본인 공고만 수정 가능하며 null과 사업장 변경은 불가하다. 근무시간은 전체 교체하며 [] 삭제는 DRAFT에서만 가능하다. DRAFT→RECRUITING은 저장값과 입력값을 합쳐 모든 필수 조건과 두 날짜를 검사한다. 모집 중 수정은 이번에 보낸 날짜만 한국 기준 오늘 이상인지 검사한다. DRAFT는 과거 날짜 허용이다. 모집 중→DRAFT 또는 CLOSED 수정·재모집은 409다. 제목을 재생성하며 실패 시 요청 전체를 취소한다. 근무시간은 30분 단위이며 같은 요일의 겹침·중복·동일 시작/종료는 400, 인접한 구간은 허용한다. 종료 00:00은 그 요일의 자정이며 밤을 넘는 근무는 두 요일로 나눠 보낸다. ")
+			description = "보내지 않은 필드는 유지한다. 한국어 수준 NONE은 무관이다. 우대 경력은 새 화면에서 보내지 않으며 기존 값은 유지하고, 값이 없는 임시저장의 모집 시작 시 NONE으로 처리한다. convertedHourlyWage는 수정 후 값으로 다시 계산한다. 빈 요청과 수정 대상이 아닌 필드는 400이다. 본인 공고만 수정 가능하며 null과 사업장 변경은 불가하다. 근무시간은 전체 교체하며 [] 삭제는 DRAFT에서만 가능하다. DRAFT→RECRUITING은 저장값과 입력값을 합쳐 모든 필수 조건과 두 날짜를 검사한다. 모집 중 수정은 이번에 보낸 날짜만 한국 기준 오늘 이상인지 검사한다. DRAFT는 과거 날짜 허용이다. 모집 중→DRAFT 또는 CLOSED 수정·재모집은 409다. 제목을 재생성하며 실패 시 요청 전체를 취소한다. 근무시간은 30분 단위이며 같은 요일의 겹침·중복·동일 시작/종료는 400, 인접한 구간은 허용한다. 종료 00:00은 그 요일의 자정이며 밤을 넘는 근무는 두 요일로 나눠 보낸다. ")
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = JobPostingUpdateResponse.class),
-						examples = @ExampleObject(name = "success", value = "{\"jobPostingId\":1,\"workplaceId\":1,\"workplaceName\":\"예시카페\",\"title\":\"예시카페 바리스타 모집\",\"businessTypeId\":1,\"businessTypeName\":\"FOOD_CAFE\",\"jobRole\":\"바리스타\",\"recruitmentCount\":2,\"wageType\":\"HOURLY\",\"wageAmount\":13000,\"workStartDate\":\"2027-03-01\",\"requiredKoreanLevel\":\"INTERMEDIATE\",\"preferredExperience\":\"NONE\",\"applicationDeadlineDate\":\"2027-03-14\",\"workTimeNegotiable\":false,\"status\":\"RECRUITING\",\"workTimes\":[{\"dayOfWeek\":\"MON\",\"startTime\":\"09:00\",\"endTime\":\"13:00\"}],\"updatedAt\":\"2026-11-01T01:00:00Z\"}"))),
+						examples = @ExampleObject(name = "success", value = "{\"jobPostingId\":1,\"workplaceId\":1,\"workplaceName\":\"예시카페\",\"title\":\"예시카페 바리스타 모집\",\"businessTypeId\":1,\"businessTypeName\":\"FOOD_CAFE\",\"jobRole\":\"바리스타\",\"recruitmentCount\":2,\"wageType\":\"HOURLY\",\"wageAmount\":13000,\"convertedHourlyWage\":13000,\"workStartDate\":\"2027-03-01\",\"requiredKoreanLevel\":\"INTERMEDIATE\",\"preferredExperience\":\"NONE\",\"applicationDeadlineDate\":\"2027-03-14\",\"workTimeNegotiable\":false,\"status\":\"RECRUITING\",\"workTimes\":[{\"dayOfWeek\":\"MON\",\"startTime\":\"09:00\",\"endTime\":\"13:00\"}],\"updatedAt\":\"2026-11-01T01:00:00Z\"}"))),
 		@ApiResponse(responseCode = "400", description = "입력 형식 또는 값 오류",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {
@@ -233,11 +233,11 @@ public class JobPostingController {
 	}
 
 	@Operation(summary = "채용공고 상세 조회",
-			description = "사업주는 본인 공고의 모든 상태를, 유학생은 RECRUITING 공고만 조회할 수 있다. 임시저장 미입력은 null, 근무시간은 []다. 업종은 공고에서 선택한 값이며 사업장 업종으로 자동 대체하지 않는다. 시간 목록은 월~일·시작 시간 순으로 반환한다. 저장된 제목을 반환하며 조회 중 자동 마감하지 않는다.")
+			description = "사업주는 본인 공고의 모든 상태를, 유학생은 RECRUITING 공고만 조회할 수 있다. 임시저장 미입력은 null, 근무시간은 []다. 업종은 공고에서 선택한 값이며 사업장 업종으로 자동 대체하지 않는다. 시간 목록은 월~일·시작 시간 순으로 반환한다. 저장된 제목을 반환하며 조회 중 자동 마감하지 않는다. convertedHourlyWage는 저장된 급여·근무시간으로 계산한 원 단위 반올림 시급이며, 계산에 필요한 값이 없는 임시저장은 null이다.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "처리 성공",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = JobPostingDetailResponse.class),
-						examples = @ExampleObject(name = "success", value = "{\"jobPostingId\":1,\"workplaceId\":1,\"workplaceName\":\"예시카페\",\"title\":\"예시카페 바리스타 모집\",\"businessTypeId\":1,\"businessTypeName\":\"FOOD_CAFE\",\"jobRole\":\"바리스타\",\"recruitmentCount\":2,\"wageType\":\"HOURLY\",\"wageAmount\":13000,\"workStartDate\":\"2027-03-01\",\"requiredKoreanLevel\":\"INTERMEDIATE\",\"preferredExperience\":\"NONE\",\"applicationDeadlineDate\":\"2027-03-14\",\"workTimeNegotiable\":false,\"status\":\"RECRUITING\",\"workTimes\":[{\"dayOfWeek\":\"MON\",\"startTime\":\"09:00\",\"endTime\":\"13:00\"}],\"workplaceAddress\":\"서울특별시 성동구 예시로 10\",\"latitude\":37.5665,\"longitude\":126.978}"))),
+						examples = @ExampleObject(name = "success", value = "{\"jobPostingId\":1,\"workplaceId\":1,\"workplaceName\":\"예시카페\",\"title\":\"예시카페 바리스타 모집\",\"businessTypeId\":1,\"businessTypeName\":\"FOOD_CAFE\",\"jobRole\":\"바리스타\",\"recruitmentCount\":2,\"wageType\":\"HOURLY\",\"wageAmount\":13000,\"convertedHourlyWage\":13000,\"workStartDate\":\"2027-03-01\",\"requiredKoreanLevel\":\"INTERMEDIATE\",\"preferredExperience\":\"NONE\",\"applicationDeadlineDate\":\"2027-03-14\",\"workTimeNegotiable\":false,\"status\":\"RECRUITING\",\"workTimes\":[{\"dayOfWeek\":\"MON\",\"startTime\":\"09:00\",\"endTime\":\"13:00\"}],\"workplaceAddress\":\"서울특별시 성동구 예시로 10\",\"latitude\":37.5665,\"longitude\":126.978}"))),
 		@ApiResponse(responseCode = "400", description = "입력 형식 또는 값 오류",
 				content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class),
 						examples = {
