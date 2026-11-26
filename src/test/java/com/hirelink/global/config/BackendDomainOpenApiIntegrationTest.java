@@ -229,6 +229,36 @@ class BackendDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
+	void withdrawnStudentMaskingContractDocumentsFlagsAndNullablePersonalData() throws Exception {
+		JsonNode document = openApiDocument();
+		JsonNode applicationDetail = schema(document, "EmployerApplicationDetailResponse");
+		assertThat(contains(applicationDetail.path("required"), "studentDataMasked")).isTrue();
+		for (String field : List.of("desiredStartDate", "applicant", "matchResult")) {
+			assertThat(nullable(applicationDetail.path("properties").path(field))).as(field).isTrue();
+		}
+		JsonNode applicationItem = schema(document, "JobPostingApplicationItem");
+		assertType(applicationItem.path("properties").path("studentDataMasked"), "boolean");
+		for (String field : List.of("applicantName", "profileImageUrl", "nationality", "visaType", "topikLevel",
+				"matchScore", "desiredStartDate")) {
+			assertThat(nullable(applicationItem.path("properties").path(field))).as(field).isTrue();
+		}
+		JsonNode matchDetail = schema(document, "EmploymentMatchDetailResponse");
+		assertThat(contains(matchDetail.path("required"), "studentDataMasked")).isTrue();
+		for (String field : List.of("desiredStartDate", "contact", "student")) {
+			assertThat(nullable(matchDetail.path("properties").path(field))).as(field).isTrue();
+		}
+		JsonNode matchItem = schema(document, "EmploymentMatchItem");
+		assertType(matchItem.path("properties").path("studentDataMasked"), "boolean");
+		assertThat(nullable(matchItem.path("properties").path("desiredStartDate"))).isTrue();
+		assertThat(nullable(matchItem.path("properties").path("student"))).isTrue();
+		for (String path : List.of("/api/employer/applications/{id}", "/api/job-postings/{jobId}/applications",
+				"/api/matches/me", "/api/matches/{id}")) {
+			assertThat(operation(document, path, "get").path("description").asString())
+					.as(path).contains("30일", "studentDataMasked");
+		}
+	}
+
+	@Test
 	void careerSchemasRequireDescriptionForWritesAndPreserveLegacyReadNullability() throws Exception {
 		JsonNode document = openApiDocument();
 		JsonNode create = schema(document, "StudentCareerCreateRequest");

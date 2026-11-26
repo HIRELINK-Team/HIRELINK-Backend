@@ -8,11 +8,13 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.security.SecureRandom;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Base64;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -35,6 +37,8 @@ import tools.jackson.databind.ObjectMapper;
 import com.hirelink.global.storage.SupabaseStorageClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -42,6 +46,7 @@ class EmploymentMatchListIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private static final String TEST_JWT_SECRET = createTestSigningKey();
 	private static final Instant BASE_TIME = Instant.parse("2026-11-01T01:00:00Z");
+	private static final Instant QUERY_TIME = Instant.parse("2030-01-31T00:00:00Z");
 
 	@DynamicPropertySource
 	static void properties(DynamicPropertyRegistry registry) {
@@ -58,15 +63,49 @@ class EmploymentMatchListIntegrationTest extends PostgreSQLIntegrationTest {
 	private JwtEncoder jwtEncoder;
 	@MockitoBean
 	private SupabaseStorageClient storageClient;
+	@MockitoBean
+	private Clock clock;
 	private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
 	@BeforeEach
 	void clearTestDatabase() {
+		when(clock.instant()).thenReturn(QUERY_TIME);
 		jdbc.execute("TRUNCATE TABLE student_enrollment_document, student_document_cleanup, employment_popup_notification, employment_match, employment_offer, application, recommendation, recommendation_batch, "
 				+ "employer_profile, student_preferred_job, student_preferred_work_time, student_preferred_location, "
 				+ "student_job_preference, student_priority, job_posting_work_time, job_posting, workplace, student_career, "
 				+ "student_profile, user_term_agreement, phone_verification, phone_verification_send_attempt, "
 				+ "refresh_token, auth_account, student_registration_verification, user_account RESTART IDENTITY");
+	}
+
+	@Test
+	void employerListMasksAtAndAfterDeadlineWithoutFinalizationOrStateChanges() throws Exception {
+		long employer = createUser("EMPLOYER", "사업주");
+		long posting = createPosting(employer, "공고");
+		long student = createStudent("현재 유학생");
+		MatchFixture fixture = createMatch(student, posting, "지원 당시 유학생", BASE_TIME);
+		when(storageClient.createSignedUrl("profiles/current.png")).thenReturn("https://storage.example/profile");
+		Map<String, Object> applicationBefore = jdbc.queryForMap("select * from application where id = ?", fixture.applicationId());
+		Map<String, Object> offerBefore = jdbc.queryForMap("select * from employment_offer where id = ?", fixture.offerId());
+		Map<String, Object> matchBefore = jdbc.queryForMap("select * from employment_match where id = ?", fixture.matchId());
+
+		setWithdrawal(student, QUERY_TIME.minus(Duration.ofDays(30)).plusSeconds(1));
+		JsonNode visible = firstMatch(get(token(employer, "EMPLOYER"), "/api/matches/me"));
+		assertThat(visible.path("studentDataMasked").asBoolean()).isFalse();
+		assertThat(visible.path("student").path("name").asString()).isEqualTo("지원 당시 유학생");
+		assertThat(visible.path("desiredStartDate").asString()).isEqualTo("2026-11-10");
+
+		setWithdrawal(student, QUERY_TIME.minus(Duration.ofDays(30)));
+		clearInvocations(storageClient);
+		assertMaskedListItem(firstMatch(get(token(employer, "EMPLOYER"), "/api/matches/me")), fixture);
+		assertThat(jdbc.queryForObject("select withdrawal_finalized_at from user_account where id = ?", Object.class,
+				student)).isNull();
+
+		setWithdrawal(student, QUERY_TIME.minus(Duration.ofDays(30)).minusSeconds(1));
+		assertMaskedListItem(firstMatch(get(token(employer, "EMPLOYER"), "/api/matches/me")), fixture);
+		verifyNoInteractions(storageClient);
+		assertThat(jdbc.queryForMap("select * from application where id = ?", fixture.applicationId())).isEqualTo(applicationBefore);
+		assertThat(jdbc.queryForMap("select * from employment_offer where id = ?", fixture.offerId())).isEqualTo(offerBefore);
+		assertThat(jdbc.queryForMap("select * from employment_match where id = ?", fixture.matchId())).isEqualTo(matchBefore);
 	}
 
 	@Test
@@ -198,6 +237,27 @@ class EmploymentMatchListIntegrationTest extends PostgreSQLIntegrationTest {
 	private long createUser(String role, String name) {
 		return jdbc.queryForObject("insert into user_account(email, role, name) values (?, ?, ?) returning id",
 				Long.class, UUID.randomUUID() + "@example.com", role, name);
+	}
+
+	private JsonNode firstMatch(HttpResponse<String> response) {
+		return body(response, 200).path("matches").get(0);
+	}
+
+	private void assertMaskedListItem(JsonNode item, MatchFixture fixture) {
+		assertThat(item.path("studentDataMasked").asBoolean()).isTrue();
+		assertThat(item.path("student").isNull()).isTrue();
+		assertThat(item.path("desiredStartDate").isNull()).isTrue();
+		assertThat(item.path("matchId").asLong()).isEqualTo(fixture.matchId());
+		assertThat(item.path("applicationId").asLong()).isEqualTo(fixture.applicationId());
+		assertThat(item.path("offerId").asLong()).isEqualTo(fixture.offerId());
+		assertThat(item.path("matchedAt").isTextual()).isTrue();
+		assertThat(item.path("jobTitle").asString()).isEqualTo("지원 당시 공고");
+	}
+
+	private void setWithdrawal(long student, Instant requestedAt) {
+		jdbc.update("update user_account set withdrawn_at = ?, withdrawal_requested_at = ?, withdrawal_finalized_at = null where id = ?",
+				OffsetDateTime.ofInstant(requestedAt, ZoneOffset.UTC),
+				OffsetDateTime.ofInstant(requestedAt, ZoneOffset.UTC), student);
 	}
 
 	private HttpResponse<String> get(String token, String path) throws Exception {

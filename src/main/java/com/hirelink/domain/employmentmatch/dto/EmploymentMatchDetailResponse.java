@@ -31,13 +31,15 @@ public record EmploymentMatchDetailResponse(
 		Integer wageAmount,
 		@Schema(description = "근무시간 목록", requiredMode = Schema.RequiredMode.REQUIRED)
 		List<WorkTime> workTimes,
-		@Schema(description = "희망 근무 시작일", example = "2026-12-01", requiredMode = Schema.RequiredMode.REQUIRED)
+		@Schema(description = "희망 근무 시작일. 사업주 조회에서 studentDataMasked=true이면 null", example = "2026-12-01", nullable = true)
 		LocalDate desiredStartDate,
 		@Schema(description = "채용 완료 시각", example = "2026-11-14T05:00:00Z", requiredMode = Schema.RequiredMode.REQUIRED)
 		Instant matchedAt,
-		@Schema(description = "조회자 상대방의 연락처", requiredMode = Schema.RequiredMode.REQUIRED)
+		@Schema(description = "탈퇴 유학생 개인정보 마스킹 여부. 유학생 본인 조회는 false", example = "false", requiredMode = Schema.RequiredMode.REQUIRED)
+		boolean studentDataMasked,
+		@Schema(description = "조회자 상대방의 연락처. 사업주 조회에서 studentDataMasked=true이면 null", nullable = true)
 		Contact contact,
-		@Schema(description = "유학생 정보. 사업주 조회 시에만 제공되고 유학생 조회 시 null", nullable = true)
+		@Schema(description = "유학생 정보. 유학생 본인 조회 또는 studentDataMasked=true이면 null", nullable = true)
 		Student student) {
 
 	@Schema(description = "요일별 근무시간")

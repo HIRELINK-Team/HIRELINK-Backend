@@ -25,6 +25,7 @@ import com.hirelink.domain.jobposting.repository.JobPostingRepository;
 import com.hirelink.domain.member.entity.MemberRole;
 import com.hirelink.domain.member.entity.UserAccount;
 import com.hirelink.domain.member.repository.UserAccountRepository;
+import com.hirelink.domain.member.service.WithdrawnStudentDataMaskingPolicy;
 import com.hirelink.domain.student.entity.StudentProfile;
 import com.hirelink.global.exception.EmploymentMatchNotFoundException;
 import com.hirelink.global.exception.InvalidApplicationException;
@@ -39,14 +40,16 @@ public class EmploymentMatchService {
 	private final EmploymentMatchRepository employmentMatchRepository;
 	private final JobPostingRepository jobPostingRepository;
 	private final SupabaseStorageClient storageClient;
+	private final WithdrawnStudentDataMaskingPolicy studentDataMaskingPolicy;
 
 	public EmploymentMatchService(UserAccountRepository userAccountRepository,
 			EmploymentMatchRepository employmentMatchRepository, JobPostingRepository jobPostingRepository,
-			SupabaseStorageClient storageClient) {
+			SupabaseStorageClient storageClient, WithdrawnStudentDataMaskingPolicy studentDataMaskingPolicy) {
 		this.userAccountRepository = userAccountRepository;
 		this.employmentMatchRepository = employmentMatchRepository;
 		this.jobPostingRepository = jobPostingRepository;
 		this.storageClient = storageClient;
+		this.studentDataMaskingPolicy = studentDataMaskingPolicy;
 	}
 
 	@Transactional(readOnly = true)
@@ -70,11 +73,13 @@ public class EmploymentMatchService {
 		Map<String, Object> snapshot = application.getApplicationSnapshot();
 		Map<String, Object> jobPostingSnapshot = object(snapshot, "jobPosting");
 		Map<String, Object> studentSnapshot = object(snapshot, "student");
+		boolean studentDataMasked = employerViewer && studentDataMaskingPolicy.shouldMask(studentUser);
 
 		UserAccount contactUser = studentViewer ? employer : studentUser;
-		EmploymentMatchDetailResponse.Contact contact = new EmploymentMatchDetailResponse.Contact(
-				contactUser.getName(), formatPhoneNumber(contactUser.getPhoneNumber()));
-		EmploymentMatchDetailResponse.Student student = employerViewer
+		EmploymentMatchDetailResponse.Contact contact = studentDataMasked ? null
+				: new EmploymentMatchDetailResponse.Contact(
+						contactUser.getName(), formatPhoneNumber(contactUser.getPhoneNumber()));
+		EmploymentMatchDetailResponse.Student student = employerViewer && !studentDataMasked
 				? createStudent(application.getStudentProfile(), studentSnapshot) : null;
 
 		return new EmploymentMatchDetailResponse(match.getId(), application.getId(), offer.getId(),
@@ -82,7 +87,8 @@ public class EmploymentMatchService {
 				stringValue(jobPostingSnapshot, "workplaceName"),
 				stringValue(jobPostingSnapshot, "workplaceAddress"), stringValue(jobPostingSnapshot, "wageType"),
 				integerValue(jobPostingSnapshot, "wageAmount"), workTimes(jobPostingSnapshot),
-				application.getDesiredStartDate(), match.getCompletedAt(), contact, student);
+				studentDataMasked ? null : application.getDesiredStartDate(), match.getCompletedAt(),
+				studentDataMasked, contact, student);
 	}
 
 	@Transactional(readOnly = true)
@@ -173,12 +179,16 @@ public class EmploymentMatchService {
 		Map<String, Object> snapshot = application.getApplicationSnapshot();
 		Map<String, Object> posting = object(snapshot, "jobPosting");
 		Map<String, Object> studentSnapshot = object(snapshot, "student");
-		EmploymentMatchListResponse.Student student = employerViewer
+		boolean studentDataMasked = employerViewer && studentDataMaskingPolicy.shouldMask(
+				application.getStudentProfile().getUserAccount());
+		EmploymentMatchListResponse.Student student = employerViewer && !studentDataMasked
 				? createListStudent(application.getStudentProfile(), studentSnapshot) : null;
 		return new EmploymentMatchListResponse.Item(match.getId(), application.getId(), offer.getId(),
 				longValue(posting, "jobPostingId"), stringValue(posting, "title"),
 				stringValue(posting, "workplaceName"), stringValue(posting, "wageType"),
-				integerValue(posting, "wageAmount"), application.getDesiredStartDate(), match.getCompletedAt(), student);
+				integerValue(posting, "wageAmount"),
+				studentDataMasked ? null : application.getDesiredStartDate(), match.getCompletedAt(),
+				studentDataMasked, student);
 	}
 
 	private EmploymentMatchListResponse.Student createListStudent(StudentProfile profile,

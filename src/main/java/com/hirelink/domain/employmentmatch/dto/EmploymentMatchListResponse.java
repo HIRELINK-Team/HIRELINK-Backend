@@ -11,7 +11,7 @@ public record EmploymentMatchListResponse(
 		@Schema(description = "최신순 채용 완료 목록", requiredMode = Schema.RequiredMode.REQUIRED)
 		List<Item> matches) {
 
-	@Schema(description = "채용 완료 목록 항목")
+	@Schema(name = "EmploymentMatchItem", description = "채용 완료 목록 항목")
 	public record Item(
 			@Schema(description = "채용 완료 ID", example = "501", requiredMode = Schema.RequiredMode.REQUIRED)
 			Long matchId,
@@ -29,11 +29,13 @@ public record EmploymentMatchListResponse(
 			String wageType,
 			@Schema(description = "급여 금액(원)", example = "12000", requiredMode = Schema.RequiredMode.REQUIRED)
 			Integer wageAmount,
-			@Schema(description = "희망 근무 시작일", example = "2026-12-01", requiredMode = Schema.RequiredMode.REQUIRED)
+			@Schema(description = "희망 근무 시작일. studentDataMasked=true이면 null", example = "2026-12-01", nullable = true)
 			LocalDate desiredStartDate,
 			@Schema(description = "채용 완료 시각", example = "2026-11-14T05:00:00Z", requiredMode = Schema.RequiredMode.REQUIRED)
 			Instant matchedAt,
-			@Schema(description = "유학생 정보. 사업주 조회 시에만 제공되고 유학생 조회 시 null", nullable = true)
+			@Schema(description = "탈퇴 유학생 개인정보 마스킹 여부. 유학생 본인 조회는 false", example = "false", requiredMode = Schema.RequiredMode.REQUIRED)
+			boolean studentDataMasked,
+			@Schema(description = "유학생 정보. 유학생 본인 조회 또는 studentDataMasked=true이면 null", nullable = true)
 			Student student) {
 	}
 

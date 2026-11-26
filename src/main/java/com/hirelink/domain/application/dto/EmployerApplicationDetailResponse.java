@@ -20,17 +20,19 @@ public record EmployerApplicationDetailResponse(
 		Long jobPostingId,
 		@Schema(description = "지원 상태: WAITING_RESPONSE(사업주 응답 대기), OFFERED(채용 제안 발송), COMPLETED(채용 완료), ENDED(지원 종료)", example = "WAITING_RESPONSE", requiredMode = Schema.RequiredMode.REQUIRED)
 		ApplicationStatus status,
-		@Schema(description = "희망 근무 시작일", example = "2026-12-01", requiredMode = Schema.RequiredMode.REQUIRED)
+		@Schema(description = "탈퇴 유학생 개인정보 마스킹 여부. true이면 applicant·matchResult·desiredStartDate는 null", example = "false", requiredMode = Schema.RequiredMode.REQUIRED)
+		boolean studentDataMasked,
+		@Schema(description = "희망 근무 시작일. 탈퇴 신청 30일 경계부터 null", example = "2026-12-01", nullable = true)
 		LocalDate desiredStartDate,
 		@Schema(description = "지원 시각", example = "2026-11-14T03:00:00Z", requiredMode = Schema.RequiredMode.REQUIRED)
 		Instant appliedAt,
 		@Schema(description = "사업주 응답 기한. 응답 단계가 끝난 경우 null", example = "2026-11-15T03:00:00Z", nullable = true)
 		Instant employerResponseDeadline,
-		@Schema(description = "지원 당시 유학생 정보", requiredMode = Schema.RequiredMode.REQUIRED)
+		@Schema(description = "지원 당시 유학생 정보. studentDataMasked=true이면 null", nullable = true)
 		Applicant applicant,
 		@Schema(description = "지원 당시 공고 요구사항", requiredMode = Schema.RequiredMode.REQUIRED)
 		JobRequirements jobRequirements,
-		@Schema(description = "지원 당시 매칭 판정", requiredMode = Schema.RequiredMode.REQUIRED)
+		@Schema(description = "지원 당시 매칭 판정. studentDataMasked=true이면 null", nullable = true)
 		MatchResult matchResult) {
 
 	@Schema(description = "지원 당시 유학생 정보")
