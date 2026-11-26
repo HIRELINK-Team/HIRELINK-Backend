@@ -39,7 +39,7 @@ public class EmploymentMatchController {
 	}
 
 	@GetMapping("/api/matches/{id}")
-	@Operation(summary = "채용 완료 상세 조회", description = "채용 완료 당사자인 유학생 또는 사업주가 근무 정보와 상대방 연락처를 조회합니다.")
+	@Operation(summary = "채용 완료 상세 조회", description = "채용 완료 당사자인 유학생 또는 사업주가 근무 정보와 상대방 연락처를 조회합니다. 사업주 조회에서 탈퇴 신청 30일 경계부터 studentDataMasked=true이고 유학생 연락처·프로필·희망 시작일은 null입니다.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "채용 완료 상세 조회 성공",
 					content = @Content(mediaType = "application/json", schema = @Schema(implementation = EmploymentMatchDetailResponse.class))),
@@ -61,7 +61,7 @@ public class EmploymentMatchController {
 	}
 
 	@GetMapping("/api/matches/me")
-	@Operation(summary = "내 채용 완료 목록 조회", description = "유학생은 본인의 전체 채용 완료 목록을, 사업주는 본인 공고의 목록을 조회합니다. 채용공고 필터는 사업주만 사용할 수 있습니다.")
+	@Operation(summary = "내 채용 완료 목록 조회", description = "유학생은 본인의 전체 채용 완료 목록을, 사업주는 본인 공고의 목록을 조회합니다. 채용공고 필터는 사업주만 사용할 수 있습니다. 사업주 조회에서 탈퇴 신청 30일 경계부터 해당 항목의 studentDataMasked=true이고 유학생 정보·희망 시작일은 null입니다.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "내 채용 완료 목록 조회 성공",
 					content = @Content(mediaType = "application/json", schema = @Schema(implementation = EmploymentMatchListResponse.class))),

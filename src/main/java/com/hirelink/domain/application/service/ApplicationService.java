@@ -46,6 +46,7 @@ import com.hirelink.domain.jobposting.repository.JobPostingWorkTimeRepository;
 import com.hirelink.domain.member.entity.MemberRole;
 import com.hirelink.domain.member.entity.UserAccount;
 import com.hirelink.domain.member.repository.UserAccountRepository;
+import com.hirelink.domain.member.service.WithdrawnStudentDataMaskingPolicy;
 import com.hirelink.domain.recommendation.entity.Recommendation;
 import com.hirelink.domain.recommendation.repository.RecommendationRepository;
 import com.hirelink.domain.student.entity.StudentPreferredWorkTime;
@@ -90,6 +91,7 @@ public class ApplicationService {
 	private final EmploymentPopupNotificationService popupNotifications;
 	private final EmploymentSmsNotificationPublisher smsNotifications;
 	private final SupabaseStorageClient storageClient;
+	private final WithdrawnStudentDataMaskingPolicy studentDataMaskingPolicy;
 	private final Clock clock;
 
 	public ApplicationService(UserAccountRepository userAccountRepository,
@@ -100,7 +102,8 @@ public class ApplicationService {
 			EmploymentOfferRepository employmentOfferRepository,
 			EmploymentMatchRepository employmentMatchRepository,
 			EmploymentPopupNotificationService popupNotifications,
-			EmploymentSmsNotificationPublisher smsNotifications, SupabaseStorageClient storageClient, Clock clock) {
+			EmploymentSmsNotificationPublisher smsNotifications, SupabaseStorageClient storageClient,
+			WithdrawnStudentDataMaskingPolicy studentDataMaskingPolicy, Clock clock) {
 		this.userAccountRepository = userAccountRepository;
 		this.applicationRepository = applicationRepository;
 		this.recommendationRepository = recommendationRepository;
@@ -113,6 +116,7 @@ public class ApplicationService {
 		this.popupNotifications = popupNotifications;
 		this.smsNotifications = smsNotifications;
 		this.storageClient = storageClient;
+		this.studentDataMaskingPolicy = studentDataMaskingPolicy;
 		this.clock = clock;
 	}
 
@@ -239,12 +243,14 @@ public class ApplicationService {
 		Map<String, Object> student = object(snapshot, "student");
 		Map<String, Object> posting = object(snapshot, "jobPosting");
 		Map<String, Object> recommendation = object(snapshot, "recommendation");
+		boolean studentDataMasked = shouldMaskStudentData(application);
 		return new EmployerApplicationDetailResponse(application.getId(), application.getJobPosting().getId(),
-				application.getStatus(), application.getDesiredStartDate(), application.getAppliedAt(),
-				employerResponseDeadline(application), employerApplicant(student),
+				application.getStatus(), studentDataMasked,
+				studentDataMasked ? null : application.getDesiredStartDate(), application.getAppliedAt(),
+				employerResponseDeadline(application), studentDataMasked ? null : employerApplicant(student),
 				new EmployerApplicationDetailResponse.JobRequirements(workTimes(posting),
 						integerValue(posting, "wageAmount"), stringValue(posting, "requiredKoreanLevel")),
-				matchResult(student, posting, recommendation));
+				studentDataMasked ? null : matchResult(student, posting, recommendation));
 	}
 
 	@Transactional(readOnly = true)
@@ -445,10 +451,16 @@ public class ApplicationService {
 		Map<String, Object> student = object(snapshot, "student");
 		Map<String, Object> recommendation = object(snapshot, "recommendation");
 		ApplicationLinks links = links(application);
+		boolean studentDataMasked = shouldMaskStudentData(application);
 		return new JobPostingApplicationListResponse.Item(application.getId(), application.getStatus(),
-				stringValue(student, "name"), profileImageUrl(student), stringValue(student, "nationality"),
-				stringValue(student, "visaCode"), shortValue(student, "topikLevel"),
-				decimalValue(recommendation, "score"), application.getDesiredStartDate(), application.getAppliedAt(),
+				studentDataMasked,
+				studentDataMasked ? null : stringValue(student, "name"),
+				studentDataMasked ? null : profileImageUrl(student),
+				studentDataMasked ? null : stringValue(student, "nationality"),
+				studentDataMasked ? null : stringValue(student, "visaCode"),
+				studentDataMasked ? null : shortValue(student, "topikLevel"),
+				studentDataMasked ? null : decimalValue(recommendation, "score"),
+				studentDataMasked ? null : application.getDesiredStartDate(), application.getAppliedAt(),
 				employerResponseDeadline(application), links.offer() == null ? null : links.offer().getId(),
 				links.offer() == null ? null : links.offer().getStudentResponseDeadline(),
 				links.match() == null ? null : links.match().getId(),
@@ -564,6 +576,10 @@ public class ApplicationService {
 	private String profileImageUrl(Map<String, Object> student) {
 		String key = stringValue(student, "profileImageKey");
 		return key == null ? null : storageClient.createSignedUrl(key);
+	}
+
+	private boolean shouldMaskStudentData(Application application) {
+		return studentDataMaskingPolicy.shouldMask(application.getStudentProfile().getUserAccount());
 	}
 
 	@SuppressWarnings("unchecked")

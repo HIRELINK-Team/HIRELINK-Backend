@@ -117,7 +117,7 @@ public class ApplicationController {
 	}
 
 	@GetMapping("/api/employer/applications/{id}")
-	@Operation(summary = "사업주용 지원 상세 조회", description = "사업주가 본인 채용공고에 접수된 지원자의 지원 당시 정보와 매칭 결과를 조회합니다.")
+	@Operation(summary = "사업주용 지원 상세 조회", description = "사업주가 본인 채용공고에 접수된 지원자의 지원 당시 정보와 매칭 결과를 조회합니다. 탈퇴 신청 후 30일 경계부터는 studentDataMasked=true이고 유학생 개인정보는 null이며, 지원 상태와 이력은 유지됩니다.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "지원 상세 조회 성공",
 					content = @Content(mediaType = "application/json", schema = @Schema(implementation = EmployerApplicationDetailResponse.class))),
@@ -140,7 +140,7 @@ public class ApplicationController {
 	}
 
 	@GetMapping("/api/job-postings/{jobId}/applications")
-	@Operation(summary = "공고별 지원 목록 조회", description = "사업주가 본인 채용공고의 지원 목록과 상태별 집계를 조회합니다. 상태를 생략하면 종료된 지원은 제외됩니다.")
+	@Operation(summary = "공고별 지원 목록 조회", description = "사업주가 본인 채용공고의 지원 목록과 상태별 집계를 조회합니다. 상태를 생략하면 종료된 지원은 제외됩니다. 탈퇴 신청 후 30일 경계부터 해당 항목의 studentDataMasked=true이고 유학생 개인정보는 null입니다.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "공고별 지원 목록 조회 성공",
 					content = @Content(mediaType = "application/json", schema = @Schema(implementation = JobPostingApplicationListResponse.class))),

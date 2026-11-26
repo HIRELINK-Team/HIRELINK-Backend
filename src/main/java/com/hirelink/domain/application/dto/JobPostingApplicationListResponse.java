@@ -27,25 +27,27 @@ public record JobPostingApplicationListResponse(
 		@Schema(description = "지원 목록", requiredMode = Schema.RequiredMode.REQUIRED)
 		List<Item> applications) {
 
-	@Schema(description = "공고별 지원 목록 항목")
+	@Schema(name = "JobPostingApplicationItem", description = "공고별 지원 목록 항목")
 	public record Item(
 			@Schema(description = "지원 ID", example = "201", requiredMode = Schema.RequiredMode.REQUIRED)
 			Long applicationId,
 			@Schema(description = "지원 상태: WAITING_RESPONSE(사업주 응답 대기), OFFERED(채용 제안 발송), COMPLETED(채용 완료), ENDED(지원 종료)", example = "WAITING_RESPONSE", requiredMode = Schema.RequiredMode.REQUIRED)
 			ApplicationStatus status,
-			@Schema(description = "지원자 이름", example = "김하이어", requiredMode = Schema.RequiredMode.REQUIRED)
+			@Schema(description = "탈퇴 유학생 개인정보 마스킹 여부. true이면 이름·프로필·국적·비자·TOPIK·매칭 점수·희망 시작일은 null", example = "false", requiredMode = Schema.RequiredMode.REQUIRED)
+			boolean studentDataMasked,
+			@Schema(description = "지원자 이름. studentDataMasked=true이면 null", example = "김하이어", nullable = true)
 			String applicantName,
 			@Schema(description = "프로필 이미지 임시 URL. 이미지가 없으면 null", example = "https://example.invalid/profile/sample.png", nullable = true)
 			String profileImageUrl,
-			@Schema(description = "국적", example = "VIETNAM", requiredMode = Schema.RequiredMode.REQUIRED)
+			@Schema(description = "국적. studentDataMasked=true이면 null", example = "VIETNAM", nullable = true)
 			String nationality,
-			@Schema(description = "체류 자격 코드", example = "D-2", requiredMode = Schema.RequiredMode.REQUIRED)
+			@Schema(description = "체류 자격 코드. studentDataMasked=true이면 null", example = "D-2", nullable = true)
 			String visaType,
 			@Schema(description = "TOPIK 등급. 미입력 시 null", example = "4", nullable = true)
 			Short topikLevel,
-			@Schema(description = "매칭 점수", example = "92.50", requiredMode = Schema.RequiredMode.REQUIRED)
+			@Schema(description = "매칭 점수. studentDataMasked=true이면 null", example = "92.50", nullable = true)
 			BigDecimal matchScore,
-			@Schema(description = "희망 근무 시작일", example = "2026-12-01", requiredMode = Schema.RequiredMode.REQUIRED)
+			@Schema(description = "희망 근무 시작일. studentDataMasked=true이면 null", example = "2026-12-01", nullable = true)
 			LocalDate desiredStartDate,
 			@Schema(description = "지원 시각", example = "2026-11-14T03:00:00Z", requiredMode = Schema.RequiredMode.REQUIRED)
 			Instant appliedAt,
