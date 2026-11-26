@@ -138,6 +138,10 @@ class MatchingDomainOpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 				.path("properties").path("offerStatus");
 		assertThat(containsText(offerStatus.path("enum"), "PENDING")).isTrue();
 		assertThat(offerStatus.path("description").asString()).contains("응답 대기");
+		JsonNode createOffer = operation(document, "/api/applications/{applicationId}/offers", "post");
+		assertThat(createOffer.path("description").asString()).contains("탈퇴", "30일", "복구");
+		assertThat(createOffer.path("responses").path("409").path("description").asString())
+				.contains("WITHDRAWN_STUDENT_OFFER_NOT_ALLOWED");
 
 		assertNullable(document.path("components").path("schemas").path("StudentApplicationDetailResponse")
 				.path("properties").path("offerId"));

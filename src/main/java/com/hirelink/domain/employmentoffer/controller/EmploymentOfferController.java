@@ -37,7 +37,7 @@ public class EmploymentOfferController {
 	}
 
 	@PostMapping("/api/applications/{applicationId}/offers")
-	@Operation(summary = "채용 제안 생성", description = "사업주가 본인 채용공고의 응답 기한 내 지원자에게 채용 제안을 보냅니다.")
+	@Operation(summary = "채용 제안 생성", description = "사업주가 본인 채용공고의 응답 기한 내 지원자에게 채용 제안을 보냅니다. 탈퇴를 신청한 유학생에게는 새 제안을 생성할 수 없으며, 30일 복구 기한 내 계정을 복구하면 다시 제안할 수 있습니다.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "201", description = "채용 제안 생성 성공",
 					content = @Content(mediaType = "application/json", schema = @Schema(implementation = EmploymentOfferCreateResponse.class))),
@@ -49,7 +49,7 @@ public class EmploymentOfferController {
 					content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
 			@ApiResponse(responseCode = "404", description = "지원을 찾을 수 없음",
 					content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class))),
-			@ApiResponse(responseCode = "409", description = "응답 기한이 지났거나 제안 가능한 지원 상태가 아니거나 제안이 이미 존재함",
+			@ApiResponse(responseCode = "409", description = "응답 기한이 지났거나 제안 가능한 지원 상태가 아니거나 제안이 이미 존재하거나 지원 유학생이 탈퇴를 신청함. 탈퇴 신청 시 WITHDRAWN_STUDENT_OFFER_NOT_ALLOWED 반환",
 					content = @Content(mediaType = "application/json", schema = @Schema(implementation = ErrorResponse.class)))
 	})
 	public ResponseEntity<EmploymentOfferCreateResponse> createOffer(@AuthenticationPrincipal Jwt jwt,

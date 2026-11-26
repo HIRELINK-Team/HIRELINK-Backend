@@ -29,6 +29,7 @@ import com.hirelink.global.exception.ApplicationNotFoundException;
 import com.hirelink.global.exception.EmploymentOfferNotFoundException;
 import com.hirelink.global.exception.EmploymentOfferStateConflictException;
 import com.hirelink.global.exception.WithdrawnAccountException;
+import com.hirelink.global.exception.WithdrawnStudentOfferException;
 
 @Service
 public class EmploymentOfferService {
@@ -68,6 +69,9 @@ public class EmploymentOfferService {
 				.orElseThrow(ApplicationNotFoundException::new);
 		if (!application.getJobPosting().getWorkplace().getEmployerUser().getId().equals(userId)) {
 			throw new AccessDeniedException("본인의 채용공고에 접수된 지원에만 채용 제안을 생성할 수 있습니다.");
+		}
+		if (application.getStudentProfile().getUserAccount().isWithdrawn()) {
+			throw new WithdrawnStudentOfferException();
 		}
 		Instant offeredAt = now();
 		if (!application.getEmployerResponseDeadline().isAfter(offeredAt)
