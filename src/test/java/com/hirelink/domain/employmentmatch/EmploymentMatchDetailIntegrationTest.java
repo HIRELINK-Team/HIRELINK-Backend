@@ -8,6 +8,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.security.SecureRandom;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -38,6 +39,7 @@ import com.hirelink.global.exception.ProfileImageAccessException;
 import com.hirelink.global.storage.SupabaseStorageClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -46,6 +48,7 @@ class EmploymentMatchDetailIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private static final String TEST_JWT_SECRET = createTestSigningKey();
 	private static final Instant MATCHED_AT = Instant.parse("2026-11-01T03:00:00.123456Z");
+	private static final Instant QUERY_TIME = Instant.parse("2030-01-31T00:00:00Z");
 
 	@DynamicPropertySource
 	static void properties(DynamicPropertyRegistry registry) {
@@ -62,10 +65,13 @@ class EmploymentMatchDetailIntegrationTest extends PostgreSQLIntegrationTest {
 	private JwtEncoder jwtEncoder;
 	@MockitoBean
 	private SupabaseStorageClient storageClient;
+	@MockitoBean
+	private Clock clock;
 	private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
 	@BeforeEach
 	void clearTestDatabase() {
+		when(clock.instant()).thenReturn(QUERY_TIME);
 		jdbc.execute("TRUNCATE TABLE student_enrollment_document, student_document_cleanup, employment_popup_notification, employment_match, employment_offer, application, recommendation, recommendation_batch, "
 				+ "employer_profile, student_preferred_job, student_preferred_work_time, student_preferred_location, "
 				+ "student_job_preference, student_priority, job_posting_work_time, job_posting, workplace, student_career, "
@@ -87,7 +93,7 @@ class EmploymentMatchDetailIntegrationTest extends PostgreSQLIntegrationTest {
 		JsonNode body = mapper.readTree(response.body());
 		assertThat(body.propertyNames()).containsExactlyInAnyOrder("matchId", "applicationId", "offerId",
 				"jobPostingId", "jobTitle", "workplaceName", "workplaceAddress", "wageType", "wageAmount",
-				"workTimes", "desiredStartDate", "matchedAt", "contact", "student");
+				"workTimes", "desiredStartDate", "matchedAt", "studentDataMasked", "contact", "student");
 		assertThat(body.path("matchId").asLong()).isEqualTo(fixture.matchId());
 		assertThat(body.path("applicationId").asLong()).isEqualTo(fixture.applicationId());
 		assertThat(body.path("offerId").asLong()).isEqualTo(fixture.offerId());
@@ -110,6 +116,35 @@ class EmploymentMatchDetailIntegrationTest extends PostgreSQLIntegrationTest {
 		assertThat(row("employment_offer", fixture.offerId())).isEqualTo(offerBefore);
 		assertThat(row("employment_match", fixture.matchId())).isEqualTo(matchBefore);
 		verifyNoInteractions(storageClient);
+	}
+
+	@Test
+	void employerDetailMasksAtAndAfterDeadlineWithoutFinalizationOrStateChanges() throws Exception {
+		Fixture fixture = createCompletedMatch();
+		when(storageClient.createSignedUrl("profiles/current-student.png")).thenReturn("https://storage.example/profile");
+		Map<String, Object> applicationBefore = row("application", fixture.applicationId());
+		Map<String, Object> offerBefore = row("employment_offer", fixture.offerId());
+		Map<String, Object> matchBefore = row("employment_match", fixture.matchId());
+
+		setWithdrawal(fixture.studentId(), QUERY_TIME.minus(Duration.ofDays(30)).plusSeconds(1));
+		JsonNode visible = mapper.readTree(get(token(fixture.employerId(), "EMPLOYER"), fixture.matchId()).body());
+		assertThat(visible.path("studentDataMasked").asBoolean()).isFalse();
+		assertThat(visible.path("contact").path("phoneNumber").asString()).isEqualTo("010-1111-1111");
+		assertThat(visible.path("student").path("profileImageUrl").isTextual()).isTrue();
+
+		setWithdrawal(fixture.studentId(), QUERY_TIME.minus(Duration.ofDays(30)));
+		clearInvocations(storageClient);
+		JsonNode exactBoundary = body(get(token(fixture.employerId(), "EMPLOYER"), fixture.matchId()), 200);
+		assertMaskedDetail(exactBoundary, fixture);
+		assertThat(jdbc.queryForObject("select withdrawal_finalized_at from user_account where id = ?", Object.class,
+				fixture.studentId())).isNull();
+
+		setWithdrawal(fixture.studentId(), QUERY_TIME.minus(Duration.ofDays(30)).minusSeconds(1));
+		assertMaskedDetail(body(get(token(fixture.employerId(), "EMPLOYER"), fixture.matchId()), 200), fixture);
+		verifyNoInteractions(storageClient);
+		assertThat(row("application", fixture.applicationId())).isEqualTo(applicationBefore);
+		assertThat(row("employment_offer", fixture.offerId())).isEqualTo(offerBefore);
+		assertThat(row("employment_match", fixture.matchId())).isEqualTo(matchBefore);
 	}
 
 	@Test
@@ -247,6 +282,29 @@ class EmploymentMatchDetailIntegrationTest extends PostgreSQLIntegrationTest {
 
 	private Map<String, Object> row(String table, long id) {
 		return jdbc.queryForMap("select * from " + table + " where id = ?", id);
+	}
+
+	private void assertMaskedDetail(JsonNode body, Fixture fixture) {
+		assertThat(body.path("studentDataMasked").asBoolean()).isTrue();
+		assertThat(body.path("contact").isNull()).isTrue();
+		assertThat(body.path("student").isNull()).isTrue();
+		assertThat(body.path("desiredStartDate").isNull()).isTrue();
+		assertThat(body.path("matchId").asLong()).isEqualTo(fixture.matchId());
+		assertThat(body.path("applicationId").asLong()).isEqualTo(fixture.applicationId());
+		assertThat(body.path("offerId").asLong()).isEqualTo(fixture.offerId());
+		assertThat(body.path("matchedAt").isTextual()).isTrue();
+		assertThat(body.path("jobTitle").asString()).isEqualTo("지원 당시 공고");
+	}
+
+	private void setWithdrawal(long student, Instant requestedAt) {
+		jdbc.update("update user_account set withdrawn_at = ?, withdrawal_requested_at = ?, withdrawal_finalized_at = null where id = ?",
+				OffsetDateTime.ofInstant(requestedAt, ZoneOffset.UTC),
+				OffsetDateTime.ofInstant(requestedAt, ZoneOffset.UTC), student);
+	}
+
+	private JsonNode body(HttpResponse<String> response, int status) {
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(status);
+		return mapper.readTree(response.body());
 	}
 
 	private HttpResponse<String> get(String token, long matchId) throws Exception {
