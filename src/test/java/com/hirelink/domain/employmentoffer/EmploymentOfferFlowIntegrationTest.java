@@ -168,6 +168,35 @@ class EmploymentOfferFlowIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
+	void blocksOfferToWithdrawnStudentWithoutSideEffectsAndAllowsItAfterRestore() throws Exception {
+		Fixture fixture = createApplication("WAITING_RESPONSE");
+		jdbc.update("""
+				update user_account set withdrawn_at = ?, withdrawal_requested_at = ? where id = ?
+				""", OffsetDateTime.ofInstant(PROCESSING_TIME.minus(Duration.ofDays(1)), ZoneOffset.UTC),
+				OffsetDateTime.ofInstant(PROCESSING_TIME.minus(Duration.ofDays(1)), ZoneOffset.UTC), fixture.studentId());
+
+		assertError(createOffer(token(fixture.employerId(), "EMPLOYER"), Long.toString(fixture.applicationId())),
+				409, "WITHDRAWN_STUDENT_OFFER_NOT_ALLOWED");
+		assertThat(jdbc.queryForObject("select status from application where id = ?", String.class,
+				fixture.applicationId())).isEqualTo("WAITING_RESPONSE");
+		assertThat(jdbc.queryForObject("select count(*) from employment_offer", Integer.class)).isZero();
+		assertThat(jdbc.queryForObject("select count(*) from employment_popup_notification", Integer.class)).isZero();
+		verify(smsNotifications, never()).offerCreated(any(EmploymentOffer.class));
+
+		jdbc.update("""
+				update user_account set withdrawn_at = null, withdrawal_requested_at = null where id = ?
+				""", fixture.studentId());
+
+		assertThat(createOffer(token(fixture.employerId(), "EMPLOYER"),
+				Long.toString(fixture.applicationId())).statusCode()).isEqualTo(201);
+		assertThat(jdbc.queryForObject("select status from application where id = ?", String.class,
+				fixture.applicationId())).isEqualTo("OFFERED");
+		assertThat(jdbc.queryForObject("select count(*) from employment_offer", Integer.class)).isEqualTo(1);
+		assertThat(jdbc.queryForObject("select count(*) from employment_popup_notification", Integer.class)).isEqualTo(1);
+		verify(smsNotifications, times(1)).offerCreated(any(EmploymentOffer.class));
+	}
+
+	@Test
 	void rejectsOfferCreationAtEmployerResponseDeadline() throws Exception {
 		Fixture fixture = createApplication("WAITING_RESPONSE");
 		jdbc.update("update application set employer_response_deadline = ? where id = ?",

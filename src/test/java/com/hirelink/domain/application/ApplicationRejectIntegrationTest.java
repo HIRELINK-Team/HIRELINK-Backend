@@ -126,6 +126,25 @@ class ApplicationRejectIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
+	void employerCanRejectApplicationFromWithdrawnStudent() throws Exception {
+		Fixture fixture = createApplication(ApplicationStatus.WAITING_RESPONSE);
+		jdbc.update("""
+				update user_account set withdrawn_at = now(), withdrawal_requested_at = now() where id = ?
+				""", fixture.studentId());
+
+		HttpResponse<String> response = reject(token(fixture.employerId(), "EMPLOYER"),
+				Long.toString(fixture.applicationId()));
+
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		assertThat(application(fixture.applicationId()))
+				.containsEntry("status", "ENDED")
+				.containsEntry("end_reason", "EMPLOYER_REJECTED");
+		assertThat(jdbc.queryForObject("select count(*) from employment_popup_notification",
+				Integer.class)).isEqualTo(1);
+		verify(smsNotifications).applicationRejected(any(Application.class));
+	}
+
+	@Test
 	void requiresAuthenticationWithoutChangingApplication() throws Exception {
 		Fixture fixture = createApplication(ApplicationStatus.WAITING_RESPONSE);
 		Map<String, Object> before = application(fixture.applicationId());

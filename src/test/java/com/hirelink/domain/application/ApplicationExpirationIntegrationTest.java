@@ -4,6 +4,7 @@ import com.hirelink.support.PostgreSQLIntegrationTest;
 
 import java.sql.Timestamp;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -57,11 +58,13 @@ class ApplicationExpirationIntegrationTest extends PostgreSQLIntegrationTest {
 	void expiresOverdueResponsesAndKeepsFutureOrAlreadyEndedRowsUnchanged() {
 		long employer = createUser("EMPLOYER");
 		long posting = createPosting(employer);
-		long employerExpired = createApplication(createStudent(), posting, "WAITING_RESPONSE",
+		long employerExpiredStudent = createStudent();
+		long employerExpired = createApplication(employerExpiredStudent, posting, "WAITING_RESPONSE",
 				PROCESSING_TIME.minusSeconds(1), null, null);
 		long employerFuture = createApplication(createStudent(), posting, "WAITING_RESPONSE",
 				PROCESSING_TIME.plusSeconds(1), null, null);
-		long studentExpired = createApplication(createStudent(), posting, "OFFERED",
+		long studentExpiredStudent = createStudent();
+		long studentExpired = createApplication(studentExpiredStudent, posting, "OFFERED",
 				PROCESSING_TIME.minusSeconds(100), null, null);
 		long expiredOffer = createOffer(studentExpired, PROCESSING_TIME.minusSeconds(1));
 		long studentFuture = createApplication(createStudent(), posting, "OFFERED",
@@ -70,6 +73,11 @@ class ApplicationExpirationIntegrationTest extends PostgreSQLIntegrationTest {
 		Instant originalEndedAt = PROCESSING_TIME.minusSeconds(500);
 		long alreadyEnded = createApplication(createStudent(), posting, "ENDED",
 				PROCESSING_TIME.minusSeconds(1000), "WITHDRAWN", originalEndedAt);
+		jdbc.update("""
+				update user_account set withdrawn_at = ?, withdrawal_requested_at = ? where id in (?, ?)
+				""", OffsetDateTime.ofInstant(PROCESSING_TIME.minus(Duration.ofDays(1)), ZoneOffset.UTC),
+				OffsetDateTime.ofInstant(PROCESSING_TIME.minus(Duration.ofDays(1)), ZoneOffset.UTC),
+				employerExpiredStudent, studentExpiredStudent);
 
 		scheduler.expireResponses();
 		scheduler.expireResponses();
