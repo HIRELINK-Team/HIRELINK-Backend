@@ -82,6 +82,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 				.body(new ErrorResponse("EMPLOYMENT_OFFER_STATE_CONFLICT", exception.getMessage()));
 	}
 
+	@ExceptionHandler(WithdrawnStudentOfferException.class)
+	public ResponseEntity<ErrorResponse> handleWithdrawnStudentOffer(WithdrawnStudentOfferException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ErrorResponse("WITHDRAWN_STUDENT_OFFER_NOT_ALLOWED", exception.getMessage()));
+	}
+
 	@ExceptionHandler(EmploymentOfferNotFoundException.class)
 	public ResponseEntity<ErrorResponse> handleEmploymentOfferNotFound(EmploymentOfferNotFoundException exception) {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)
