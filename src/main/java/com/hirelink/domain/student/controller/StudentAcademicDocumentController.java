@@ -57,7 +57,7 @@ public class StudentAcademicDocumentController {
             @ExampleObject(name="TRANSCRIPT", summary="성적증명서", value=TRANSCRIPT_PREVIEW),
             @ExampleObject(name="TOPIK", summary="TOPIK 성적증명서", value=TOPIK_PREVIEW)}))
     public ResponseEntity<AcademicDocumentResponse> preview(@AuthenticationPrincipal Jwt jwt,
-            @PathVariable @Parameter(description="서류 종류: transcript=성적증명서, topik=TOPIK 성적증명서. 소문자만 허용하며 재학증명서(enrollment)는 별도 API이다.", 
+            @PathVariable @Parameter(description="서류 종류: transcript=성적증명서, topik=TOPIK 성적증명서. 소문자만 허용하며 재학증명서(enrollment)는 별도 API이다.",
                 schema=@Schema(type="string", allowableValues={"transcript", "topik"})) String kind,
             @RequestPart("file") MultipartFile file) {
         return ResponseEntity.ok().header("Cache-Control","no-store").body(service.preview(Long.valueOf(jwt.getSubject()),kind,file));
@@ -69,7 +69,7 @@ public class StudentAcademicDocumentController {
             @ExampleObject(name="TRANSCRIPT", summary="성적증명서", value=TRANSCRIPT_CONFIRMED),
             @ExampleObject(name="TOPIK", summary="TOPIK 성적증명서", value=TOPIK_CONFIRMED)}))
     public ResponseEntity<AcademicDocumentResponse> confirm(@AuthenticationPrincipal Jwt jwt,
-            @PathVariable @Parameter(description="서류 종류: transcript=성적증명서, topik=TOPIK 성적증명서. 소문자만 허용하며 재학증명서(enrollment)는 별도 API이다.", 
+            @PathVariable @Parameter(description="서류 종류: transcript=성적증명서, topik=TOPIK 성적증명서. 소문자만 허용하며 재학증명서(enrollment)는 별도 API이다.",
                 schema=@Schema(type="string", allowableValues={"transcript", "topik"})) String kind,
             @PathVariable UUID draftId) {
         return ResponseEntity.ok().header("Cache-Control","no-store").body(service.confirm(Long.valueOf(jwt.getSubject()),kind,draftId));
@@ -81,7 +81,7 @@ public class StudentAcademicDocumentController {
             @ExampleObject(name="TRANSCRIPT", summary="성적증명서", value=TRANSCRIPT_CONFIRMED),
             @ExampleObject(name="TOPIK", summary="TOPIK 성적증명서", value=TOPIK_CONFIRMED)}))
     public ResponseEntity<AcademicDocumentResponse> current(@AuthenticationPrincipal Jwt jwt,
-            @PathVariable @Parameter(description="서류 종류: transcript=성적증명서, topik=TOPIK 성적증명서. 소문자만 허용하며 재학증명서(enrollment)는 별도 API이다.", 
+            @PathVariable @Parameter(description="서류 종류: transcript=성적증명서, topik=TOPIK 성적증명서. 소문자만 허용하며 재학증명서(enrollment)는 별도 API이다.",
                 schema=@Schema(type="string", allowableValues={"transcript", "topik"})) String kind) {
         return ResponseEntity.ok().header("Cache-Control","no-store").body(service.current(Long.valueOf(jwt.getSubject()),kind));
     }
