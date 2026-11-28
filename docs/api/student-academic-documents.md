@@ -12,7 +12,17 @@ JWT 인증이 필요하며 본인의 활성 유학생 프로필만 사용할 수
 | POST `/api/students/me/documents/{kind}/{draftId}/confirm` | 수정값 요청 본문 없음. 본인의 해당 종류 최신 초안만 확정. 프로필·원본 교체 후 이전 원본 삭제 |
 | GET `/api/students/me/documents/{kind}` | 최종 확정된 결과만 반환. 미확정이면 404 |
 
-응답 예시:
+세 API 모두 성공 시 **200 OK**, `Content-Type: application/json`, `Cache-Control: no-store`를 반환한다.
+`kind`는 소문자 `transcript`(성적증명서), `topik`(TOPIK 성적증명서)만 허용한다. `enrollment`는 별도 재학증명서 API이며 이 응답 스키마를 사용하지 않는다.
+
+| 응답 필드 | 미리보기 | 최종 등록·조회 |
+| --- | --- | --- |
+| `documentType` | `TRANSCRIPT` 또는 `TOPIK` | 동일 |
+| `draftId` | 최종 등록에 사용할 UUID | `null` |
+| `extracted` | 이번 OCR 추출 결과 | 최종 등록한 추출 결과 |
+| `registeredAt` | `null` | 최종 등록 시각(UTC, ISO 8601) |
+
+성적증명서 미리보기 응답 예시:
 
 ```json
 {
@@ -22,6 +32,19 @@ JWT 인증이 필요하며 본인의 활성 유학생 프로필만 사용할 수
   "registeredAt": null
 }
 ```
+
+TOPIK 미리보기 응답 예시:
+
+```json
+{
+  "documentType": "TOPIK",
+  "draftId": "ad0856ec-3b1e-4d1d-88cd-1f5063aa2720",
+  "extracted": {"academicYear": null, "semester": null, "averageGpa": null, "topikLevel": 4},
+  "registeredAt": null
+}
+```
+
+최종 등록·조회는 위 종류별 `documentType`, `extracted` 구조를 그대로 사용하고 `draftId`는 `null`, `registeredAt`은 `"2026-11-29T03:00:00Z"`와 같은 등록 시각을 반환한다. Swagger의 각 API에는 성적증명서와 TOPIK 성공 예시를 모두 제공한다.
 
 - 성적은 문서에 명시된 학기 중 가장 최근 학기의 **평균 학점**이다. 인쇄된 마지막 행이나 누적 평점을 대신 사용하지 않는다. 만점 기준 저장·환산은 하지 않는다. `semester`는 `FIRST`, `SUMMER`, `SECOND`, `WINTER`이다.
 - 현재 파서는 학년도·학기 표기와 평점평균/평균평점/평균학점/GPA 라벨이 있는 한국어 학기 서식을 지원한다. 최신 학기의 평균을 특정하지 못하거나 후보가 충돌하면 422로 재업로드를 안내한다. 임의의 과거 학기 값을 사용하지 않는다.
