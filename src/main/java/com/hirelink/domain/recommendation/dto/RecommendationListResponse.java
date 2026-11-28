@@ -19,7 +19,7 @@ public record RecommendationListResponse(
 		@Schema(description = "순위순 추천 목록", requiredMode = Schema.RequiredMode.REQUIRED)
 		List<Item> recommendations) {
 
-	@Schema(description = "추천 목록 항목")
+	@Schema(name = "RecommendationListItem", description = "추천 목록 항목")
 	public record Item(
 			@Schema(description = "추천 ID", example = "101", requiredMode = Schema.RequiredMode.REQUIRED)
 			Long recommendationId,

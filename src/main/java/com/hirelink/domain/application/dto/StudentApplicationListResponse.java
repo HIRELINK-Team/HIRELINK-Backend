@@ -15,7 +15,7 @@ public record StudentApplicationListResponse(
 		@Schema(description = "최신순 지원 목록", requiredMode = Schema.RequiredMode.REQUIRED)
 		List<Item> applications) {
 
-	@Schema(description = "유학생 지원 목록 항목")
+	@Schema(name = "StudentApplicationListItem", description = "유학생 지원 목록 항목")
 	public record Item(
 			@Schema(description = "지원 ID", example = "201", requiredMode = Schema.RequiredMode.REQUIRED)
 			Long applicationId,

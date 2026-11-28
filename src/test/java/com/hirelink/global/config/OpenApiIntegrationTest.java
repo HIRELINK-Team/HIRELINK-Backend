@@ -75,6 +75,27 @@ class OpenApiIntegrationTest extends PostgreSQLIntegrationTest {
 	}
 
 	@Test
+	void recommendationAndStudentApplicationListsUseDistinctItemSchemas() throws Exception {
+		JsonNode document = objectMapper.readTree(get("/v3/api-docs").body());
+		JsonNode schemas = document.path("components").path("schemas");
+
+		JsonNode recommendationItems = schemas.path("RecommendationListResponse").path("properties")
+				.path("recommendations").path("items");
+		JsonNode applicationItems = schemas.path("StudentApplicationListResponse").path("properties")
+				.path("applications").path("items");
+
+		assertThat(recommendationItems.path("$ref").asString())
+				.isEqualTo("#/components/schemas/RecommendationListItem");
+		assertThat(applicationItems.path("$ref").asString())
+				.isEqualTo("#/components/schemas/StudentApplicationListItem");
+		assertThat(schemas.path("RecommendationListItem").path("properties").propertyNames())
+				.contains("recommendationId", "jobPostingId", "applicationId", "applicationStatus", "rank",
+						"jobTitle", "workplaceName", "workplaceAddress", "wageType", "wageAmount", "workTimes",
+						"matchScore", "recommendationReasons")
+				.doesNotContain("desiredStartDate", "appliedAt", "offerId", "matchId", "endReason");
+	}
+
+	@Test
 	void localAuthDocumentsDevelopmentAccessQaLoginExceptionAndForbiddenResponse() throws Exception {
 		JsonNode paths = objectMapper.readTree(get("/v3/api-docs").body()).path("paths");
 		for (String path : new String[]{"/api/auth/signup", "/api/auth/login"}) {
