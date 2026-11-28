@@ -7,7 +7,15 @@ import com.hirelink.global.exception.StudentDocumentException;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(description="성적은 가장 최근 학기 평균 학점이다. 만점 기준과 누적 평점은 저장하지 않는다. TOPIK은 급수만 추출한다.")
-public record AcademicExtraction(Integer academicYear,String semester,BigDecimal averageGpa,Short topikLevel) {
+public record AcademicExtraction(
+    @Schema(description="성적증명서의 가장 최근 학기 학년도. TOPIK에서는 null이다.", example="2025", nullable=true)
+    Integer academicYear,
+    @Schema(description="성적증명서의 학기. FIRST=1학기, SUMMER=여름학기, SECOND=2학기, WINTER=겨울학기. TOPIK에서는 null이다.", allowableValues={"FIRST", "SUMMER", "SECOND", "WINTER"}, nullable=true)
+    String semester,
+    @Schema(description="성적증명서의 가장 최근 학기 평균 학점. 만점 기준 환산 없이 반환한다. TOPIK에서는 null이다.", example="4.24", nullable=true)
+    BigDecimal averageGpa,
+    @Schema(description="TOPIK 등급(1~6). 성적증명서에서는 null이다.", minimum="1", maximum="6", example="4", nullable=true)
+    Short topikLevel) {
     public void validate(String type) {
         boolean valid = "TRANSCRIPT".equals(type)
             ? academicYear!=null && academicYear>=1900 && academicYear<=2099 && semester!=null

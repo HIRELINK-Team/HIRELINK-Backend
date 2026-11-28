@@ -174,6 +174,71 @@ class StudentAcademicDocumentIntegrationTest extends PostgreSQLIntegrationTest {
         }
     }
 
+    @Test void swaggerSuccessSchemasAndExamplesMatchBothDocumentFlows() throws Exception {
+        var docsResponse=send("GET","/v3/api-docs",0);
+        assertThat(docsResponse.statusCode()).isEqualTo(200);
+        var docs=mapper.readTree(docsResponse.body());
+        String base="/api/students/me/documents/{kind}";
+        for (String suffix : new String[]{"", "/preview", "/{draftId}/confirm"}) {
+            String method=suffix.isEmpty() ? "get" : "post";
+            var operation=docs.path("paths").path(base+suffix).path(method);
+            var content=operation.path("responses").path("200").path("content").path("application/json");
+            assertThat(content.path("schema").path("$ref").asString()).isEqualTo("#/components/schemas/AcademicDocumentResponse");
+            assertThat(content.path("examples").has("TRANSCRIPT")).isTrue();
+            assertThat(content.path("examples").has("TOPIK")).isTrue();
+            var kindParameter=java.util.stream.StreamSupport.stream(operation.path("parameters").spliterator(),false)
+                .filter(parameter -> parameter.path("name").asString().equals("kind")).findFirst().orElseThrow();
+            assertThat(kindParameter.path("in").asString()).isEqualTo("path");
+            assertThat(kindParameter.path("required").asBoolean()).isTrue();
+            assertThat(kindParameter.path("schema").path("enum")).isEqualTo(mapper.readTree("[\"transcript\",\"topik\"]"));
+        }
+        var schemas=docs.path("components").path("schemas");
+        assertThat(schemas.path("AcademicDocumentResponse").path("properties").path("extracted").path("$ref").asString())
+            .isEqualTo("#/components/schemas/AcademicExtraction");
+        for (String field : new String[]{"academicYear","semester","averageGpa","topikLevel"}) {
+            assertThat(schemas.path("AcademicExtraction").path("properties").has(field)).isTrue();
+        }
+        for (String kind : new String[]{"transcript","topik"}) {
+            String type=kind.toUpperCase(java.util.Locale.ROOT);
+            String path="/api/students/me/documents/"+kind;
+            var preview=uploadResponse(kind);
+            assertSuccessMatchesExample(preview,docs.path("paths").path(base+"/preview").path("post"),type,true);
+            UUID draft=UUID.fromString(mapper.readTree(preview.body()).path("draftId").asString());
+            var confirmed=send("POST",path+"/"+draft+"/confirm",user);
+            assertSuccessMatchesExample(confirmed,docs.path("paths").path(base+"/{draftId}/confirm").path("post"),type,false);
+            var current=send("GET",path,user);
+            assertSuccessMatchesExample(current,docs.path("paths").path(base).path("get"),type,false);
+            assertThat(Instant.parse(mapper.readTree(current.body()).path("registeredAt").asString()))
+                .isCloseTo(Instant.parse(mapper.readTree(confirmed.body()).path("registeredAt").asString()),
+                    within(1,java.time.temporal.ChronoUnit.MICROS));
+        }
+    }
+
+    private void assertSuccessMatchesExample(HttpResponse<String> response,tools.jackson.databind.JsonNode operation,
+            String type,boolean preview) throws Exception {
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        assertThat(response.headers().firstValue("Content-Type").orElse("")).startsWith("application/json");
+        assertThat(response.headers().firstValue("Cache-Control").orElse("")).isEqualTo("no-store");
+        var actual=mapper.readTree(response.body());
+        var example=operation.path("responses").path("200").path("content").path("application/json")
+            .path("examples").path(type).path("value");
+        assertThat(actual.size()).isEqualTo(4);
+        assertThat(actual.path("documentType").asString()).isEqualTo(type);
+        assertThat(actual.path("documentType")).isEqualTo(example.path("documentType"));
+        assertThat(actual.path("extracted")).isEqualTo(example.path("extracted"));
+        if (preview) {
+            UUID.fromString(actual.path("draftId").asString());
+            UUID.fromString(example.path("draftId").asString());
+            assertThat(actual.path("registeredAt").isNull()).isTrue();
+            assertThat(example.path("registeredAt").isNull()).isTrue();
+        } else {
+            assertThat(actual.path("draftId").isNull()).isTrue();
+            assertThat(example.path("draftId").isNull()).isTrue();
+            Instant.parse(actual.path("registeredAt").asString());
+            Instant.parse(example.path("registeredAt").asString());
+        }
+    }
+
     private UUID uploadKind(String kind) throws Exception {
         var response=uploadResponse(kind); assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
         return UUID.fromString(mapper.readTree(response.body()).path("draftId").asString());
