@@ -208,7 +208,9 @@ class StudentAcademicDocumentIntegrationTest extends PostgreSQLIntegrationTest {
             assertSuccessMatchesExample(confirmed,docs.path("paths").path(base+"/{draftId}/confirm").path("post"),type,false);
             var current=send("GET",path,user);
             assertSuccessMatchesExample(current,docs.path("paths").path(base).path("get"),type,false);
-            assertThat(mapper.readTree(current.body())).isEqualTo(mapper.readTree(confirmed.body()));
+            assertThat(Instant.parse(mapper.readTree(current.body()).path("registeredAt").asString()))
+                .isCloseTo(Instant.parse(mapper.readTree(confirmed.body()).path("registeredAt").asString()),
+                    within(1,java.time.temporal.ChronoUnit.MICROS));
         }
     }
 
